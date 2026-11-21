@@ -226,9 +226,7 @@ func handleShareConfigGet(w http.ResponseWriter, r *http.Request) {
 	if preflight(w, r) {
 		return
 	}
-	if !routerAuth(w, r, "") {
-		return
-	}
+	// 只读且口令已掩码（只回 passSet），与 /share/health 同级开放，避免顶栏/齿轮 401
 	writeJSON(w, 200, map[string]any{"ok": true, "config": publicMasked(currentShareCfg())})
 }
 

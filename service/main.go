@@ -98,9 +98,7 @@ func main() {
 		if preflight(w, r) {
 			return
 		}
-		if !routerAuth(w, r, "") {
-			return
-		}
+		// 只读统计，不含口令，开放
 		st, err := dbStats()
 		if err != nil {
 			fail(w, 500, err.Error())
