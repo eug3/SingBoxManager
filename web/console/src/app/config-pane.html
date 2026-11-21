@@ -150,9 +150,76 @@
   </div>
 }
 
+<!-- ===== 编辑视图 ===== -->
+@if (editing()) {
+  <div class="cfgwarn">
+    ⚠ 编辑的是整份 <code>config.json</code>（含节点密钥/UUID）。保存会写回 {{ host() }} 并重启 sing-box（约 1 秒断流，失败自动回滚）。
+  </div>
+  <app-monaco-editor [value]="raw()" (valueChange)="onEdit($event)" />
+  @if (jsonError()) {
+    <div class="dim small" style="color: var(--bad)">JSON 语法错误：{{ jsonError() }}</div>
+  }
+  <div class="cfgactions">
+    <button (click)="check()" [disabled]="busy()">校验（sing-box check）</button>
+    <button class="acc" (click)="apply()" [disabled]="busy()">应用并重启</button>
+    <button (click)="revert()" [disabled]="busy()">还原</button>
+    <span class="dim small">
+      变更：<b style="color: var(--acc)">+{{ diff().adds }}</b> / <b style="color: var(--bad)">-{{ diff().dels }}</b> 行
+    </span>
+  </div>
+  @if (diff().lines.length) {
+    <pre class="cfgdiff">@for (l of diff().lines; track $index) {<span [class.add]="l.kind === 'add'" [class.del]="l.kind === 'del'">{{ l.kind === 'add' ? '+ ' : '- ' }}{{ l.text }}
+</span>}</pre>
+  }
+  @if (issues().length) {
+    <div class="cfgissues">
+      <b>结构校验 {{ issues().length }} 条：</b>
+      @for (i of issues().slice(0, 12); track $index) {
+        <div>· {{ i }}</div>
+      }
+    </div>
+  }
+} @else if (loaded()) {
+  <div class="cfgnodes">
+    <div class="cfgnodeshd">
+      <span>条目 {{ nodeRows().length }} 个（代理节点 + endpoints，末尾含 direct/block 等特殊出站）</span>
+      <span class="dim small">凭证已掩码；改配置点「编辑 JSON」或上面的表单</span>
+    </div>
+    <div class="tblwrap" style="max-height: 360px; overflow: auto">
+      <table>
+        <thead>
+          <tr><th>标签</th><th>类型</th><th>服务器</th><th>凭证</th><th>所属组</th><th>route 引用</th><th>操作</th></tr>
+        </thead>
+        <tbody>
+          @for (n of nodeRows(); track n.tag) {
+            <tr>
+              <td>{{ n.tag }}</td>
+              <td><span class="tag">{{ n.type }}</span></td>
+              <td class="dim">{{ n.server }}</td>
+              <td class="dim">{{ n.special ? '—' : '已设置' }}</td>
+              <td class="dim small">{{ n.groups.length ? n.groups.join('、') : '—' }}</td>
+              <td class="dim small">{{ n.routeRefs || '—' }}</td>
+              <td class="nowrap">
+                @if (!n.special) {
+                  <button class="mini" (click)="openEdit(n.tag)" [disabled]="busy()">编辑</button>
+                  <button class="mini danger" (click)="askDelete(n.tag)" [disabled]="busy()">删除</button>
+                } @else {
+                  <span class="dim small">—</span>
+                }
+              </td>
+            </tr>
+          } @empty {
+            <tr><td colspan="7" class="dim small">没有解析到节点</td></tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  </div>
+}
+
 <!-- ===== 节点表单 ===== -->
 @if (formMode() !== 'none') {
-  <div class="cfgpanel">
+  <div class="cfgpanel" id="cfg-form">
     <div class="cfgphead">{{ formMode() === 'add' ? '新增节点' : '编辑节点 ' + editingTag() }}</div>
     <div class="cfgform">
       <label>
@@ -294,73 +361,6 @@
       </button>
       <button (click)="cancelForm()">取消</button>
       <span class="dim small">生成后先看 diff，再点「应用并重启」</span>
-    </div>
-  </div>
-}
-
-<!-- ===== 编辑视图 ===== -->
-@if (editing()) {
-  <div class="cfgwarn">
-    ⚠ 编辑的是整份 <code>config.json</code>（含节点密钥/UUID）。保存会写回 {{ host() }} 并重启 sing-box（约 1 秒断流，失败自动回滚）。
-  </div>
-  <app-monaco-editor [value]="raw()" (valueChange)="onEdit($event)" />
-  @if (jsonError()) {
-    <div class="dim small" style="color: var(--bad)">JSON 语法错误：{{ jsonError() }}</div>
-  }
-  <div class="cfgactions">
-    <button (click)="check()" [disabled]="busy()">校验（sing-box check）</button>
-    <button class="acc" (click)="apply()" [disabled]="busy()">应用并重启</button>
-    <button (click)="revert()" [disabled]="busy()">还原</button>
-    <span class="dim small">
-      变更：<b style="color: var(--acc)">+{{ diff().adds }}</b> / <b style="color: var(--bad)">-{{ diff().dels }}</b> 行
-    </span>
-  </div>
-  @if (diff().lines.length) {
-    <pre class="cfgdiff">@for (l of diff().lines; track $index) {<span [class.add]="l.kind === 'add'" [class.del]="l.kind === 'del'">{{ l.kind === 'add' ? '+ ' : '- ' }}{{ l.text }}
-</span>}</pre>
-  }
-  @if (issues().length) {
-    <div class="cfgissues">
-      <b>结构校验 {{ issues().length }} 条：</b>
-      @for (i of issues().slice(0, 12); track $index) {
-        <div>· {{ i }}</div>
-      }
-    </div>
-  }
-} @else if (loaded()) {
-  <div class="cfgnodes">
-    <div class="cfgnodeshd">
-      <span>条目 {{ nodeRows().length }} 个（代理节点 + endpoints，末尾含 direct/block 等特殊出站）</span>
-      <span class="dim small">凭证已掩码；改配置点「编辑 JSON」或上面的表单</span>
-    </div>
-    <div class="tblwrap" style="max-height: 360px; overflow: auto">
-      <table>
-        <thead>
-          <tr><th>标签</th><th>类型</th><th>服务器</th><th>凭证</th><th>所属组</th><th>route 引用</th><th>操作</th></tr>
-        </thead>
-        <tbody>
-          @for (n of nodeRows(); track n.tag) {
-            <tr>
-              <td>{{ n.tag }}</td>
-              <td><span class="tag">{{ n.type }}</span></td>
-              <td class="dim">{{ n.server }}</td>
-              <td class="dim">{{ n.special ? '—' : '已设置' }}</td>
-              <td class="dim small">{{ n.groups.length ? n.groups.join('、') : '—' }}</td>
-              <td class="dim small">{{ n.routeRefs || '—' }}</td>
-              <td class="nowrap">
-                @if (!n.special) {
-                  <button class="mini" (click)="openEdit(n.tag)" [disabled]="busy()">编辑</button>
-                  <button class="mini danger" (click)="askDelete(n.tag)" [disabled]="busy()">删除</button>
-                } @else {
-                  <span class="dim small">—</span>
-                }
-              </td>
-            </tr>
-          } @empty {
-            <tr><td colspan="7" class="dim small">没有解析到节点</td></tr>
-          }
-        </tbody>
-      </table>
     </div>
   </div>
 }

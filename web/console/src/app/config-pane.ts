@@ -359,6 +359,7 @@ export class ConfigPane {
     this.editingTag.set('');
     this.form.set(emptyForm());
     this.formMode.set('add');
+    this.scrollFormIntoView();
   }
 
   openEdit(tag: string): void {
@@ -389,10 +390,18 @@ export class ConfigPane {
       socks_version: String(o['version'] ?? '5'),
     });
     this.formMode.set('edit');
+    this.scrollFormIntoView();
   }
 
   cancelForm(): void {
     this.formMode.set('none');
+  }
+
+  /** 表单在清单下方，打开时滚到可见处 */
+  private scrollFormIntoView(): void {
+    setTimeout(() => {
+      document.getElementById('cfg-form')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }, 60);
   }
 
   patch<K extends keyof NodeForm>(key: K, value: NodeForm[K]): void {

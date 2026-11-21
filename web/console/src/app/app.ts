@@ -25,6 +25,10 @@ export class App {
   readonly keyDraft = signal(this.bsvc.globalKey());
 
   constructor() {
+    // 顶部「发布密钥」框跟随全局密钥（连接页提交后这里也要显示出来）
+    effect(() => {
+      this.keyDraft.set(this.bsvc.globalKey());
+    });
     effect(() => {
       const b = this.backends().find((x) => this.bsvc.valid(x));
       void this.loadVersion(b);
