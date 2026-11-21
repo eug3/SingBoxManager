@@ -2028,6 +2028,25 @@ export function buildLayout(flow: FlowLayout, size: FlowSize): FlowGeom {
   return { w, h: viewH, cols, bands, nodes, edges, anchors, fallback };
 }
 
+/**
+ * 一条列 key 路径在 t∈[0,1] 处的**前进方向**（角度，度；0 = 朝 +x，90 = 朝 +y）。
+ * 用中心差分取 t±ε 两点算 atan2，粒子（小鱼）按它转向；退化时返回 0。
+ */
+export function tangentOnPath(
+  keys: readonly string[],
+  t: number,
+  geom: FlowGeom,
+  eps = 0.004,
+): number {
+  const a = pointOnPath(keys, Math.max(0, t - eps), geom);
+  const b = pointOnPath(keys, Math.min(1, t + eps), geom);
+  if (!a || !b) return 0;
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  if (!dx && !dy) return 0;
+  return (Math.atan2(dy, dx) * 180) / Math.PI;
+}
+
 /** 一条列 key 路径在 t∈[0,1] 处的坐标（各段均分时间，段内走真实贝塞尔） */
 export function pointOnPath(keys: readonly string[], t: number, geom: FlowGeom): { x: number; y: number } | null {
   const segs = keys.length - 1;

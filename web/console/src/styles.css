@@ -1016,10 +1016,21 @@ tr.oldconn td { background: #fffaf0; }
 
 /* 粒子层：不吃鼠标事件（节点 tooltip 才不会被挡住） */
 .fdots { pointer-events: none; }
-.fd { pointer-events: none; }
-.fd.direct { fill: #9aa7b6; }
-.fd.proxy { fill: var(--acc2); }
-.fd.block { fill: var(--bad); }
+/* 粒子层是「小鱼」：颜色按出口类型（代理蓝 / 直连灰 / 拦截红），尾鳍来回摆 */
+.ffish { fill: var(--acc2); pointer-events: none; }
+.ffish.direct { fill: #9aa7b6; }
+.ffish.block { fill: var(--bad); }
+.ffish .ftail {
+  /* 以「身体与尾交界」为轴摆尾：fill-box 让 100% 落在尾鳍自己的右边缘 */
+  transform-box: fill-box;
+  transform-origin: 100% 50%;
+  animation: fswim 0.5s ease-in-out infinite alternate;
+  will-change: transform;
+}
+@keyframes fswim {
+  from { transform: rotate(-13deg); }
+  to { transform: rotate(11deg); }
+}
 
 /* ==========================================================================
    流向图编辑（③ 规则集 / ④ 分组弹窗 + 全局待保存条 + SSH 凭据弹窗）

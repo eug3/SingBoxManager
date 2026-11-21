@@ -21,7 +21,15 @@ import { BackendsService } from './backends.service';
 import { ClashService } from './clash.service';
 import { RouterService } from './router.service';
 import { errMsg } from './util';
-import { buildFlow, buildLayout, buildStatic, emptyStatic, nameOfKey, pointOnPath } from './flow-model';
+import {
+  buildFlow,
+  buildLayout,
+  buildStatic,
+  emptyStatic,
+  nameOfKey,
+  pointOnPath,
+  tangentOnPath,
+} from './flow-model';
 import type {
   ClientInfo,
   ClientMap,
@@ -46,6 +54,8 @@ const PROXIES_MS = 5000;
 const PARTICLE_MS = 1800;
 /** 同时存在的粒子上限（超出丢最旧的） */
 const MAX_PARTICLES = 180;
+/** 长连接重复发鱼间隔：让稳态画面持续有鱼游，而不是只有新连接才发 */
+const REEMIT_MS = 2600;
 /** 已见过连接 id 的保留时长（超过就忘掉，避免 Map 无限增长） */
 const SEEN_TTL_MS = 120_000;
 /** 初始化尺寸（ResizeObserver 量到真实尺寸前用） */
@@ -83,14 +93,19 @@ interface EdgeView extends FlowEdgeGeom {
   dim: boolean;
 }
 
-/** 一帧里的一个粒子（模板用） */
-interface Dot {
+/** 一帧里的一条小鱼（模板用）：位置 + 朝向角度 + 缩放 + 摆尾相位 */
+interface Fish {
   n: number;
-  cx: number;
-  cy: number;
-  r: number;
+  x: number;
+  y: number;
+  /** 前进方向（度，0 = 朝 +x） */
+  a: number;
+  /** 缩放（0.85–1.1，直连/拦截略小） */
+  s: number;
   opacity: number;
   kind: FlowKind;
+  /** 摆尾动画的负延时（错开相位，单位 s） */
+  delay: string;
 }
 
 /** 粒子内部状态：沿列 key 路径走，t∈[0,1] */
@@ -152,7 +167,7 @@ export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
   /** config 通道错误（99 侧 /router/config 失败、或 JSON 坏掉）→ 降级成「仅实时」 */
   readonly cfgErr = signal('');
   /** 粒子渲染层（每帧重算，t 到 1 的粒子已被移除） */
-  private readonly dotsSig = signal<Dot[]>([]);
+  private readonly dotsSig = signal<Fish[]>([]);
   readonly dots = this.dotsSig.asReadonly();
   /** 当前 hover 的节点 key（空 = 没有） */
   readonly hover = signal<string | null>(null);
@@ -163,6 +178,8 @@ export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
   private particles: Particle[] = [];
   /** 已见过的连接 id → 最近出现的时刻（毫秒），用于「新连接才生成粒子」 */
   private readonly seen = new Map<string, number>();
+  /** 上次发鱼时间（与 seen 的存活 TTL 分开，否则每 tick 刷新导致永不重发） */
+  private readonly emitted = new Map<string, number>();
   /** 最近一次采样到的连接（config 刷新后要用它重建布局） */
   private lastConns: Connection[] = [];
   private seq = 0;
@@ -281,6 +298,7 @@ export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
     this.ro = null;
     this.particles = [];
     this.seen.clear();
+    this.emitted.clear();
   }
 
   /* ────────────────────────── 生命周期 / 数据 ────────────────────────── */
@@ -480,12 +498,21 @@ export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
     const live = new Set<string>();
     for (const s of flow.sample) {
       live.add(s.id);
-      if (!this.seen.has(s.id)) this.spawn(s.path, s.kind);
+      // 新连接立即发鱼；长连接每隔 REEMIT_MS 再发一条，画面持续有鱼游（上限 MAX_PARTICLES 兜底）
+      const le = this.emitted.get(s.id);
+      if (le === undefined || now - le > REEMIT_MS) {
+        this.spawn(s.path, s.kind);
+        // 首次发鱼给一个随机相位偏移，避免所有连接同相位重发形成「一波一波」的鱼群
+        this.emitted.set(s.id, le === undefined ? now - Math.random() * REEMIT_MS : now);
+      }
       this.seen.set(s.id, now);
     }
     // 已经断开的连接：超过 SEEN_TTL_MS 没再出现就忘掉 id（防止 Map 无限增长）
     for (const [id, at] of [...this.seen]) {
-      if (!live.has(id) && now - at > SEEN_TTL_MS) this.seen.delete(id);
+      if (!live.has(id) && now - at > SEEN_TTL_MS) {
+        this.seen.delete(id);
+        this.emitted.delete(id);
+      }
     }
   }
 
@@ -510,13 +537,26 @@ export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
     }
     this.particles = keep;
     const g = this.geom();
-    const out: Dot[] = [];
+    const out: Fish[] = [];
     for (const p of keep) {
       const at = pointOnPath(p.keys, p.t, g);
       if (!at) continue;
       const t = p.t;
       const opacity = t < 0.08 ? t / 0.08 : t > 0.86 ? Math.max(0, (1 - t) / 0.14) : 1;
-      out.push({ n: p.n, cx: round1(at.x), cy: round1(at.y), r: 2.6, opacity: round1(opacity), kind: p.kind });
+      // 朝向 = 路径切线（鱼头朝前进方向）；直连/拦截画小一点，代理略大
+      const a = round1(tangentOnPath(p.keys, t, g));
+      const s = p.kind === 'proxy' ? 1 : 0.86;
+      out.push({
+        n: p.n,
+        x: round1(at.x),
+        y: round1(at.y),
+        a,
+        s,
+        opacity: round1(opacity),
+        kind: p.kind,
+        // 负延时：同一帧里不同小鱼摆尾相位错开
+        delay: `${-(p.n % 7) * 0.07}s`,
+      });
     }
     this.dotsSig.set(out);
   }

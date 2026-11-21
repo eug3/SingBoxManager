@@ -56,6 +56,14 @@
           <rect x="2.5" y="9.1" width="11" height="4.4" rx="1" />
           <path d="M5 4.7h.01M5 11.3h.01" />
         </symbol>
+        <!-- 小鱼：身体（含眼睛）+ 尾鳍分开，尾鳍单独摆尾；整体朝 +x，约 16px -->
+        <symbol id="ico-fish" viewBox="0 0 16 16">
+          <ellipse cx="9.2" cy="8" rx="5.1" ry="3.05" />
+          <circle cx="12.1" cy="6.9" r="0.95" fill="#fff" />
+        </symbol>
+        <symbol id="ico-fish-tail" viewBox="0 0 16 16">
+          <path d="M4.3 8 L1.1 5.1 Q0.45 8 1.1 10.9 Z" />
+        </symbol>
         <symbol id="ico-cloud" viewBox="0 0 16 16">
           <path d="M4.7 12.6h6.8a2.7 2.7 0 0 0 .3-5.38A3.7 3.7 0 0 0 5.1 6.2a3.2 3.2 0 0 0-.4 6.4Z" />
         </symbol>
@@ -204,15 +212,19 @@
       }
 
       <!-- 粒子层：沿列锚点之间的同一段贝塞尔走（代理蓝 / 直连灰 / 拦截红） -->
+      <!-- 粒子层：一条连接一条小鱼，沿列锚点之间的贝塞尔游过去（鱼头朝前进方向） -->
       <g class="fdots">
         @for (d of dots(); track d.n) {
-          <circle
-            [attr.class]="'fd ' + d.kind"
-            [attr.cx]="d.cx"
-            [attr.cy]="d.cy"
-            [attr.r]="d.r"
+          <g
+            [attr.class]="'ffish ' + d.kind"
+            [attr.transform]="'translate(' + d.x + ',' + d.y + ') rotate(' + d.a + ') scale(' + d.s + ')'"
             [attr.opacity]="d.opacity"
-          />
+          >
+            <use href="#ico-fish" x="-8" y="-8" width="16" height="16" />
+            <g class="ftail" [style.animation-delay]="d.delay">
+              <use href="#ico-fish-tail" x="-8" y="-8" width="16" height="16" />
+            </g>
+          </g>
         }
       </g>
     </svg>
