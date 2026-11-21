@@ -28,15 +28,24 @@ body {
 
 body {
   overflow: hidden; /* 整页不滚，只有 .content 滚 */
+  overscroll-behavior: none; /* 关掉橡皮筋，顶栏不会被拖拽/回弹带跑 */
+}
+
+/* 根组件撑满视口：顶栏与主 tab 永远在顶部，滚动只发生在内部容器 */
+app-root {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  overflow: hidden;
 }
 
 .wrap {
-  /* 不限宽 + 固定高度：顶栏与 tab 固定，只有下方内容区滚动 */
+  /* 不限宽 + 填满 app-root：顶栏与 tab 固定，只有下方内容区滚动 */
   width: 100%;
   max-width: none;
   margin: 0;
   padding: 0;
-  height: 100dvh;
+  height: 100%;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -47,7 +56,26 @@ body {
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable; /* 滚动条出现/消失不再挤动内容与顶栏 */
   padding: 0 20px 20px;
+}
+
+/* 细滚动条（gutter 已预留，不会造成横向跳动） */
+.content::-webkit-scrollbar,
+.bp-body::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.content::-webkit-scrollbar-thumb,
+.bp-body::-webkit-scrollbar-thumb {
+  background: #c9d4e2;
+  border-radius: 5px;
+  border: 2px solid var(--bg);
+}
+.content::-webkit-scrollbar-track,
+.bp-body::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 /* 顶栏 */

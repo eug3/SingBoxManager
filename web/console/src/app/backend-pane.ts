@@ -44,6 +44,8 @@ interface LogLine {
       min-height: 0;
       overflow-y: auto;
       overflow-x: hidden;
+      overscroll-behavior: contain;
+      scrollbar-gutter: stable;
       padding-right: 2px;
     }
   `,
