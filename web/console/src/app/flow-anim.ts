@@ -33,6 +33,7 @@ import {
   pointOnPath,
   stepActivity,
   tangentOnPath,
+  trafficTotal,
 } from './flow-model';
 import type { ActivityState } from './flow-model';
 import type {
@@ -705,6 +706,8 @@ export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
     // 先用本次连接 + 最新路径推活跃度（路径来自这次的 flow.sample，天然无延迟），再贴回 flow
     const base = buildFlow(conns, this.stat(), this.clients, this.delays);
     const paths = new Map(base.sample.map((s) => [s.id, s.path]));
+    const prevTotals = this.actState.totals;
+    const connById = new Map(conns.map((c) => [c.id, c]));
     const step = stepActivity(conns, paths, this.actState, now, IDLE_MS);
     this.actState = { totals: step.totals, until: step.until, nodeUntil: step.nodeUntil };
     this.activeEdges = step.active;
@@ -715,11 +718,15 @@ export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
     const live = new Set<string>();
     for (const s of flow.sample) {
       live.add(s.id);
-      // 新连接立即发鱼；长连接每隔 REEMIT_MS 再发一条，画面持续有鱼游（上限 MAX_PARTICLES 兜底）
+      // 只有「活跃」连接才发鱼：本次累计字节比上次增长（或首次见到）才发；
+      // 闲置连接不再发鱼，存量鱼游完即消失 → 绿点活跃链路上才有鱼游
+      const c = connById.get(s.id);
+      const prev = prevTotals.get(s.id);
+      const grew = prev === undefined ? true : !!c && trafficTotal(c) > prev;
       const le = this.emitted.get(s.id);
-      if (le === undefined || now - le > REEMIT_MS) {
+      if (grew && (le === undefined || now - le > REEMIT_MS)) {
         this.spawn(s.path, s.kind);
-        // 首次发鱼给一个随机相位偏移，避免所有连接同相位重发形成「一波一波」的鱼群
+        // 首次发鱼给随机相位偏移，避免活跃连接同相位形成「一波一波」鱼群
         this.emitted.set(s.id, le === undefined ? now - Math.random() * REEMIT_MS : now);
       }
       this.seen.set(s.id, now);
