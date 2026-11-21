@@ -109,6 +109,8 @@ export interface FlowStatic {
   ok: boolean;
   err?: string;
   rules: StaticRule[];
+  /** ③ 合并后的规则卡（每个出站一张；③ 与 ④ 一一对齐） */
+  cards: StaticRuleCard[];
   groups: StaticGroup[];
   nodes: StaticNode[];
   /** ⑤ 的全部行（④ 分组展开成成员行，含「其他」行） */
@@ -150,6 +152,30 @@ export interface FlowNode {
   rowIcon?: string;
   /** 所属横带（band）下标：③④⑤ 都按带排；① ② ⑥ 不用 */
   band?: number;
+}
+
+/**
+ * ③ 的一张「规则卡」：按目标分组（outbound）合并后的展示单元。
+ * 一个分组在 config 里可能被多条 route.rules / 多个 rule_set 命中，视图上只画一张卡，
+ * label 形如 `🚀 定制[rs-custom ×3]`（同一桶 ×N 条）或 `🚀 定制[rs-custom +2]`（多个桶），
+ * 直连/拦截出站合并成 `DIRECT[×3]`。
+ */
+export interface StaticRuleCard {
+  /** `rule:` + label */
+  key: string;
+  /** 目标出站（= ④ 分组 tag，或 DIRECT / block / 直连节点） */
+  group: string;
+  /** 合并后的卡片标签 */
+  label: string;
+  kind: FlowKind;
+  /** 在 config 里首次出现的顺序 */
+  order: number;
+  /** 合并了多少条 route 规则 */
+  refs: number;
+  /** 明细：每个 rule_set（或匹配类型）的规则条数，tooltip 用 */
+  parts: { tag: string; refs: number }[];
+  /** 匹配条件摘要（可能为空串） */
+  match: string;
 }
 
 /** 一条横带（band）：一个 ④ 分组 = 一条带；无分组的直连/拦截单独一条置底 */
@@ -195,6 +221,8 @@ export interface FlowStats {
   pcs: number;
   /** config 里的规则条数（静态全量） */
   rules: number;
+  /** ③ 合并后的规则卡数（每个出站一张，= 有规则的带数） */
+  ruleCards: number;
   /** config 里的分组个数 */
   groups: number;
   /** config 里的节点个数 */
@@ -444,7 +472,7 @@ function serverOf(o: AnyObj): string {
 
 /** 空静态结构（配置还没拉到时用；ok=false 会让界面提示「仅实时」） */
 export function emptyStatic(routerName = 'sing-box', routerSub = ''): FlowStat {
-  return { ok: false, rules: [], groups: [], nodes: [], nodeRows: [], routerName, routerSub };
+  return { ok: false, rules: [], cards: [], groups: [], nodes: [], nodeRows: [], routerName, routerSub };
 }
 
 /**
@@ -452,7 +480,15 @@ export function emptyStatic(routerName = 'sing-box', routerSub = ''): FlowStat {
  * 只读，不改任何东西；JSON 坏掉/不是对象时返回 ok=false + 中文 error，不抛。
  */
 export function buildStatic(configText: string): FlowStatic {
-  const empty = (err: string): FlowStatic => ({ ok: false, err, rules: [], groups: [], nodes: [], nodeRows: [] });
+  const empty = (err: string): FlowStatic => ({
+    ok: false,
+    err,
+    rules: [],
+    cards: [],
+    groups: [],
+    nodes: [],
+    nodeRows: [],
+  });
   const text = (configText ?? '').trim();
   if (!text) return empty('配置为空');
 
@@ -588,7 +624,7 @@ export function buildStatic(configText: string): FlowStatic {
     if (!groupTags.has(finalTag)) pushRow('-', finalTag);
   }
 
-  return { ok: true, rules, groups, nodes, nodeRows };
+  return { ok: true, rules, cards: mergeRuleCards(rules, (g) => groupTags.has(g)), groups, nodes, nodeRows };
 }
 
 /* ────────────────────────────── 连接侧辅助 ────────────────────────────── */
@@ -682,6 +718,7 @@ function ruleLabelOf(
   chains: string[],
   stat: FlowStat,
   byRuleTag: Map<string, StaticRule>,
+  cardOf: (group: string) => StaticRuleCard | undefined,
 ): { label: string; kind: FlowKind; hit?: StaticRule } {
   const ruleText = (c.rule ?? '').trim();
   const payload = (c.rulePayload ?? '').trim();
@@ -697,14 +734,76 @@ function ruleLabelOf(
   const bucket =
     parsed.bucket ?? (ruleText === 'rule_set' && payload && !payload.includes('=') ? payload : '');
   const hit = bucket ? byRuleTag.get(bucket) : undefined;
-  // 静态命中时直接用 config 口径的 `分组名[桶名]`（如 OpenAi[rs-openai]）
-  if (hit) return { label: hit.label, kind: hit.kind === 'proxy' ? kind : hit.kind, hit };
+  // 出站（= ③ 卡片的归属）：静态命中用 config 里的 outbound，否则从 rule 文本 / chains 推
+  const group = hit?.group || parsed.group || outerGroup || nodeTag || 'DIRECT';
+  const outKind: FlowKind = hit ? (hit.kind === 'proxy' ? kind : hit.kind) : kind;
+  // ③ 视图是「按出站合并的一张卡」：命中同一出站的所有 rule_set 都落到同一张卡上
+  const card = cardOf(group);
+  if (card) return { label: card.label, kind: outKind, hit };
 
-  // 兜底：分组名优先用 route(…) 里的真实出站，其次链尾分组，再其次节点；
-  // 规则 tag 优先桶名，其次 rule 文本里的匹配类型，再次 rule 类型本身（与 buildStatic 的 ruleTagOf 对齐）
-  const group = parsed.group || outerGroup || nodeTag || 'DIRECT';
+  // 兜底（config 读不到 / 规则不在 config 里）：分组名 + 规则 tag
+  // tag 优先桶名，其次 rule 文本里的匹配类型，再次 rule 类型本身（与 buildStatic 的 ruleTagOf 对齐）
   const tag = bucket || parsed.matcher || (ruleText && ruleText !== 'rule_set' ? ruleText : '') || (stat.ok ? 'final' : '未知');
-  return { label: `${group}[${tag}]`, kind };
+  return { label: `${group}[${tag}]`, kind: outKind };
+}
+
+/** ③ 卡片标签：同一桶 → `组[桶 ×N]`；多个桶 → `组[主桶 +K]`；直连/拦截带 → `DIRECT[×N]` */
+function ruleCardLabel(prefix: string, parts: { tag: string; refs: number }[], refs: number): string {
+  if (parts.length === 1) return `${prefix}[${parts[0].tag} ×${refs}]`;
+  return `${prefix}[${parts[0].tag} +${parts.length - 1}]`;
+}
+
+/**
+ * 把细粒度规则（一个出站 + 一个 rule_set 一条）合并成「每带一张卡」：
+ *  · 普通分组：按出站分组，label 形如 `🚀 定制[rs-custom ×3]` / `🚀 定制[rs-custom +2]`；
+ *  · 直连/拦截带（出站不是分组）：整带合并成一张，前缀取规则最多的那个出站（`DIRECT[×5]`），
+ *    明细（DIRECT ×3 / block ×1 …）放 tooltip —— 这样 ③ 与 ④ 每条带都是 1:1。
+ */
+function mergeRuleCards(rules: StaticRule[], isGroup: (g: string) => boolean): StaticRuleCard[] {
+  const byBand = new Map<string, StaticRule[]>();
+  for (const r of rules) {
+    const k = isGroup(r.group) ? r.group : '-';
+    const list = byBand.get(k);
+    if (list) list.push(r);
+    else byBand.set(k, [r]);
+  }
+  const cards: StaticRuleCard[] = [];
+  for (const [bandKey, list] of byBand) {
+    const refs = list.reduce((n, r) => n + r.refs, 0);
+    const direct = bandKey === '-';
+    // 直连带：前缀取规则条数最多的出站（DIRECT / block / REJECT…）
+    const prefix = direct
+      ? [...list.reduce((m, r) => m.set(r.group, (m.get(r.group) ?? 0) + r.refs), new Map<string, number>())]
+          .sort((a, b) => b[1] - a[1] || cmpName(a[0], b[0]))[0][0]
+      : bandKey;
+    const parts = direct
+      ? [...list.reduce((m, r) => m.set(r.group, (m.get(r.group) ?? 0) + r.refs), new Map<string, number>())]
+          .map(([tag, n]) => ({ tag, refs: n }))
+          .sort((a, b) => b.refs - a.refs || cmpName(a.tag, b.tag))
+      : [...list.reduce((m, r) => m.set(r.ruleTag, (m.get(r.ruleTag) ?? 0) + r.refs), new Map<string, number>())]
+          .map(([tag, n]) => ({ tag, refs: n }))
+          // 桶按条数降序；条数相同先排真桶、把兜底的 `final` 放最后（别让主标签变成 final）
+          .sort(
+            (a, b) =>
+              b.refs - a.refs ||
+              (a.tag === 'final' ? 1 : 0) - (b.tag === 'final' ? 1 : 0) ||
+              cmpName(a.tag, b.tag),
+          );
+    // 直连/拦截带：不管里面有几个出站，标签统一 `DIRECT[×N]`，明细在 tooltip
+    const label = direct ? `${prefix}[×${refs}]` : ruleCardLabel(prefix, parts, refs);
+    cards.push({
+      key: nodeKey('rule', label),
+      group: bandKey,
+      label,
+      kind: flowKind(prefix),
+      order: list[0].order,
+      refs,
+      parts,
+      match: list.map((r) => r.match).filter(Boolean).join('；'),
+    });
+  }
+  cards.sort((a, b) => a.order - b.order || cmpName(a.label, b.label));
+  return cards;
 }
 
 /* ────────────────────────────── 合流 ────────────────────────────── */
@@ -786,6 +885,11 @@ export function buildFlow(conns: Connection[], stat: FlowStat): FlowLayout {
   const byRuleTag = new Map<string, StaticRule>();
   for (const r of stat.rules) if (!byRuleTag.has(r.ruleTag)) byRuleTag.set(r.ruleTag, r);
   const groupByTag = new Map(stat.groups.map((g) => [g.tag, g]));
+  /** 出站 → ③ 合并卡（同一出站的多条规则/多个 rule_set 共用一张卡；
+      出站不是分组时共用「直连 / 拦截」那张卡） */
+  const cardByBand = new Map(stat.cards.map((c) => [c.group, c]));
+  const cardOf = (group: string): StaticRuleCard | undefined =>
+    cardByBand.get(group) ?? (groupByTag.has(group) ? undefined : cardByBand.get('-'));
   const nodeByTag = new Map(stat.nodes.map((n) => [n.tag, n]));
   const rowByTag = new Map<string, StaticNodeRow>();
   for (const r of stat.nodeRows) rowByTag.set(`${r.group}\u0000${r.node}`, r);
@@ -819,7 +923,7 @@ export function buildFlow(conns: Connection[], stat: FlowStat): FlowLayout {
     const hitChain = resolveChain(chains, stat);
     const src = sourceLabel(c);
     const dest = destLabel(c);
-    const { label, kind: ruleKind, hit } = ruleLabelOf(c, chains, stat, byRuleTag);
+    const { label, kind: ruleKind, hit } = ruleLabelOf(c, chains, stat, byRuleTag, cardOf);
     const outKind = flowKind(hitChain.node || chains[chains.length - 1] || '');
     // 只有「完全没有链路」时才跳过 ④⑤ 直接连云；DIRECT / block 走「直连 / 拦截」带
     const shortCircuit = !chains.length;
@@ -922,18 +1026,27 @@ export function buildFlow(conns: Connection[], stat: FlowStat): FlowLayout {
   const bandIdxOf = (group: string): number => bandIndex.get(group) ?? extraBand;
 
   /* ── 静态基线 ── */
-  const ruleBase: FlowNode[] = stat.rules.map((r) => ({
-    key: r.key,
-    name: r.label,
-    badge: kindBadge(r.kind),
-    sub: '',
-    count: 0,
-    kind: r.kind,
-    stat: true,
-    tip: `规则 ${r.label}${r.match ? '\n' + r.match : ''}${r.refs > 1 ? `\n（config 里 ${r.refs} 条规则指向它）` : ''}`,
-    order: r.order,
-    band: bandIdxOf(r.group),
-  }));
+  // ③ 每张卡 = 一个出站（③ 与 ④ 每带 1:1 对齐）
+  const ruleBase: FlowNode[] = stat.cards.map((c) => {
+    const tips = [
+      `规则 ${c.label}`,
+      ...c.parts.map((p) => `${p.tag} ×${p.refs}`),
+      c.refs > 1 ? `${c.refs} 条 route 规则指向同一出站，合并成一张卡` : '',
+      c.match ? `条件 ${fitText(c.match, 60)}` : '',
+    ].filter(Boolean);
+    return {
+      key: c.key,
+      name: c.label,
+      badge: kindBadge(c.kind),
+      sub: '',
+      count: 0,
+      kind: c.kind,
+      stat: true,
+      tip: tips.join('\n'),
+      order: c.order,
+      band: bandIdxOf(c.group),
+    };
+  });
 
   const groupBase: FlowNode[] = stat.groups.map((g, i) => ({
     key: nodeKey('group', g.tag),
@@ -1050,7 +1163,11 @@ export function buildFlow(conns: Connection[], stat: FlowStat): FlowLayout {
   };
   // 合并后补齐 band（实时新增的条目没有 band）：
   //  · ③ 按 label 里 '[' 前面的分组名；④ 按分组 tag；⑤ 按 `node:<分组>/<成员>` 的分组名
-  cols.rule = cols.rule.map((n) => ({ ...n, band: n.band ?? bandIdxOf(groupPartOf2(n.name)) }));
+  cols.rule = cols.rule.map((n) => ({
+    ...n,
+    band: n.band ?? bandIdxOf(groupPartOf2(n.name)),
+    tip: `${n.tip}\n命中 ${n.count} 条`,
+  }));
   cols.group = cols.group.map((n) => ({ ...n, band: n.band ?? bandIdxOf(n.name) }));
   // ⑤ 行 tooltip 在合并之后统一补齐：中间分组（经由）+ 实时条数
   cols.node = cols.node.map((n) => {
@@ -1085,8 +1202,8 @@ export function buildFlow(conns: Connection[], stat: FlowStat): FlowLayout {
     structural.push({ key, from, to, count: 0, kind: 'proxy', stat: true });
   };
 
-  for (const r of stat.rules) {
-    addStructural(r.key, nodeKey('group', groupByTag.has(r.group) ? r.group : '-'));
+  for (const c of stat.cards) {
+    addStructural(c.key, nodeKey('group', groupByTag.has(c.group) ? c.group : '-'));
   }
   // ④→⑤：分组 → 它的每个成员方格（结构主边，一条不少；直连/拦截带同样成组）
   for (const r of stat.nodeRows) {
@@ -1108,6 +1225,7 @@ export function buildFlow(conns: Connection[], stat: FlowStat): FlowLayout {
       total,
       pcs: pcDyn.size,
       rules: stat.rules.length,
+      ruleCards: stat.cards.length,
       groups: stat.groups.length,
       nodes: stat.nodes.length,
       nodeRows: stat.nodeRows.length,
@@ -1240,7 +1358,7 @@ export interface FlowGeom {
 export const FLOW_HEADERS: { mark: string; title: string; sub: string; icon: string }[] = [
   { mark: '①', title: '电脑', sub: '按源 IP', icon: '#ico-pc' },
   { mark: '②', title: '路由器', sub: 'sing-box', icon: '#ico-router' },
-  { mark: '③', title: '规则集', sub: '规则集 → 分组', icon: '#ico-rule' },
+  { mark: '③', title: '规则集', sub: '按出站合并 · 每带 1 卡', icon: '#ico-rule' },
   { mark: '④', title: '分组', sub: 'Selector / URLTest', icon: '#ico-group' },
   { mark: '⑤', title: '节点', sub: '组成员方格', icon: '#ico-node' },
   { mark: '⑥', title: '互联网', sub: '悬停看目标', icon: '#ico-cloud' },
@@ -1294,12 +1412,14 @@ export const FLOW_GEO = {
 
 /** 列宽规则：⑤ 150–190（每行 5–6 个方格），③④ 吃剩余宽度 */
 const COL_WIDTH: Record<FlowCol, { min: number; max: number; weight: number }> = {
-  pc: { min: 92, max: 120, weight: 0.55 },
-  router: { min: 96, max: 130, weight: 0.6 },
-  rule: { min: 200, max: 520, weight: 2.15 },
-  group: { min: 176, max: 480, weight: 1.7 },
-  node: { min: 150, max: 190, weight: 1.05 },
-  cloud: { min: 112, max: 150, weight: 0.66 },
+  pc: { min: 96, max: 124, weight: 0.5 },
+  router: { min: 100, max: 132, weight: 0.55 },
+  // ③④ 合并后标签变短：明显收窄（原来是 422 / 333）
+  rule: { min: 200, max: 262, weight: 1.05 },
+  group: { min: 176, max: 238, weight: 0.92 },
+  // 省下来的宽度给 ⑤：每行能放更多方格
+  node: { min: 168, max: 272, weight: 1.18 },
+  cloud: { min: 112, max: 150, weight: 0.6 },
 };
 
 const round1 = (n: number): number => Math.round(n * 10) / 10;
@@ -1404,16 +1524,35 @@ export function buildLayout(flow: FlowLayout, size: FlowSize): FlowGeom {
   const G = FLOW_GEO;
   const w = Math.max(360, Math.round(size.w || 900));
   const containerH = Math.max(160, Math.round(size.h || 400));
-  const gap = Math.min(G.colGapMax, Math.max(G.colGapMin, Math.round(w * 0.008)));
-  const totalGap = gap * (FLOW_COLS.length - 2) + G.cloudGap;
-  const widths = distributeWidths(w - G.padX * 2 - totalGap);
+  const gapBase = Math.min(G.colGapMax, Math.max(G.colGapMin, Math.round(w * 0.008)));
+  const avail = w - G.padX * 2;
+  const gapBudget = gapBase * (FLOW_COLS.length - 2) + G.cloudGap;
+  const widths = distributeWidths(avail - gapBudget);
+  // 所有列都夹到 max 之后仍有余量：摊到列间距上（比在右侧留一大块空白好看），
+  // 并且把 ⑤→⑥ 的间隙固定得略大一点，让汇聚线舒展
+  let usedW = FLOW_COLS.reduce((n, k) => n + widths[k], 0);
+  let slack = Math.max(0, avail - usedW - gapBudget);
+  // 余量先摊到列间距（最多每处 +14，别散得太开），剩下的给 ⑤（每行能多放几格）
+  const gapAdd = Math.min(14, slack / (FLOW_COLS.length - 1));
+  const gap = round1(gapBase + gapAdd);
+  slack -= gapAdd * (FLOW_COLS.length - 1);
+  if (slack > 0) {
+    const toGrid = Math.min(slack, 60);
+    widths.node = round1(widths.node + toGrid);
+    slack -= toGrid;
+  }
+  // 还很宽（超宽屏）：不再拉宽列，改成把整块图形居中——③④ 保持收窄，左右留白
+  usedW = FLOW_COLS.reduce((n, k) => n + widths[k], 0);
+  const cloudGap = round1(Math.max(G.cloudGap, gap + 8));
+  const blockW = usedW + gap * (FLOW_COLS.length - 2) + cloudGap;
+  const startX = round1(G.padX + Math.max(0, (avail - blockW) / 2));
 
   // ── 列 x 坐标 ──
   const colX = {} as Record<FlowCol, number>;
-  let cx = G.padX;
+  let cx = startX;
   for (const col of FLOW_COLS) {
     colX[col] = round1(cx);
-    cx += widths[col] + (col === 'node' ? G.cloudGap : gap);
+    cx += widths[col] + (col === 'node' ? cloudGap : gap);
   }
 
   const tpr = tilesPerRow(widths.node);
