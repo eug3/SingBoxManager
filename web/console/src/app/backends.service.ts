@@ -45,6 +45,16 @@ export class BackendsService {
     if (v.trim()) localStorage.setItem(STORE_KEY, v.trim());
   }
 
+  /** 写入某个后端的 clash 密钥（按 api 匹配，持久化） */
+  updateKey(b: Backend, key: string): void {
+    const api = (b.api || '').replace(/\/+$/, '');
+    const next = this.backends().map((x) =>
+      x.api.replace(/\/+$/, '') === api ? { ...x, key: key.trim() } : x,
+    );
+    this.backends.set(next);
+    this.persist();
+  }
+
   keyFor(b: Backend): string {
     return (b.key || '').trim() || this.globalKey();
   }

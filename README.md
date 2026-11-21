@@ -98,7 +98,7 @@ VAULT_KEY="$VAULT_KEY" scripts/check.sh
 ## 安全口径
 
 - **仓库内无任何密钥**：`VAULT_KEY` 只经环境变量 → 落到管理机的 `/etc/vault-edit.env`（`0600`）；路由 secret 只在路由配置里。
-- 管理台只监听内网；`/publish` 必须带 `X-Vault-Key`，缺失返回 401。
+- 管理台只监听内网；`/publish` 必须带 `X-Vault-Key`（= `VAULT_KEY`），缺失返回 401。`/router/*` 接受 `VAULT_KEY` **或**该路由 `clash_api` 认可的 secret（服务端向路由 `/version` 验证）——所以页面只需填你本来就有的 clash 密钥。
 - 公网只暴露脱敏首页、rule-set 与 zashboard，**不含管理台**（`/edit/` 在公网是 404）。
 - 凭据登记表在 NAS 的内部凭据文件（不入库）。
 - 建议定期轮换 clash secret 与 `VAULT_KEY`（轮换时同步管理机的 env 与各路由配置）。

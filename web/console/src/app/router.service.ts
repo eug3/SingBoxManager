@@ -49,8 +49,10 @@ export class RouterService {
   private readonly http = inject(HttpClient);
   private readonly backends = inject(BackendsService);
 
-  private headers(): HttpHeaders {
-    return new HttpHeaders({ 'X-Vault-Key': this.backends.globalKey() });
+  /** 99 接口鉴权用的密钥：优先该后端的 clash 密钥，其次全局密钥 */
+  private headers(b?: Backend): HttpHeaders {
+    const key = b ? this.backends.keyFor(b) : this.backends.globalKey();
+    return new HttpHeaders({ 'X-Vault-Key': key });
   }
 
   host(b: Backend): string {
@@ -64,7 +66,7 @@ export class RouterService {
   config(b: Backend): Promise<RouterConfigResp> {
     return firstValueFrom(
       this.http.get<RouterConfigResp>('/router/config', {
-        headers: this.headers(),
+        headers: this.headers(b),
         params: { host: this.host(b) },
       }),
     );
@@ -72,7 +74,7 @@ export class RouterService {
 
   restart(b: Backend): Promise<RouterOpResp> {
     return firstValueFrom(
-      this.http.post<RouterOpResp>('/router/restart', { host: this.host(b) }, { headers: this.headers() }),
+      this.http.post<RouterOpResp>('/router/restart', { host: this.host(b) }, { headers: this.headers(b) }),
     );
   }
 
@@ -81,24 +83,28 @@ export class RouterService {
       this.http.post<RouterCheckResp>(
         '/router/check',
         { host: this.host(b), config },
-        { headers: this.headers() },
+        { headers: this.headers(b) },
       ),
     );
   }
 
-  credentials(): Promise<RouterCredsResp> {
-    return firstValueFrom(this.http.get<RouterCredsResp>('/router/credentials', { headers: this.headers() }));
+  credentials(b: Backend): Promise<RouterCredsResp> {
+    return firstValueFrom(this.http.get<RouterCredsResp>('/router/credentials', { headers: this.headers(b) }));
   }
 
-  setCredentials(host: string, user: string, password: string, name?: string): Promise<{ ok: boolean }> {
+  setCredentials(b: Backend, host: string, user: string, password: string, name?: string): Promise<{ ok: boolean }> {
     return firstValueFrom(
-      this.http.post<{ ok: boolean }>('/router/credentials', { host, user, password, name }, { headers: this.headers() }),
+      this.http.post<{ ok: boolean }>(
+        '/router/credentials',
+        { host, user, password, name },
+        { headers: this.headers(b) },
+      ),
     );
   }
 
-  deleteCredentials(host: string): Promise<{ ok: boolean }> {
+  deleteCredentials(b: Backend, host: string): Promise<{ ok: boolean }> {
     return firstValueFrom(
-      this.http.delete<{ ok: boolean }>('/router/credentials', { headers: this.headers(), params: { host } }),
+      this.http.delete<{ ok: boolean }>('/router/credentials', { headers: this.headers(b), params: { host } }),
     );
   }
 
@@ -107,7 +113,7 @@ export class RouterService {
       this.http.post<RouterOpResp>(
         '/router/apply',
         { host: this.host(b), config, expectSha },
-        { headers: this.headers() },
+        { headers: this.headers(b) },
       ),
     );
   }

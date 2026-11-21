@@ -368,27 +368,78 @@ func cleanLine(s string) string {
 
 // ---- HTTP handlers ----
 
-func routerAuthorized(w http.ResponseWriter, r *http.Request) bool {
+func routerKeyFrom(r *http.Request) string {
+	if k := strings.TrimSpace(r.Header.Get("X-Vault-Key")); k != "" {
+		return k
+	}
+	return strings.TrimSpace(r.Header.Get("X-Router-Key"))
+}
+
+// routerKeyValid：密钥要么是 99 的 VAULT_KEY，要么能被路由 clash_api 接受
+// （"能访问 clash_api 就是有密钥" —— 这样页面只需要用户本来就要填的 clash 密钥）
+func routerKeyValid(host, key string) bool {
+	if key == "" {
+		return false
+	}
+	if key == vaultKey {
+		return true
+	}
+	if host == "" {
+		return false
+	}
+	port := env("ROUTER_CLASH_PORT", "9090")
+	client := &http.Client{Timeout: 5 * time.Second}
+	req, err := http.NewRequest(http.MethodGet, "http://"+net.JoinHostPort(host, port)+"/version", nil)
+	if err != nil {
+		return false
+	}
+	req.Header.Set("Authorization", "Bearer "+key)
+	resp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
+}
+
+// routerAuth 处理 CORS/OPTIONS 与密钥校验；host 为空表示"任意已配置路由接受即可"
+func routerAuth(w http.ResponseWriter, r *http.Request, host string) bool {
 	setCors(w.Header(), r.Header.Get("Origin"))
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusNoContent)
 		return false
 	}
-	if r.Header.Get("X-Vault-Key") != vaultKey {
-		fail(w, 401, "bad key")
-		return false
+	key := routerKeyFrom(r)
+	if routerKeyValid(host, key) {
+		return true
 	}
-	return true
+	if host == "" {
+		// 没有具体 host 时：只要任一已配置路由接受该密钥即可
+		if all, err := loadRouters(); err == nil {
+			for h := range all {
+				if routerKeyValid(h, key) {
+					return true
+				}
+			}
+		}
+	}
+	fail(w, 401, "密钥不正确（既不是 99 的 VAULT_KEY，也不被路由 clash_api 接受）")
+	return false
 }
 
 // GET /router/config?host=
 func handleRouterConfig(w http.ResponseWriter, r *http.Request) {
-	if !routerAuthorized(w, r) {
+	setCors(w.Header(), r.Header.Get("Origin"))
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	cred, host, err := pickRouter(r.URL.Query().Get("host"))
 	if err != nil {
 		fail(w, 400, err.Error())
+		return
+	}
+	if !routerAuth(w, r, host) {
 		return
 	}
 	t0 := time.Now()
@@ -408,7 +459,9 @@ func handleRouterConfig(w http.ResponseWriter, r *http.Request) {
 
 // POST /router/restart {"host"}
 func handleRouterRestart(w http.ResponseWriter, r *http.Request) {
-	if !routerAuthorized(w, r) {
+	setCors(w.Header(), r.Header.Get("Origin"))
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	var req routerOpReq
@@ -416,6 +469,9 @@ func handleRouterRestart(w http.ResponseWriter, r *http.Request) {
 	cred, host, err := pickRouter(req.Host)
 	if err != nil {
 		fail(w, 400, err.Error())
+		return
+	}
+	if !routerAuth(w, r, host) {
 		return
 	}
 	t0 := time.Now()
@@ -431,7 +487,9 @@ func handleRouterRestart(w http.ResponseWriter, r *http.Request) {
 
 // POST /router/check {"host","config"}
 func handleRouterCheck(w http.ResponseWriter, r *http.Request) {
-	if !routerAuthorized(w, r) {
+	setCors(w.Header(), r.Header.Get("Origin"))
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	var req routerOpReq
@@ -442,6 +500,9 @@ func handleRouterCheck(w http.ResponseWriter, r *http.Request) {
 	cred, host, err := pickRouter(req.Host)
 	if err != nil {
 		fail(w, 400, err.Error())
+		return
+	}
+	if !routerAuth(w, r, host) {
 		return
 	}
 	if strings.TrimSpace(req.Config) == "" {
@@ -454,7 +515,9 @@ func handleRouterCheck(w http.ResponseWriter, r *http.Request) {
 
 // POST /router/apply {"host","config","expectSha"}
 func handleRouterApply(w http.ResponseWriter, r *http.Request) {
-	if !routerAuthorized(w, r) {
+	setCors(w.Header(), r.Header.Get("Origin"))
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	var req routerOpReq
@@ -469,6 +532,9 @@ func handleRouterApply(w http.ResponseWriter, r *http.Request) {
 	cred, host, err := pickRouter(req.Host)
 	if err != nil {
 		fail(w, 400, err.Error())
+		return
+	}
+	if !routerAuth(w, r, host) {
 		return
 	}
 	t0 := time.Now()
@@ -497,7 +563,7 @@ func handleRouterApply(w http.ResponseWriter, r *http.Request) {
 
 // GET /router/credentials —— 只返回 host/user/port，绝不回显口令
 func handleRouterCredentialsList(w http.ResponseWriter, r *http.Request) {
-	if !routerAuthorized(w, r) {
+	if !routerAuth(w, r, "") {
 		return
 	}
 	all, _ := loadRouters()
@@ -515,7 +581,9 @@ func handleRouterCredentialsList(w http.ResponseWriter, r *http.Request) {
 
 // POST /router/credentials {host,user,password,port?,name?}
 func handleRouterCredentialsSet(w http.ResponseWriter, r *http.Request) {
-	if !routerAuthorized(w, r) {
+	setCors(w.Header(), r.Header.Get("Origin"))
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	var req routerCredReq
@@ -526,6 +594,9 @@ func handleRouterCredentialsSet(w http.ResponseWriter, r *http.Request) {
 	req.Host = strings.TrimSpace(req.Host)
 	if req.Host == "" || !routerHosts()[req.Host] {
 		fail(w, 400, fmt.Sprintf("host %q 不在允许列表（ROUTER_HOSTS）", req.Host))
+		return
+	}
+	if !routerAuth(w, r, req.Host) {
 		return
 	}
 	if strings.TrimSpace(req.User) == "" || req.Password == "" {
@@ -554,10 +625,15 @@ func handleRouterCredentialsSet(w http.ResponseWriter, r *http.Request) {
 
 // DELETE /router/credentials?host=
 func handleRouterCredentialsDelete(w http.ResponseWriter, r *http.Request) {
-	if !routerAuthorized(w, r) {
+	setCors(w.Header(), r.Header.Get("Origin"))
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	host := strings.TrimSpace(r.URL.Query().Get("host"))
+	if !routerAuth(w, r, host) {
+		return
+	}
 	all, err := loadRouters()
 	if err != nil {
 		fail(w, 404, "没有已配置的凭据文件")

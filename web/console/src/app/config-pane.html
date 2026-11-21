@@ -2,7 +2,7 @@
   <div class="cfggate">
     <div class="cfggatehd">连接 {{ host() }}</div>
     <div class="cfggatesub">
-      需要两样东西才能读写这台路由的配置：99 服务的发布密钥（X-Vault-Key）与路由的 SSH 账号。
+      需要两样东西：这台路由的 <b>clash 密钥</b>（就是能访问 clash_api 的那个 secret，99 也用它做接口鉴权）与路由的 <b>SSH 账号</b>。
       填完点「连接」，成功后会直接进入配置编辑。
     </div>
     @if (gateError()) {
@@ -10,7 +10,7 @@
     }
     <div class="cfgform cfgformgate">
       <label class="wide">
-        <span>发布密钥（99 服务鉴权，留空=沿用顶部已填的）</span>
+        <span>clash 密钥（路由 secret，留空=沿用顶部已填的）</span>
         <input
           type="password"
           [value]="gateKey()"

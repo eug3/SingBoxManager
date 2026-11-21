@@ -125,7 +125,7 @@ export class ConfigPane {
       if (!b.api) return;
       if (!vaultKey) {
         // 还没填发布密钥：直接进连接页，别停在"读取中"
-        this.gateError.set('请先填写发布密钥（X-Vault-Key）与路由 SSH 账号');
+        this.gateError.set('请先填写 clash 密钥（路由管理密钥）与路由 SSH 账号');
         this.gate.set(true);
         return;
       }
@@ -247,11 +247,15 @@ export class ConfigPane {
     this.err.set('');
     try {
       const key = this.gateKey().trim();
-      if (key) this.bsvc.setGlobalKey(key);
+      if (key) {
+        // 这个密钥就是 clash_api 的 secret：既用于 99 接口鉴权，也用于页面直连路由
+        this.bsvc.setGlobalKey(key);
+        this.bsvc.updateKey(this.backend(), key);
+      }
       const user = this.gateUser().trim();
       const pass = this.gatePass();
       if (user && pass) {
-        await this.router.setCredentials(this.host(), user, pass, this.backend().name);
+        await this.router.setCredentials(this.backend(), this.host(), user, pass, this.backend().name);
         this.gatePass.set('');
       }
       await this.reload();
@@ -555,7 +559,7 @@ export class ConfigPane {
 
   async loadCreds(): Promise<void> {
     try {
-      const res = await this.router.credentials();
+      const res = await this.router.credentials(this.backend());
       this.credsHosts.set(res.hosts ?? []);
       this.credsAllow.set(res.allow ?? []);
       const me = (res.hosts ?? []).find((h) => h.host === this.host());
@@ -576,7 +580,7 @@ export class ConfigPane {
     this.busy.set(true);
     this.err.set('');
     try {
-      await this.router.setCredentials(host, user, pw, this.backend().name);
+      await this.router.setCredentials(this.backend(), host, user, pw, this.backend().name);
       // 口令只在提交时经过一次，提交后立刻从页面内存里清掉
       this.credsPassword.set('');
       this.credsOpen.set(false);
@@ -592,7 +596,7 @@ export class ConfigPane {
   async removeCreds(host: string): Promise<void> {
     if (!confirm(`删除 ${host} 的 SSH 凭据？`)) return;
     try {
-      await this.router.deleteCredentials(host);
+      await this.router.deleteCredentials(this.backend(), host);
       await this.loadCreds();
       this.log.set(`已删除 ${host} 的凭据`);
     } catch (e) {

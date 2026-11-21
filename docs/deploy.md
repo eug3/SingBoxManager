@@ -198,7 +198,9 @@ JSON
 sudo chmod 600 /etc/vault-edit/routers.json && sudo chown root:root /etc/vault-edit/routers.json
 ```
 
-2. 验证：
+2. 鉴权说明：`/router/*` 接受 `VAULT_KEY` **或**路由 `clash_api` 认可的 secret（服务端向 `http://<route>:9090/version` 校验，200 即通过）；`/publish` 只认 `VAULT_KEY`。页面因此只需填 clash 密钥。
+
+3. 验证：
 
 ```bash
 curl -s -H "X-Vault-Key: $VAULT_KEY" 'localhost:9099/router/credentials'
