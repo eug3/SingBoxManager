@@ -8,7 +8,6 @@ import { ParsedNode, parseShareLinks } from './share-link';
 import { NodeForm, NODE_TYPES, buildNode, emptyForm, formFromNode } from './node-form';
 import { lineDiff } from './line-diff';
 import { errMsg } from './util';
-import { RouterStatusService } from './status.service';
 
 type FormMode = 'none' | 'add' | 'edit';
 
@@ -34,7 +33,6 @@ export class ConfigPane {
 
   private readonly router = inject(RouterService);
   private readonly bsvc = inject(BackendsService);
-  private readonly status = inject(RouterStatusService);
 
   // —— 配置文本与元信息 ——
   readonly host = computed(() => this.router.host(this.backend()));
@@ -145,15 +143,9 @@ export class ConfigPane {
       this.size.set(res.size);
       this.loaded.set(true);
       this.log.set(`已读取 ${res.host} · ${res.size}B · sha ${res.sha256.slice(0, 12)} · ${res.ms}ms`);
-      // 顶栏状态点：配置通道已连通
-      this.status.report({
-        host: this.host(), ok: true, size: res.size, sha: res.sha256.slice(0, 12),
-        nodes: this.nodeRows().length, ts: Date.now(),
-      });
     } catch (e) {
       const m = errMsg(e);
       this.err.set(m);
-      this.status.report({ host: this.host(), ok: false, error: m, ts: Date.now() });
       // 没凭据 / 密钥错 / SSH 失败 / 超时 → 弹连接页（像登录）
       if (/未配置路由凭据|bad key|401|ssh|Permission denied|超时|失败/i.test(m)) {
         this.gateError.set(m);

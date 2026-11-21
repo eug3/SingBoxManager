@@ -4,7 +4,7 @@ import { RuleEditor } from './rule-editor';
 import { BackendsService } from './backends.service';
 import { ClashService } from './clash.service';
 import { Backend, CONSOLE_VERSION, PAGE_ORIGINS } from './models';
-import { RouterStatusService } from './status.service';
+import { ShareHealthService } from './share-health.service';
 
 @Component({
   selector: 'app-root',
@@ -20,7 +20,7 @@ import { RouterStatusService } from './status.service';
 export class App {
   readonly bsvc = inject(BackendsService);
   private readonly clash = inject(ClashService);
-  private readonly rstatus = inject(RouterStatusService);
+  private readonly shareHealth = inject(ShareHealthService);
   readonly version = CONSOLE_VERSION;
   /** 底部信息条：当前生效后端的 sing-box 版本 */
   readonly sbVersion = signal('');
@@ -29,44 +29,42 @@ export class App {
   readonly originOk = PAGE_ORIGINS.includes(location.origin);
   readonly origins = PAGE_ORIGINS;
 
-  /** 当前激活后端下标（顶栏状态点用）；规则编辑页为 -1 */
-  readonly activeIndex = computed(() => {
-    const m = /^b(\d+)$/.exec(this.active());
-    return m ? Number(m[1]) : -1;
-  });
+  /** 文件通道 + 公网 URL 体检结果（顶栏右侧那个点） */
+  readonly share = this.shareHealth.health;
+  readonly shareBusy = this.shareHealth.busy;
 
-  /** 当前激活后端的配置通道状态（配置页读过才有） */
-  readonly activeStatus = computed(() => {
-    const i = this.activeIndex();
-    const b = i >= 0 ? this.backends()[i] : undefined;
-    if (!b) return null;
-    const host = this.hostOf(b);
-    return this.rstatus.statuses()[host] ?? null;
-  });
-
-  /** 顶栏状态点文案 */
+  /** 顶栏状态点文案：SMB/SFTP 文件通道 + 公网 HTTP 读取是否都通 */
   readonly statusText = computed(() => {
-    const s = this.activeStatus();
-    if (!s) return '配置通道 · 未检测';
-    if (!s.ok) return '配置通道 · 未连接';
-    return `配置通道 · 已连接 ${s.size ?? 0}B · ${s.nodes ?? 0} 节点`;
+    const h = this.share();
+    if (!h) return '存储 · 检测中…';
+    const mode = h.file.mode.startsWith('smb') ? 'SMB' : h.file.mode.startsWith('sftp') ? 'SFTP' : '本地';
+    const file = h.file.ok ? `${mode} ✓ ${h.file.files} 文件` : `${mode} ✗`;
+    const http = h.http.ok ? `HTTP ${h.http.status}` : h.http.status ? `HTTP ${h.http.status}` : 'HTTP ✗';
+    return `存储 · ${file} · ${http}`;
   });
 
-  /** 点击状态点：打开该后端的「配置」子页 */
-  openConfig(): void {
-    const i = this.activeIndex();
-    if (i >= 0) this.rstatus.requestConfigTab(i);
-  }
+  /** 悬停提示：把体检细节摊开 */
+  readonly statusTitle = computed(() => {
+    const h = this.share();
+    if (!h) return '正在检查文件通道与公网 URL…';
+    const f = h.file;
+    const x = h.http;
+    return [
+      `文件通道：${f.mode}`,
+      f.ok ? `  ✓ ${f.detail}（${f.ms}ms）` : `  ✗ ${f.error ?? '不可用'}`,
+      `公网 URL：${x.url}`,
+      x.ok ? `  ✓ ${x.status} · ${x.size}B（${x.ms}ms）` : `  ✗ ${x.error ?? '状态 ' + x.status}`,
+      '点击重新检测',
+    ].join('\n');
+  });
 
-  private hostOf(b: Backend): string {
-    try {
-      return new URL(b.api).hostname;
-    } catch {
-      return b.api;
-    }
+  /** 点击状态点：立即重测 */
+  probeShare(): void {
+    void this.shareHealth.probe();
   }
 
   constructor() {
+    this.shareHealth.start(); // 每 30s 体检一次文件通道 + 公网 URL
     effect(() => {
       const b = this.backends().find((x) => this.bsvc.valid(x));
       void this.loadVersion(b);

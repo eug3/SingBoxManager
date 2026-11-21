@@ -19,7 +19,6 @@ import { OverviewPane } from './overview';
 import { ConfigPane } from './config-pane';
 import { ClashService } from './clash.service';
 import { fmtBytes, latClass, latText, runPool } from './util';
-import { RouterStatusService } from './status.service';
 
 /** 后端子页签 */
 type PaneTab = 'overview' | 'groups' | 'connections' | 'logs' | 'rules' | 'config';
@@ -65,7 +64,6 @@ export class BackendPane implements OnInit, OnDestroy {
 
   private readonly bsvc = inject(BackendsService);
   private readonly clash = inject(ClashService);
-  private readonly status = inject(RouterStatusService);
 
   readonly tab = signal<PaneTab>('overview');
   readonly tabs: { key: PaneTab; label: string }[] = [
@@ -153,14 +151,6 @@ export class BackendPane implements OnInit, OnDestroy {
   });
 
   constructor() {
-    // 顶栏点状态点 → 切到本后端的「配置」子页
-    effect(() => {
-      const want = this.status.configTabRequest();
-      if (want !== null && want === this.index()) {
-        this.status.takeConfigTabRequest();
-        this.setTab('config');
-      }
-    });
     // 密钥/后端地址变化时自动重新拉取（连接页填入全局密钥后也能立刻生效）
     effect(() => {
       const b = this.backend();

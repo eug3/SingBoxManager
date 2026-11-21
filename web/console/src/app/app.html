@@ -1,8 +1,8 @@
 <div class="wrap">
   <header class="top">
     <h1>规则编辑台 <b>◆ SBM CONSOLE</b></h1>
-    <button class="hstat" [class.ok]="activeStatus()?.ok" [class.bad]="activeStatus()?.ok === false"
-            [title]="activeStatus()?.error || '点击打开该后端的「配置」页'" (click)="openConfig()">
+    <button class="hstat" [class.ok]="share()?.ok" [class.bad]="share()?.ok === false"
+            [title]="statusTitle()" (click)="probeShare()">
       <span class="dot"></span>{{ statusText() }}
     </button>
   </header>
