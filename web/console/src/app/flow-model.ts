@@ -35,7 +35,10 @@ export type FlowKind = 'direct' | 'proxy' | 'block';
  * 每列最多展示的节点数（超出的节点仍会出现在 sample 路径里，由渲染层按列中心兜底定位）。
  * 规则/分组/节点三列是「结构」主体，给得宽一些；电脑与目标只是分布概览。
  */
-export const FLOW_MAX: Record<FlowCol, number> = { pc: 6, router: 1, rule: 12, group: 8, node: 10, cloud: 10 };
+/** ⑥ 互联网固定是「一朵云」，所有目标共用这个 key */
+export const CLOUD_KEY = 'cloud:@internet';
+
+export const FLOW_MAX: Record<FlowCol, number> = { pc: 8, router: 1, rule: 14, group: 10, node: 12, cloud: 1 };
 
 /* ────────────────────────────── 类型 ────────────────────────────── */
 
@@ -525,9 +528,10 @@ function ruleLabelOf(
 ): { label: string; kind: FlowKind; hit?: StaticRule } {
   const parsed = parseRuleText(c.rule ?? '');
   const payload = (c.rulePayload ?? '').trim();
-  const outTag = chains.length ? chains[chains.length - 1] : '';
-  const chainGroup = chains.length ? chains[0] : '';
-  const kind = flowKind(outTag || chainGroup);
+  // 注意：clash 的 chains 是「由内向外」——chains[0]=真实节点，chains[last]=最外层分组
+  const nodeTag = chains.length ? chains[0] : '';
+  const outerGroup = chains.length >= 2 ? chains[chains.length - 1] : '';
+  const kind = flowKind(nodeTag || outerGroup);
 
   // rule_set 规则：桶名可能来自 rulePayload，也可能埋在 rule 文本里（'rule_set=xxx => route(yyy)'）
   const bucket = payload && !payload.includes('=') ? payload : parsed.bucket;
@@ -535,7 +539,7 @@ function ruleLabelOf(
   if (hit) return { label: hit.label, kind: hit.kind === 'proxy' ? kind : hit.kind, hit };
 
   // 兜底：分组名优先用 route(…) 里的真实出站，其次链路首段
-  const group = parsed.group || chainGroup || outTag || 'DIRECT';
+  const group = parsed.group || outerGroup || nodeTag || 'DIRECT';
   const tag = bucket || parsed.matcher || (stat.ok ? 'final' : '未知');
   return { label: `${group}[${tag}]`, kind };
 }
@@ -548,6 +552,8 @@ interface DynInfo {
   kind: FlowKind;
   badge?: string;
   tip?: string;
+  /** 中间分组（如 BALANCE），只作提示/次行说明 */
+  mid?: string;
 }
 
 function bumpDyn(map: Map<string, DynInfo>, key: string, kind: FlowKind, badge?: string): DynInfo {
@@ -579,6 +585,11 @@ function mergeCol(base: FlowNode[], dyn: Map<string, DynInfo>, max: number): Flo
       if (d.kind !== 'proxy') hit.kind = d.kind;
       // 基线条目的徽章/副标题/tooltip 都以 config 为准（信息更全），实时侧只补计数与 kind
       if (d.badge && !hit.badge) hit.badge = d.badge;
+      // 中间分组（BALANCE 等）补进次行与 tooltip，避免多占一列
+      if (d.mid) {
+        hit.sub = hit.sub ? `${hit.sub} · ${d.mid}` : d.mid;
+        hit.tip = `${hit.tip}\n${d.mid}`;
+      }
       continue;
     }
     const name = nameOfKey(key);
@@ -623,13 +634,17 @@ export function buildFlow(conns: Connection[], stat: FlowStat): FlowLayout {
   const groupDyn = new Map<string, DynInfo>();
   const nodeDyn = new Map<string, DynInfo>();
   const cloudDyn = new Map<string, DynInfo>();
+  const cloudDest = new Map<string, number>(); // 目标明细：只做 tooltip，不单独成列
   const edges = new Map<string, FlowEdge>();
   const sample: FlowSample[] = [];
   let total = 0;
 
   for (const c of conns ?? []) {
     const chains = chainsOf(c);
-    const outTag = chains.length ? chains[chains.length - 1] : '';
+    // chains 由内向外：nodeTag 是真实出口节点，outerGroup 是 route 命中的最外层分组
+    const nodeTag = chains.length ? chains[0] : '';
+    const outerGroup = chains.length >= 2 ? chains[chains.length - 1] : '';
+    const midGroups = chains.length >= 3 ? chains.slice(1, chains.length - 1) : [];
     const src = sourceLabel(c);
     const dest = destLabel(c);
     const { label, kind: ruleKind, hit } = ruleLabelOf(c, chains, stat, byRuleTag);
@@ -640,32 +655,38 @@ export function buildFlow(conns: Connection[], stat: FlowStat): FlowLayout {
       { col: 'rule', key: nodeKey('rule', label) },
     ];
 
-    const shortCircuit = chains.length === 0 || flowKind(outTag) !== 'proxy';
+    const shortCircuit = chains.length === 0 || flowKind(nodeTag) !== 'proxy';
     let pathKindFlag: FlowKind = ruleKind;
     if (!shortCircuit) {
-      pathKindFlag = flowKind(outTag);
-      if (chains.length >= 2) {
-        // chains[0]=分组、chains[last]=节点（中间嵌套组不单独成列，保持六列语义）
-        entries.push({ col: 'group', key: nodeKey('group', chains[0]) });
+      pathKindFlag = flowKind(nodeTag);
+      // ④ 只放「config 里真的存在的最外层分组」；链路里没有分组时跳过④，③→⑤ 直接连边
+      if (outerGroup && groupByTag.has(outerGroup)) {
+        entries.push({ col: 'group', key: nodeKey('group', outerGroup) });
       }
-      entries.push({ col: 'node', key: nodeKey('node', outTag) });
+      entries.push({ col: 'node', key: nodeKey('node', nodeTag) });
     }
-    entries.push({ col: 'cloud', key: nodeKey('cloud', dest) });
+    entries.push({ col: 'cloud', key: CLOUD_KEY });
 
     // 计数
     total++;
     bumpDyn(pcDyn, entries[0].key, 'proxy');
     bumpDyn(ruleDyn, entries[2].key, ruleKind, kindBadge(ruleKind));
     if (!shortCircuit) {
-      const groupTag = chains.length >= 2 ? chains[0] : '';
+      const groupTag = outerGroup && groupByTag.has(outerGroup) ? outerGroup : '';
       if (groupTag) {
         const g = groupByTag.get(groupTag);
         bumpDyn(groupDyn, nodeKey('group', groupTag), 'proxy', g?.badge ?? guessGroupBadge(groupTag));
       }
-      const n = nodeByTag.get(outTag);
-      bumpDyn(nodeDyn, nodeKey('node', outTag), 'proxy', n?.badge ?? '');
+      const n = nodeByTag.get(nodeTag);
+      bumpDyn(nodeDyn, nodeKey('node', nodeTag), 'proxy', n?.badge ?? '');
+      if (midGroups.length) {
+        // 中间分组（如 BALANCE）记在节点行上，作「经由」说明，不额外占列
+        const info = nodeDyn.get(nodeKey('node', nodeTag));
+        if (info) info.mid = `经由 ${midGroups.join(' › ')}`;
+      }
     }
-    bumpDyn(cloudDyn, entries[entries.length - 1].key, 'proxy');
+    bumpDyn(cloudDyn, CLOUD_KEY, 'proxy');
+    cloudDest.set(dest, (cloudDest.get(dest) ?? 0) + 1);
 
     // 边（相邻两列）+ 抽样路径
     for (let i = 0; i < entries.length - 1; i++) {
@@ -710,7 +731,26 @@ export function buildFlow(conns: Connection[], stat: FlowStat): FlowLayout {
     order: i,
   }));
 
-  const nodeBase: FlowNode[] = stat.nodes.map((n, i) => ({
+  // ⑤列按「所属分组」聚在一起：先分组的成员（分组顺序 + 成员顺序），再其余节点。
+  // 同一节点可能属于多个分组——不去重、不重复显示，只按第一个包含它的分组归位。
+  const nodeGroupOf = new Map<string, string>();
+  for (const g of stat.groups) {
+    for (const m of g.members) if (!nodeGroupOf.has(m)) nodeGroupOf.set(m, g.tag);
+  }
+  const groupOrder = new Map(stat.groups.map((g, i) => [g.tag, i]));
+  const nodeOrdered = [...stat.nodes].sort((a, b) => {
+    const ga = nodeGroupOf.get(a.tag);
+    const gb = nodeGroupOf.get(b.tag);
+    const ia = ga ? (groupOrder.get(ga) ?? 999) : 999;
+    const ib = gb ? (groupOrder.get(gb) ?? 999) : 999;
+    if (ia !== ib) return ia - ib;
+    if (ga !== gb) return ga === undefined ? 1 : gb === undefined ? -1 : ga.localeCompare(gb);
+    const ma = ga ? stat.groups[ia].members.indexOf(a.tag) : 0;
+    const mb = gb ? stat.groups[ib].members.indexOf(b.tag) : 0;
+    return ma - mb;
+  });
+
+  const nodeBase: FlowNode[] = nodeOrdered.map((n, i) => ({
     key: nodeKey('node', n.tag),
     name: n.tag,
     badge: n.badge,
@@ -718,7 +758,9 @@ export function buildFlow(conns: Connection[], stat: FlowStat): FlowLayout {
     count: 0,
     kind: 'proxy',
     stat: true,
-    tip: `节点 ${n.tag} · ${n.type} · ${n.server}`,
+    tip: `节点 ${n.tag} · ${n.type} · ${n.server}${
+      nodeGroupOf.get(n.tag) ? `\n所属分组：${nodeGroupOf.get(n.tag)}` : ''
+    }`,
     order: i,
   }));
 
@@ -752,13 +794,32 @@ export function buildFlow(conns: Connection[], stat: FlowStat): FlowLayout {
     order: 0,
   };
 
+  /** ⑥ 互联网：只画一朵大云，目标明细收进 tooltip */
+  const cloudBase = (dests: Map<string, number>, total: number): FlowNode[] => {
+    const top = [...dests.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6);
+    const more = dests.size > top.length ? `\n…另有 ${dests.size - top.length} 个目标` : '';
+    return [
+      {
+        key: CLOUD_KEY,
+        name: '互联网',
+        badge: total ? `${total} 条` : '',
+        sub: dests.size ? `${dests.size} 个目标` : '云',
+        count: total,
+        kind: 'proxy',
+        stat: true,
+        tip: (top.length ? `去往：\n` + top.map(([k, v]) => `  ${k} ×${v}`).join('\n') : '还没有流量') + more,
+        order: 0,
+      },
+    ];
+  };
+
   const cols: Record<FlowCol, FlowNode[]> = {
     pc: mergeCol(pcBase, pcDyn, FLOW_MAX.pc),
     router: [routerNode],
     rule: mergeCol(ruleBase, ruleDyn, FLOW_MAX.rule),
     group: mergeCol(groupBase, groupDyn, FLOW_MAX.group),
     node: mergeCol(nodeBase, nodeDyn, FLOW_MAX.node),
-    cloud: mergeCol([], cloudDyn, FLOW_MAX.cloud),
+    cloud: mergeCol(cloudBase(cloudDest, total), cloudDyn, 1),
   };
 
   /* ── 结构边：③→④（规则指向分组/节点）、④→⑤（分组成员）；纯静态时再补 ①→②、②→③ ── */
