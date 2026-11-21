@@ -6,8 +6,8 @@ export interface ChartSeries {
 }
 
 /** 轻量 SVG 面积图（无第三方图表库，60 点级别足够，浅色主题） */
-/** 图宽固定 240，最多画 160 个点，再密就肉眼无收益、还会像素级锯齿 */
-const MAX_DRAW_POINTS = 160;
+/** 概览已按 2 秒一格聚合（10 分钟 = 300 格），这里只做兜底上限 */
+const MAX_DRAW_POINTS = 320;
 
 /** 桶平均降采样：把 n 个点压到 ≤max 个点（保留首尾） */
 function reduce(points: number[], max: number): number[] {

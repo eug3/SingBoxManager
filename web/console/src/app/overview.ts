@@ -13,7 +13,8 @@ import { AreaChartComponent, ChartSeries } from './area-chart';
 import { Backend, ProxyNode } from './models';
 import { ClashService } from './clash.service';
 
-const MAX_POINTS = 600; // 1s 采样 × 10 分钟
+const MAX_POINTS = 600; // 原始 1s 采样缓冲 = 10 分钟
+const BUCKET_SECONDS = 2; // 图形窗口按 2 秒一格填充（10 分钟 = 300 格）
 const WINDOW_OPTIONS = [1, 5, 10];
 const OK_GREEN = 400;
 const OK_YELLOW = 800;
@@ -53,24 +54,47 @@ export class OverviewPane implements OnInit, OnDestroy {
   private readonly sockets: WebSocket[] = [];
   private timer: ReturnType<typeof setInterval> | null = null;
 
-  /** 按所选窗口截取（数组保存的是最近 600 个 1s 采样） */
-  private win(arr: number[]): number[] {
-    return arr.slice(-this.windowMin() * 60);
+  /** 窗口格数 = 窗口秒数 / 2（10 分钟 → 300 格） */
+  bucketCount = computed(() => Math.round((this.windowMin() * 60) / BUCKET_SECONDS));
+
+  /**
+   * 把原始 1s 采样填进 2 秒一格：先截最近「格数 × 2」个样本，
+   * 再逐格取平均（末尾不足 2 个样本时用实际样本平均），保证格数与窗口严格对应。
+   */
+  private bucketize(raw: number[]): number[] {
+    const need = this.bucketCount() * BUCKET_SECONDS;
+    const slice = raw.slice(-need);
+    const out: number[] = [];
+    for (let i = 0; i < slice.length; i += BUCKET_SECONDS) {
+      const chunk = slice.slice(i, i + BUCKET_SECONDS);
+      out.push(chunk.reduce((a, b) => a + b, 0) / chunk.length);
+    }
+    return out;
   }
 
+  private readonly downSeries = computed(() => this.bucketize(this.downPts()));
+  private readonly upSeries = computed(() => this.bucketize(this.upPts()));
+  private readonly connSeriesPts = computed(() => this.bucketize(this.connPts()));
+  private readonly memSeriesPts = computed(() => this.bucketize(this.memPts()));
+
   readonly rateSeries = computed<ChartSeries[]>(() => [
-    { points: this.win(this.downPts()), color: '#1f6fd0' },
-    { points: this.win(this.upPts()), color: '#0f8f68' },
+    { points: this.downSeries(), color: '#1f6fd0' },
+    { points: this.upSeries(), color: '#0f8f68' },
   ]);
-  readonly connSeries = computed<ChartSeries[]>(() => [{ points: this.win(this.connPts()), color: '#8a6bd1' }]);
-  readonly memSeries = computed<ChartSeries[]>(() => [{ points: this.win(this.memPts()), color: '#a8690a' }]);
+  readonly connSeries = computed<ChartSeries[]>(() => [{ points: this.connSeriesPts(), color: '#8a6bd1' }]);
+  readonly memSeries = computed<ChartSeries[]>(() => [{ points: this.memSeriesPts(), color: '#a8690a' }]);
 
   windowLabel(): string {
     return '近 ' + this.windowMin() + ' 分钟';
   }
 
+  /** 已填满的格数（尚未满窗时小于 bucketCount） */
   sampleCount(): number {
-    return this.win(this.connPts()).length;
+    return this.connSeriesPts().length;
+  }
+
+  bucketText(): string {
+    return '每 2 秒 1 格 × ' + this.bucketCount();
   }
 
   ngOnInit(): void {

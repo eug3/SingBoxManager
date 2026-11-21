@@ -15,7 +15,7 @@
     <app-area-chart [series]="rateSeries()" [height]="96" />
     <div class="ovleg">
       <span class="lg dl">下载</span><span class="lg ul">上传</span>
-      <span class="dim small">{{ windowLabel() }}（1s 采样，已采 {{ sampleCount() }} 点，来自 ws /traffic）</span>
+      <span class="dim small">{{ windowLabel() }} · {{ bucketText() }}（已填 {{ sampleCount() }} 格，来自 ws /traffic）</span>
       <span class="winsel">
         @for (w of windowOptions; track w) {
           <button class="win" [class.on]="w === windowMin()" (click)="windowMin.set(w)">{{ w }} 分</button>
