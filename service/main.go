@@ -115,6 +115,7 @@ func main() {
 	// 路由配置通道（99 侧编排：SSH 上传候选配置 + 内联脚本，路由无需预装任何东西）
 	mux.HandleFunc("GET /router/config", handleRouterConfig)
 	mux.HandleFunc("GET /router/rules", handleRouterRules)
+	mux.HandleFunc("GET /router/clients", handleRouterClients)
 	mux.HandleFunc("POST /router/restart", handleRouterRestart)
 	mux.HandleFunc("POST /router/check", handleRouterCheck)
 	mux.HandleFunc("POST /router/apply", handleRouterApply)
