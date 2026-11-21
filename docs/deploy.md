@@ -182,16 +182,11 @@ export BOX_API_URL=http://192.168.31.32:9092 BOX_API_SECRET='<secret>'
 
 ### 6.5 路由配置通道（管理台「配置」tab 依赖）
 
-1. 路由侧装脚本（只上传，不改配置）：
+**路由侧无需任何预装**：备份/校验/替换/重启/回滚全部由 99 的 vault-edit 通过 SSH 内联执行。
 
-```bash
-R32_PW='甲 root 口令' GL_PW='乙 root 口令' scripts/deploy_router_apply.sh
-# 脚本会校验 sha256；手工核验：ssh root@路由 'ls -l /usr/local/sbin/singbox-apply'
-```
+1. 99 侧放凭据（二选一）：
 
-2. 99 侧放凭据（0600 root，内容含口令，不入库）。两种方式等价：
-
-   - **页面方式（推荐，浏览器不保存）**：管理台 → 对应后端 → `配置` → `路由凭据` → 填用户名/口令 → `保存并读取配置`。99 会把口令写入 `/etc/vault-edit/routers.json`（0600），页面提交后立刻清空输入框；`GET /router/credentials` 只回显 user、不回显口令。
+   - **页面方式（推荐，浏览器不保存）**：管理台 → 对应后端 → `配置` → `路由凭据` → 填用户名/口令 → `保存并读取配置`。口令写入 `/etc/vault-edit/routers.json`（0600），页面提交后立即清空；`GET /router/credentials` 只回显 user。
    - **手工方式**：
 
 ```bash
@@ -203,14 +198,16 @@ JSON
 sudo chmod 600 /etc/vault-edit/routers.json && sudo chown root:root /etc/vault-edit/routers.json
 ```
 
-3. 验证（`/health` 应含 `routersReady:true`）：
+2. 验证：
 
 ```bash
-curl -s localhost:9099/health | grep -o '"routersReady":[a-z]*'
-curl -s -H "X-Vault-Key: $VAULT_KEY" 'localhost:9099/router/config?host=192.168.31.32' | head -c 200
+curl -s -H "X-Vault-Key: $VAULT_KEY" 'localhost:9099/router/credentials'
+curl -s -H "X-Vault-Key: $VAULT_KEY" 'localhost:9099/router/config?host=192.168.31.32' | head -c 120
+curl -s -X POST -H "X-Vault-Key: $VAULT_KEY" -H 'Content-Type: application/json' \
+     -d '{"host":"192.168.31.32"}' localhost:9099/router/restart   # 断流约 1–2s
 ```
 
-4. 启用 `golang.org/x/crypto/ssh` 依赖后二进制体积约 7.5 MB（交叉编译命令与 `/publish` 相同，见 `deploy_service.sh`）。
+3. 可选环境变量（99 的 `/etc/vault-edit.env`）：`ROUTERS_FILE`、`ROUTER_HOSTS`（白名单，逗号分隔）、`ROUTER_CONFIG`（默认 `/etc/sing-box/config.json`）、`ROUTER_SINGBOX`（默认 `/opt/sing-box/sing-box`）、`ROUTER_INIT`（默认 `/etc/init.d/sing-box`）。
 
 ## 7. 验证（发布后必跑）
 

@@ -137,33 +137,27 @@ curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:9092/                 
 
 ## 4.6 路由配置通道（2026-11-21 上线，管理台「配置」tab）
 
-sing-box 没有 reload/写配置 API，所以「改节点配置 → 生效」由 99 的服务代做，链路：
+sing-box 没有 reload/写配置 API，所以「改节点配置 → 生效」由 99 的服务编排完成：
 
 ```
 浏览器（管理台「配置」tab，X-Vault-Key）
-   → 99 vault-edit  /router/{config,check,apply,restart}
-   → 受限 SSH（凭据只存 99 的 /etc/vault-edit/routers.json，0600 root，白名单 host）
-   → 路由本地 /usr/local/sbin/singbox-apply（唯一允许执行的脚本）
-       ├ show    输出当前 config.json
-       ├ check   校验 stdin 传入的候选配置（sing-box check）
-       ├ apply   备份 → check → 原子替换 → restart → 健康检查（失败自动回滚）
-       └ restart 仅重启并等健康
+   → 99 vault-edit  /router/{config,check,apply,restart,credentials}
+   → SSH（凭据只存 99 的 /etc/vault-edit/routers.json，0600 root，host 白名单）
+   → 路由上执行内联脚本（sh -s）+ 上传候选配置到 /tmp：
+       ├ config    cat /etc/sing-box/config.json
+       ├ check     上传 /tmp/vault-check-*.json → /opt/sing-box/sing-box check → 清理
+       ├ apply     校验 sha(expectSha) → 上传 /tmp/vault-apply-*.json → check
+       │           → 备份 config.json.bak-<ts>-before-apply → 原子替换 → restart
+       │           → 健康检查（新 pid + :9090 监听）→ 失败自动回滚并重启旧配置
+       └ restart   仅重启 + 健康检查
 ```
 
 要点：
-- **两套凭据要分清**：顶部「发布密钥」= 99 服务鉴权（`X-Vault-Key`，现在与 clash secret 同值）；**路由 SSH 用户名/口令**只存在 99 的 `/etc/vault-edit/routers.json`（0600 root），浏览器不保存。没配时页面会提示，点 `路由凭据` 可现场填写（只提交一次给 99 落盘，页面立即清空口令，列表接口也不回显）。
-- **凭据接口**：`GET /router/credentials`（只返回 host/user/port）、`POST /router/credentials`（写入 0600）、`DELETE /router/credentials?host=`；host 必须在 `ROUTER_HOSTS` 白名单里（默认两台路由），否则 400。
-- **白名单命令**：服务只会执行 `singbox-apply` 的四个动作，不提供任意命令执行。
-- **健康判据**：必须「换了新 pid」且 `:9090` 在监听（只看端口会被旧进程 socket 骗过）；失败自动回滚并重启旧配置。
-- **并发保护**：apply 带 `expectSha`，配置被别人改过会返回 **409 STALE**，需刷新后重试。
-- **实测**：apply/restart 断流约 **1 秒**（`downtime_s=1`）。
-- **前端行为**：「配置」tab 显示节点表（凭证掩码）、`编辑 JSON` 打开 Monaco、实时 diff 与结构校验（tag 重复/组引用/route 引用），`校验` → `应用并重启` → 自动刷新。
-- **表单增删改（2026-11-21）**：`＋ 新增节点` / 行内 `编辑`：按协议字段（ss=vmethod+password；vmess=uuid+security+alter_id；vless=uuid+flow；trojan/hysteria2/tuic/anytls=密码；socks=版本+用户名/密码），可勾 TLS（SNI/insecure）与传输（tcp/ws path/grpc service_name），并勾选加入哪些分组；提交后生成新配置并进入 diff 复核，不会立即下发。
-- **删除引用联动**：删除时自动从所有分组摘除；若组内 `default` 指向它则改成第一个成员；若被 `route.rules[].outbound` 直接引用则**拒绝删除**并说明原因；direct/block 等特殊出站不可删。
-- **分享链接导入**：支持 `ss://`（两种 base64 形态）、`vmess://`（base64 JSON）、`vless://`、`trojan://`、`hysteria2://`、`socks://`，可一次粘贴多行、勾选统一加入的分组，导入后同样先进 diff 复核。
-- **格式说明**：表单/导入走的是「解析 → 改结构 → 按文件现有缩进与行尾重新序列化」，所以手写紧凑处（如 `"rules":[`）会被规范成 `"rules": [`，diff 里会多出个别纯格式行；只改 JSON 文本（Monaco 手改）时不会动其它行。
-- **部署**：`R32_PW=… GL_PW=… scripts/deploy_router_apply.sh`（只装路由脚本，不碰配置）；routers.json 需手工放 99（含口令，不入库）。
-- **回滚**：路由上每次 apply 前都有 `/etc/sing-box/config.json.bak-<ts>-before-apply`；页面也可改回原内容再 apply。
+- **路由上不需要预装任何脚本**（早期版本的 `/usr/local/sbin/singbox-apply` 已废弃并清理）；用到的都是路由既有命令：`/opt/sing-box/sing-box`、`/etc/init.d/sing-box`、`netstat`、`sha256sum`、`cp/mv`。可用环境变量覆盖：`ROUTER_CONFIG` / `ROUTER_SINGBOX` / `ROUTER_INIT`。
+- **两套凭据要分清**：顶部「发布密钥」= 99 服务鉴权（`X-Vault-Key`）；**路由 SSH 用户名/口令**只存在 99 的 `/etc/vault-edit/routers.json`（0600 root），浏览器不保存。没配时页面会提示，点 `路由凭据` 可现场填写（只提交一次给 99 落盘，页面立即清空口令，列表接口也不回显）。
+- **并发保护**：apply 带 `expectSha`，配置被别人改过返回 **409 STALE**；内容没变返回 `NO_CHANGE`（不重启）。
+- **实测**：apply 约 1.3s、restart 约 1.1–2.4s，`downtime_s=1~2`。
+- **凭据接口**：`GET/POST/DELETE /router/credentials`；host 必须在 `ROUTER_HOSTS` 白名单（默认两台路由）。
 
 ## 5. 坑（都是踩过的）
 

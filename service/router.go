@@ -1,16 +1,16 @@
 package main
 
-// router.go — 通过受限 SSH 操作两台路由上的 sing-box
+// router.go — 从 99 通过 SSH 操作两台路由上的 sing-box 配置
 //
 // 背景：sing-box 没有任何 reload/写配置 API（Clash API 的 PUT /configs 是空实现，
 // 1.15 的 services{type:"api"} 是 gRPC 运行时观测，同样不能改配置）。
 // 因此「改节点配置 → 生效」只能落到「备份 → sing-box check → 替换 config.json → 重启 → 健康检查（失败回滚）」。
 //
-// 安全模型：
-//   - 凭据只存在 99 的 /etc/vault-edit/routers.json（0600，root），不在源码/页面/日志出现；
-//   - 只允许操作 routers.json 白名单内的 host；
-//   - 所有危险动作都在路由器本地的 /usr/local/sbin/singbox-apply 内完成，本服务只会执行这一个脚本；
-//   - 接口与 /publish 同样要求 X-Vault-Key。
+// 设计（2026-11-21 调整）：
+//   - 全部编排都在 99 本服务里完成：通过 SSH 上传候选配置到路由 /tmp，再在路由上执行内联脚本；
+//   - 路由上**不需要预装任何脚本**，只用到 /opt/sing-box/sing-box、/etc/init.d/sing-box、netstat 等既有命令；
+//   - 凭据只存在 99 的 /etc/vault-edit/routers.json（0600 root），host 必须命中 ROUTER_HOSTS 白名单；
+//   - 所有接口与 /publish 一样要求 X-Vault-Key。
 
 import (
 	"bytes"
@@ -30,7 +30,11 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-const routerApplyPath = "/usr/local/sbin/singbox-apply"
+const (
+	defaultRouterConfig = "/etc/sing-box/config.json"
+	defaultRouterBin    = "/opt/sing-box/sing-box"
+	defaultRouterInit   = "/etc/init.d/sing-box"
+)
 
 type routerCred struct {
 	Name     string `json:"name"`
@@ -68,27 +72,6 @@ func routerHosts() map[string]bool {
 	return out
 }
 
-// 写 routers.json：原子替换 + 0600
-func saveRouters(m map[string]routerCred) error {
-	b, err := json.MarshalIndent(m, "", "  ")
-	if err != nil {
-		return err
-	}
-	b = append(b, '\n')
-	dir := filepath.Dir(routersFile())
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	tmp := routersFile() + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
-		return err
-	}
-	if err := os.Chmod(tmp, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, routersFile())
-}
-
 func loadRouters() (map[string]routerCred, error) {
 	b, err := os.ReadFile(routersFile())
 	if err != nil {
@@ -110,6 +93,27 @@ func loadRouters() (map[string]routerCred, error) {
 	return m, nil
 }
 
+// 写 routers.json：原子替换 + 0600
+func saveRouters(m map[string]routerCred) error {
+	b, err := json.MarshalIndent(m, "", "  ")
+	if err != nil {
+		return err
+	}
+	b = append(b, '\n')
+	dir := filepath.Dir(routersFile())
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	tmp := routersFile() + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+		return err
+	}
+	if err := os.Chmod(tmp, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, routersFile())
+}
+
 func pickRouter(host string) (routerCred, string, error) {
 	host = strings.TrimSpace(host)
 	if host == "" {
@@ -129,13 +133,31 @@ func pickRouter(host string) (routerCred, string, error) {
 	return c, host, nil
 }
 
-// sshRun 在路由器上执行 singbox-apply，返回合并输出。
-func sshRun(host string, cred routerCred, mode string, stdin []byte, timeout time.Duration) (string, error) {
+// ---- SSH 基础 ----
+
+// sshExec 执行一条命令（stdin 可选）。dropbear 偶尔会在连续连接时握手失败，这里做 3 次重试。
+func sshExec(host string, cred routerCred, cmd string, stdin []byte, timeout time.Duration) (string, error) {
+	var lastErr error
+	for attempt := 1; attempt <= 3; attempt++ {
+		out, err := sshExecOnce(host, cred, cmd, stdin, timeout)
+		if err == nil {
+			return out, nil
+		}
+		lastErr = err
+		if strings.Contains(err.Error(), "Permission denied") {
+			return out, err // 口令错就别重试
+		}
+		time.Sleep(time.Duration(attempt) * 400 * time.Millisecond)
+	}
+	return "", lastErr
+}
+
+func sshExecOnce(host string, cred routerCred, cmd string, stdin []byte, timeout time.Duration) (string, error) {
 	cfg := &ssh.ClientConfig{
 		User:            cred.User,
 		Auth:            []ssh.AuthMethod{ssh.Password(cred.Password)},
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(), // 内网设备，无稳定 host key
-		Timeout:         10 * time.Second,
+		Timeout:         8 * time.Second,
 	}
 	addr := net.JoinHostPort(host, fmt.Sprint(cred.Port))
 	client, err := ssh.Dial("tcp", addr, cfg)
@@ -150,7 +172,7 @@ func sshRun(host string, cred routerCred, mode string, stdin []byte, timeout tim
 	}
 	defer sess.Close()
 
-	// 注意：x/crypto/ssh 不允许 Stdout/Stderr 共用同一个 writer（会丢输出），必须分开
+	// 注意：x/crypto/ssh 不允许 Stdout/Stderr 共用同一个 writer（会丢输出）
 	var outBuf, errBuf bytes.Buffer
 	sess.Stdout = &outBuf
 	sess.Stderr = &errBuf
@@ -158,7 +180,6 @@ func sshRun(host string, cred routerCred, mode string, stdin []byte, timeout tim
 		sess.Stdin = bytes.NewReader(stdin)
 	}
 
-	cmd := routerApplyPath + " " + mode
 	done := make(chan error, 1)
 	go func() { done <- sess.Run(cmd) }()
 	select {
@@ -177,6 +198,176 @@ func sshRun(host string, cred routerCred, mode string, stdin []byte, timeout tim
 	return combined, err
 }
 
+func routerConfigPath() string { return env("ROUTER_CONFIG", defaultRouterConfig) }
+func routerBin() string        { return env("ROUTER_SINGBOX", defaultRouterBin) }
+func routerInit() string       { return env("ROUTER_INIT", defaultRouterInit) }
+
+// 健康检查脚本片段：必须换新 pid 且 9090 在监听（只看端口会被旧进程残留 socket 骗过）
+func healthSnippet() string {
+	return `sbg_pid() { ps w 2>/dev/null | grep '[s]ing-box run' | awk '{print $1}' | head -1; }
+health() {
+  old="$1"; i=0
+  while [ "$i" -lt 60 ]; do
+    pid=$(sbg_pid)
+    if [ -n "$pid" ] && [ "$pid" != "$old" ] && netstat -lnt 2>/dev/null | grep -q ':9090 '; then return 0; fi
+    i=$((i+1)); sleep 1
+  done
+  return 1
+}`
+}
+
+// ---- 具体动作（全部由 99 编排） ----
+
+func remoteReadConfig(host string, cred routerCred) (string, error) {
+	return sshExec(host, cred, "cat "+routerConfigPath(), nil, 30*time.Second)
+}
+
+func remoteConfigSha(host string, cred routerCred) (string, error) {
+	out, err := sshExec(host, cred, "sha256sum "+routerConfigPath()+" | cut -d' ' -f1", nil, 20*time.Second)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(strings.SplitN(out, "\n", 2)[0]), nil
+}
+
+func remoteUpload(host string, cred routerCred, path string, content []byte) error {
+	out, err := sshExec(host, cred, "umask 077; cat > "+path, content, 30*time.Second)
+	if err != nil {
+		return fmt.Errorf("上传失败: %w %s", err, cleanLine(out))
+	}
+	return nil
+}
+
+func remoteCheckConfig(host string, cred routerCred, content string) (bool, string) {
+	tmp := fmt.Sprintf("/tmp/vault-check-%d.json", time.Now().UnixNano())
+	if err := remoteUpload(host, cred, tmp, []byte(content)); err != nil {
+		return false, err.Error()
+	}
+	out, err := sshExec(host, cred, routerBin()+" check -c "+tmp+"; rc=$?; rm -f "+tmp+"; exit $rc", nil, 90*time.Second)
+	return err == nil, strings.TrimSpace(out)
+}
+
+// applyResult 是 apply 的解析结果
+type applyResult struct {
+	Changed bool   `json:"changed"`
+	Log     string `json:"log"`
+}
+
+func remoteApplyConfig(host string, cred routerCred, content, expectSha string) (applyResult, error) {
+	cur, err := remoteConfigSha(host, cred)
+	if err != nil {
+		return applyResult{}, fmt.Errorf("读取当前配置失败: %w", err)
+	}
+	newSum := sha256.Sum256([]byte(content))
+	newSha := hex.EncodeToString(newSum[:])
+	logLine := fmt.Sprintf("current_sha=%s\ncandidate_sha=%s\n", cur, newSha)
+
+	if expectSha != "" && expectSha != cur {
+		return applyResult{}, fmt.Errorf("STALE 配置已被他人修改（expected=%s current=%s），请刷新后重试", expectSha, cur)
+	}
+	if newSha == cur {
+		return applyResult{Changed: false, Log: logLine + "NO_CHANGE"}, nil
+	}
+
+	tmp := fmt.Sprintf("/tmp/vault-apply-%d.json", time.Now().UnixNano())
+	if err := remoteUpload(host, cred, tmp, []byte(content)); err != nil {
+		return applyResult{}, err
+	}
+
+	cfg := routerConfigPath()
+	script := healthSnippet() + `
+set -u
+TMP="` + tmp + `"
+CFG="` + cfg + `"
+SB="` + routerBin() + `"
+INIT="` + routerInit() + `"
+TS=$(date +%Y%m%d-%H%M%S)
+
+if ! OUT=$("$SB" check -c "$TMP" 2>&1); then
+  echo "CHECK_FAILED"; echo "$OUT"; rm -f "$TMP"; exit 13
+fi
+BAK="$CFG.bak-$TS-before-apply"
+cp -p "$CFG" "$BAK" || { echo "BACKUP_FAILED"; rm -f "$TMP"; exit 14; }
+cp -p "$TMP" "$CFG.tmp" && chmod 644 "$CFG.tmp" && mv "$CFG.tmp" "$CFG" || { echo "INSTALL_FAILED"; rm -f "$TMP"; exit 15; }
+rm -f "$TMP"
+echo "BACKUP=$BAK"
+
+OLD=$(sbg_pid)
+T0=$(date +%s)
+"$INIT" restart >/dev/null 2>&1
+if health "$OLD"; then
+  echo "APPLIED"
+  echo "sha=` + newShaPlaceholder() + `"
+  echo "downtime_s=$(( $(date +%s) - T0 ))"
+  exit 0
+fi
+echo "UNHEALTHY_ROLLBACK"
+cp -p "$BAK" "$CFG"
+OLD=$(sbg_pid)
+"$INIT" restart >/dev/null 2>&1
+if health "$OLD"; then echo "ROLLBACK_OK"; else echo "ROLLBACK_FAILED"; fi
+exit 16
+`
+	// 用候选内容的 sha 回填脚本里的占位符（避免把整份配置塞进脚本）
+	script = strings.ReplaceAll(script, newShaPlaceholder(), newSha)
+
+	out, err := sshExec(host, cred, "sh -s", []byte(script), 180*time.Second)
+	full := logLine + out
+	switch {
+	case strings.Contains(out, "CHECK_FAILED"):
+		return applyResult{}, fmt.Errorf("sing-box check 未通过：%s", cleanLine(out))
+	case strings.Contains(out, "ROLLBACK_OK"):
+		return applyResult{}, fmt.Errorf("新配置重启后不健康，已自动回滚：%s", cleanLine(out))
+	case strings.Contains(out, "APPLIED"):
+		return applyResult{Changed: true, Log: full}, nil
+	case err != nil:
+		return applyResult{}, fmt.Errorf("应用失败：%v %s", err, cleanLine(full))
+	default:
+		return applyResult{}, fmt.Errorf("应用失败：%s", cleanLine(full))
+	}
+}
+
+func newShaPlaceholder() string { return "__CANDIDATE_SHA__" }
+
+func remoteRestart(host string, cred routerCred) (string, error) {
+	script := healthSnippet() + `
+set -u
+INIT="` + routerInit() + `"
+OLD=$(sbg_pid)
+T0=$(date +%s)
+"$INIT" restart >/dev/null 2>&1
+if health "$OLD"; then
+  echo "RESTARTED"
+  echo "downtime_s=$(( $(date +%s) - T0 ))"
+  exit 0
+fi
+echo "RESTART_UNHEALTHY"
+exit 17
+`
+	out, err := sshExec(host, cred, "sh -s", []byte(script), 120*time.Second)
+	if err != nil || !strings.Contains(out, "RESTARTED") {
+		return out, fmt.Errorf("重启失败: %s", cleanLine(out))
+	}
+	return out, nil
+}
+
+func cleanLine(s string) string {
+	s = strings.ReplaceAll(s, "\r", "")
+	lines := strings.Split(strings.TrimSpace(s), "\n")
+	out := make([]string, 0, len(lines))
+	for _, l := range lines {
+		if l = strings.TrimSpace(l); l != "" {
+			out = append(out, l)
+		}
+		if len(out) >= 6 {
+			break
+		}
+	}
+	return strings.Join(out, " | ")
+}
+
+// ---- HTTP handlers ----
+
 func routerAuthorized(w http.ResponseWriter, r *http.Request) bool {
 	setCors(w.Header(), r.Header.Get("Origin"))
 	if r.Method == http.MethodOptions {
@@ -190,7 +381,7 @@ func routerAuthorized(w http.ResponseWriter, r *http.Request) bool {
 	return true
 }
 
-// GET /router/config?host=192.168.31.32
+// GET /router/config?host=
 func handleRouterConfig(w http.ResponseWriter, r *http.Request) {
 	if !routerAuthorized(w, r) {
 		return
@@ -201,9 +392,9 @@ func handleRouterConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	t0 := time.Now()
-	out, err := sshRun(host, cred, "show", nil, 30*time.Second)
+	out, err := remoteReadConfig(host, cred)
 	if err != nil {
-		fail(w, 502, "读取失败: "+err.Error()+" "+truncStr(out, 300))
+		fail(w, 502, "读取失败: "+err.Error()+" "+cleanLine(out))
 		return
 	}
 	sum := sha256.Sum256([]byte(out))
@@ -215,7 +406,7 @@ func handleRouterConfig(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// POST /router/restart {"host": "..."}
+// POST /router/restart {"host"}
 func handleRouterRestart(w http.ResponseWriter, r *http.Request) {
 	if !routerAuthorized(w, r) {
 		return
@@ -228,14 +419,13 @@ func handleRouterRestart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	t0 := time.Now()
-	out, err := sshRun(host, cred, "restart", nil, 120*time.Second)
-	ok := strings.Contains(out, "RESTARTED")
-	if err != nil || !ok {
-		log.Printf("router restart %s failed: %v %s", host, err, oneLine(out))
-		fail(w, 502, "重启失败: "+oneLine(out))
+	out, err := remoteRestart(host, cred)
+	if err != nil {
+		log.Printf("router restart %s failed: %v", host, err)
+		fail(w, 502, err.Error())
 		return
 	}
-	log.Printf("router restart %s ok (%dms) %s", host, time.Since(t0).Milliseconds(), oneLine(out))
+	log.Printf("router restart %s ok (%dms) %s", host, time.Since(t0).Milliseconds(), cleanLine(out))
 	writeJSON(w, 200, map[string]any{"ok": true, "host": host, "log": out, "ms": time.Since(t0).Milliseconds()})
 }
 
@@ -254,9 +444,12 @@ func handleRouterCheck(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, err.Error())
 		return
 	}
-	out, err := sshRun(host, cred, "check", []byte(req.Config), 90*time.Second)
-	ok := err == nil
-	writeJSON(w, 200, map[string]any{"ok": ok, "host": host, "output": oneLine(out)})
+	if strings.TrimSpace(req.Config) == "" {
+		fail(w, 400, "config 为空")
+		return
+	}
+	ok, out := remoteCheckConfig(host, cred, req.Config)
+	writeJSON(w, 200, map[string]any{"ok": ok, "host": host, "output": cleanLine(out)})
 }
 
 // POST /router/apply {"host","config","expectSha"}
@@ -278,55 +471,46 @@ func handleRouterApply(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, err.Error())
 		return
 	}
-	mode := "apply"
-	if req.ExpectSha != "" {
-		mode = "apply " + req.ExpectSha
-	}
 	t0 := time.Now()
-	out, err := sshRun(host, cred, mode, []byte(req.Config), 180*time.Second)
-	trimmed := oneLine(out)
-	switch {
-	case err == nil && strings.Contains(out, "NO_CHANGE"):
-		writeJSON(w, 200, map[string]any{"ok": true, "changed": false, "host": host, "log": out, "ms": time.Since(t0).Milliseconds()})
-		return
-	case err == nil && strings.Contains(out, "APPLIED"):
-		log.Printf("router apply %s ok (%dms) %s", host, time.Since(t0).Milliseconds(), trimmed)
-		writeJSON(w, 200, map[string]any{"ok": true, "changed": true, "host": host, "log": out, "ms": time.Since(t0).Milliseconds()})
-		return
-	case strings.Contains(out, "STALE"):
-		fail(w, 409, "配置已被他人修改，请刷新后重试："+trimmed)
-		return
-	case strings.Contains(out, "CHECK_FAILED"):
-		fail(w, 422, "sing-box check 未通过："+trimmed)
-		return
-	case strings.Contains(out, "ROLLBACK_OK"):
-		fail(w, 502, "新配置重启后不健康，已自动回滚："+trimmed)
-		return
-	default:
-		log.Printf("router apply %s failed: %v %s", host, err, trimmed)
-		fail(w, 502, "应用失败："+trimmed)
+	res, err := remoteApplyConfig(host, cred, req.Config, req.ExpectSha)
+	if err != nil {
+		msg := err.Error()
+		code := 502
+		switch {
+		case strings.Contains(msg, "STALE"):
+			code = 409
+		case strings.Contains(msg, "check 未通过"):
+			code = 422
+		}
+		log.Printf("router apply %s failed (%d): %s", host, code, msg)
+		fail(w, code, msg)
 		return
 	}
+	log.Printf("router apply %s changed=%v (%dms) %s", host, res.Changed, time.Since(t0).Milliseconds(), cleanLine(res.Log))
+	writeJSON(w, 200, map[string]any{
+		"ok": true, "changed": res.Changed, "host": host, "log": res.Log,
+		"ms": time.Since(t0).Milliseconds(),
+	})
 }
+
+// ---- 凭据管理 ----
 
 // GET /router/credentials —— 只返回 host/user/port，绝不回显口令
 func handleRouterCredentialsList(w http.ResponseWriter, r *http.Request) {
 	if !routerAuthorized(w, r) {
 		return
 	}
-	all, err := loadRouters()
+	all, _ := loadRouters()
 	list := make([]map[string]any, 0, len(all))
 	for host, c := range all {
 		list = append(list, map[string]any{
 			"host": host, "name": c.Name, "user": c.User, "port": c.Port, "configured": c.Password != "",
 		})
 	}
-	if err != nil {
-		// 文件不存在时返回空列表 + 白名单，供页面首次填写
-		writeJSON(w, 200, map[string]any{"ok": true, "hosts": list, "allow": keysOf(routerHosts()), "file": routersFile()})
-		return
-	}
-	writeJSON(w, 200, map[string]any{"ok": true, "hosts": list, "allow": keysOf(routerHosts()), "file": routersFile()})
+	writeJSON(w, 200, map[string]any{
+		"ok": true, "hosts": list, "allow": keysOf(routerHosts()), "file": routersFile(),
+		"config": routerConfigPath(), "bin": routerBin(), "init": routerInit(),
+	})
 }
 
 // POST /router/credentials {host,user,password,port?,name?}
@@ -398,26 +582,4 @@ func keysOf(m map[string]bool) []string {
 		out = append(out, k)
 	}
 	return out
-}
-
-func oneLine(s string) string {
-	s = strings.ReplaceAll(s, "\r", "")
-	lines := strings.Split(strings.TrimSpace(s), "\n")
-	out := make([]string, 0, len(lines))
-	for _, l := range lines {
-		if l = strings.TrimSpace(l); l != "" {
-			out = append(out, l)
-		}
-		if len(out) >= 6 {
-			break
-		}
-	}
-	return strings.Join(out, " | ")
-}
-
-func truncStr(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n]
 }
