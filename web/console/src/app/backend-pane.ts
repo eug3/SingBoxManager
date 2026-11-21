@@ -16,9 +16,10 @@ import {
 import { Backend, Connection, LAT_LOW, LAT_MID, PAGE_ORIGINS, ProxyNode, RuleEntry } from './models';
 import { BackendsService } from './backends.service';
 import { OverviewPane } from './overview';
+import { ConfigPane } from './config-pane';
 import { ClashService } from './clash.service';
 
-type PaneTab = 'overview' | 'groups' | 'connections' | 'logs' | 'rules';
+type PaneTab = 'overview' | 'groups' | 'connections' | 'logs' | 'rules' | 'config';
 interface LogLine {
   type: string;
   text: string;
@@ -27,7 +28,7 @@ interface LogLine {
 @Component({
   selector: 'app-backend-pane',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [OverviewPane],
+  imports: [OverviewPane, ConfigPane],
   templateUrl: './backend-pane.html',
   styles: `
     :host {
@@ -65,6 +66,7 @@ export class BackendPane implements OnInit, OnDestroy {
     { key: 'connections', label: '连接' },
     { key: 'logs', label: '日志' },
     { key: 'rules', label: '规则' },
+    { key: 'config', label: '配置' },
   ];
 
   readonly version = signal('');

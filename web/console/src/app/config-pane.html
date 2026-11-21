@@ -1,0 +1,84 @@
+@if (err()) {
+  <div class="banner show">✗ {{ err() }}</div>
+}
+
+<div class="cfgbar">
+  <span class="dim small">路由</span>
+  <b>{{ host() }}</b>
+  @if (loaded()) {
+    <span class="dim small">{{ size() }} B</span>
+    <span class="dim small">sha {{ sha().slice(0, 12) }}</span>
+  }
+  <span class="spacer"></span>
+  <button (click)="reload()" [disabled]="busy()">刷新</button>
+  <button (click)="restart()" [disabled]="busy() || !loaded()">重启 sing-box</button>
+  <button (click)="toggleEdit()" [disabled]="busy() || !loaded()">
+    {{ editing() ? '退出编辑' : '编辑配置' }}
+  </button>
+</div>
+
+@if (!loaded() && !busy() && !err()) {
+  <div class="dim small" style="padding: 10px 0">读取中…（需要顶部发布密钥；99 需配置该路由的 SSH 凭据）</div>
+}
+
+@if (editing()) {
+  <div class="cfgwarn">
+    ⚠ 编辑的是整份 <code>config.json</code>（含节点密钥/UUID）。保存会写回 {{ host() }} 并重启 sing-box（约 1 秒断流，失败自动回滚）。
+  </div>
+  <app-monaco-editor [value]="raw()" (valueChange)="onEdit($event)" />
+  @if (jsonError()) {
+    <div class="dim small" style="color: var(--bad)">JSON 语法错误：{{ jsonError() }}</div>
+  }
+  <div class="cfgactions">
+    <button (click)="check()" [disabled]="busy()">校验（sing-box check）</button>
+    <button class="acc" (click)="apply()" [disabled]="busy()">应用并重启</button>
+    <button (click)="revert()" [disabled]="busy()">还原</button>
+    <span class="dim small">
+      变更：<b style="color: var(--acc)">+{{ diff().adds }}</b> / <b style="color: var(--bad)">-{{ diff().dels }}</b> 行
+    </span>
+  </div>
+  @if (diff().lines.length) {
+    <pre class="cfgdiff">@for (l of diff().lines; track $index) {<span [class.add]="l.kind === 'add'" [class.del]="l.kind === 'del'">{{ l.kind === 'add' ? '+ ' : '- ' }}{{ l.text }}
+</span>}</pre>
+  }
+  @if (issues().length) {
+    <div class="cfgissues">
+      <b>结构校验 {{ issues().length }} 条：</b>
+      @for (i of issues().slice(0, 12); track $index) {
+        <div>· {{ i }}</div>
+      }
+    </div>
+  }
+} @else if (loaded()) {
+  <div class="cfgnodes">
+    <div class="cfgnodeshd">
+      <span>节点 {{ nodes().length }} 个（outbounds 里的代理节点 + endpoints）</span>
+      <span class="dim small">只读视图；改配置请点「编辑配置」</span>
+    </div>
+    <div class="tblwrap" style="max-height: 340px; overflow: auto">
+      <table>
+        <thead>
+          <tr><th>标签</th><th>类型</th><th>服务器</th><th>凭证</th><th>所属组</th><th>route 引用</th></tr>
+        </thead>
+        <tbody>
+          @for (n of nodes(); track n.tag) {
+            <tr>
+              <td>{{ n.tag }}</td>
+              <td><span class="tag">{{ n.type }}</span></td>
+              <td class="dim">{{ n.server }}</td>
+              <td class="dim">{{ n.credential }}</td>
+              <td class="dim small">{{ n.groups.length ? n.groups.join('、') : '—' }}</td>
+              <td class="dim small">{{ n.routeRefs || '—' }}</td>
+            </tr>
+          } @empty {
+            <tr><td colspan="6" class="dim small">没有解析到节点</td></tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  </div>
+}
+
+@if (log()) {
+  <pre class="cfglog">{{ log() }}</pre>
+}

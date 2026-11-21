@@ -173,6 +173,10 @@
     </div>
   }
 
+  @case ('config') {
+    <app-config-pane [backend]="backend()" />
+  }
+
   @case ('rules') {
     <div class="bar">
       <button (click)="loadRules()">重新拉取</button>
