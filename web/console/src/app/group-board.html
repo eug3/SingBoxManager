@@ -1,0 +1,87 @@
+<div class="gboard">
+  <!-- 重启语义图例 + 操作提示 -->
+  <div class="gblegend">
+    <span class="gbleg restart">改分组 = 改 config 结构 → 需重启（约 1s）</span>
+    <span class="gbleg free">改桶内容才免重启（约 60s 自动生效，去「规则编辑」改）</span>
+    <span class="dim small">把 chip 拖到某个分组列 = 加入该组；拖回「未分组」= 从所有分组移除。放下只是暂存，点顶部「应用并重启」才写回路由</span>
+  </div>
+
+  @if (!base()) {
+    <div class="dim small">原始配置解析失败，暂无分组可读</div>
+  } @else {
+    <div class="gbcols">
+      <!-- ===== 未分组池：拖到这里 = 从所有分组移除 ===== -->
+      <div
+        class="gbcol pool"
+        [class.dragover]="overGroup() === poolColumn"
+        (dragover)="onDragOver(poolColumn, $event)"
+        (dragleave)="onDragLeave(poolColumn, $event)"
+        (drop)="onDrop(poolColumn, $event)"
+      >
+        <div class="gbcolhd">
+          <b class="gbtitle">未分组</b>
+          <span class="gbtype">池</span>
+          <span class="gbcount">{{ board().pool.length }} 个</span>
+          <span class="gbdef">拖回这里 = 从所有分组移除</span>
+        </div>
+        <div class="gbchips">
+          @for (tag of board().pool; track tag) {
+            <span
+              class="gbchip"
+              [class.special]="metaOf(tag).special"
+              [class.dragging]="dragging() === tag"
+              draggable="true"
+              [title]="chipTitle(tag)"
+              (dragstart)="onDragStart(tag, $event)"
+              (dragend)="onDragEnd()"
+            >
+              <span class="gbtag">{{ tag }}</span>
+              <span class="gbproto">{{ metaOf(tag).type }}</span>
+            </span>
+          } @empty {
+            <div class="gbempty">所有条目都已归组</div>
+          }
+        </div>
+      </div>
+
+      <!-- ===== 每个分组一列（selector / urltest） ===== -->
+      @for (g of board().groups; track g.tag) {
+        <div
+          class="gbcol"
+          [class.dragover]="overGroup() === g.tag"
+          (dragover)="onDragOver(g.tag, $event)"
+          (dragleave)="onDragLeave(g.tag, $event)"
+          (drop)="onDrop(g.tag, $event)"
+        >
+          <div class="gbcolhd">
+            <b class="gbtitle" [title]="g.tag">{{ g.tag }}</b>
+            <span class="gbtype">{{ g.type }}</span>
+            <span class="gbcount">{{ g.count }} 个</span>
+            <span class="gbdef" [title]="'default: ' + (g.default || '（未设置）')">default {{ g.default || '—' }}</span>
+          </div>
+          <div class="gbchips">
+            @for (tag of g.members; track tag) {
+              <span
+                class="gbchip"
+                [class.special]="metaOf(tag).special"
+                [class.nested]="isGroupTag(tag)"
+                [class.dragging]="dragging() === tag"
+                draggable="true"
+                [title]="chipTitle(tag)"
+                (dragstart)="onDragStart(tag, $event)"
+                (dragend)="onDragEnd()"
+              >
+                <span class="gbtag">{{ tag }}</span>
+                <span class="gbproto">{{ metaOf(tag).type }}</span>
+              </span>
+            } @empty {
+              <div class="gbempty">空组 · 把 chip 拖到这里</div>
+            }
+          </div>
+        </div>
+      } @empty {
+        <div class="gbempty">这份配置里没有 selector / urltest 分组</div>
+      }
+    </div>
+  }
+</div>

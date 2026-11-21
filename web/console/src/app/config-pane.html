@@ -58,6 +58,7 @@
   <button (click)="openAdd()" [disabled]="busy() || !loaded()">＋ 新增节点</button>
   <button (click)="toggleImport()" [disabled]="busy() || !loaded()">导入分享链接</button>
   <button (click)="rulesOpen.update(v => !v)" [disabled]="busy() || !loaded()">分流规则</button>
+  <button (click)="boardOpen.update(v => !v)" [disabled]="busy() || !loaded()">分组看板</button>
   <button (click)="toggleCreds()" [disabled]="busy()">路由凭据</button>
   <button (click)="toggleEdit()" [disabled]="busy() || !loaded()">
     {{ editing() ? '退出编辑' : '编辑 JSON' }}
@@ -198,7 +199,11 @@
 } @else if (loaded()) {
   <!-- ===== 分流规则选择器（基准=原始配置；停用/启用=改 config 结构，需重启） ===== -->
   @if (rulesOpen()) {
-    <app-rule-selector [base]="origDoc()" (docChange)="onRulesDoc($event)" />
+    <app-rule-selector [base]="workDoc()" (docChange)="onRulesDoc($event)" />
+  }
+  <!-- ===== 分组看板（基准=原始配置；拖拽改分组成员=改 config 结构，需重启） ===== -->
+  @if (boardOpen()) {
+    <app-group-board [base]="workDoc()" (docChange)="onBoardDoc($event)" />
   }
   <div class="cfgnodes">
     <div class="cfgnodeshd">
@@ -384,6 +389,15 @@
     </div>
   </div>
 }
+
+  <!-- ===== 分流规则选择器（基准=当前文档；停用/启用=改 config 结构，需重启） ===== -->
+  @if (rulesOpen()) {
+    <app-rule-selector [base]="workDoc()" (docChange)="onRulesDoc($event)" />
+  }
+  <!-- ===== 分组看板（基准=当前文档；拖拽改分组成员=改 config 结构，需重启） ===== -->
+  @if (boardOpen()) {
+    <app-group-board [base]="workDoc()" (docChange)="onBoardDoc($event)" />
+  }
 
 @if (log()) {
   <pre class="cfglog">{{ log() }}</pre>

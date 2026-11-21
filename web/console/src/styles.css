@@ -794,3 +794,34 @@ tr.oldconn td { background: #fffaf0; }
 .rselbadge.local { color: #5a6a7d; border-color: var(--line); background: #f2f6fb; }
 .rselbadge.restart { color: #8a6100; border-color: #efd89b; background: #fff8e6; }
 .rselempty { padding: 6px 8px; }
+
+/* 分组看板（配置页只读视图内；拖 chip 改分组成员 = 改 config 结构，需「应用并重启」） */
+.gboard { border: 1px solid var(--line); background: var(--panel); padding: 10px 12px; margin: 8px 0 10px; }
+.gblegend { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.gbleg { font-size: 10px; line-height: 16px; padding: 1px 8px; border: 1px solid; border-radius: 2px; white-space: nowrap; }
+.gbleg.restart { color: #8a6100; border-color: #efd89b; background: #fff8e6; }
+.gbleg.free { color: #0d7a4f; border-color: #b7e3cd; background: #eafaf1; }
+/* 横向滚动：未分组 + 每个分组一列，列高不撑破页面 */
+.gbcols { display: flex; align-items: flex-start; gap: 10px; overflow-x: auto; overflow-y: hidden; padding: 2px 2px 8px; }
+.gbcol { flex: 0 0 190px; width: 190px; border: 1px solid var(--line); background: #fbfdff; display: flex; flex-direction: column; }
+.gbcol.pool { border-style: dashed; }
+/* 拖拽悬停高亮（只有「放下真的会改配置」时才会亮） */
+.gbcol.dragover { border-style: solid; border-color: var(--acc); background: #f1faf6; box-shadow: 0 0 0 2px rgba(15, 143, 104, .18); }
+.gbcolhd { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; padding: 6px 8px; border-bottom: 1px solid #eef2f8; background: #f7f9fc; }
+.gbcolhd .gbtitle { font-size: 12px; color: #16202c; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gbcolhd .gbtype { font-size: 10px; line-height: 15px; padding: 0 5px; border: 1px solid var(--line); background: #eef3fa; color: #4c5d72; }
+.gbcolhd .gbcount { font-size: 10px; color: var(--dim); }
+.gbcolhd .gbdef { flex: 1 0 100%; font-size: 10px; line-height: 15px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gbchips { display: flex; flex-direction: column; gap: 4px; padding: 6px 8px; max-height: 260px; overflow-y: auto; }
+.gbchip { display: flex; align-items: center; gap: 6px; padding: 3px 6px; border: 1px solid var(--line); background: #fff; font-size: 11px; color: var(--ink); cursor: grab; user-select: none; }
+.gbchip:active { cursor: grabbing; }
+.gbchip:hover { border-color: var(--acc); }
+.gbchip .gbtag { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gbchip .gbproto { flex: 0 0 auto; font-size: 10px; line-height: 14px; padding: 0 4px; border: 1px solid var(--line); background: #f7f9fc; color: var(--dim); }
+/* special 底色：direct / block / dns 等特殊出站，与代理节点区分开 */
+.gbchip.special { background: #f6f3fb; border-color: #ddd4ef; }
+.gbchip.special .gbproto { background: #efe9fa; border-color: #ddd4ef; color: #5b4a86; }
+/* 嵌套分组（selector 里套 urltest）：可拖回「未分组」，但不能拖进别的分组 */
+.gbchip.nested { background: #fff8e6; border-color: #efd89b; }
+.gbchip.dragging { opacity: .45; }
+.gbempty { padding: 8px 6px; font-size: 10px; color: var(--dim); border: 1px dashed var(--line); text-align: center; }

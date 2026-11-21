@@ -4,6 +4,7 @@ import { RouterCredInfo, RouterService } from './router.service';
 import { BackendsService } from './backends.service';
 import { MonacoEditorComponent } from './monaco-editor';
 import { RuleSelector } from './rule-selector';
+import { GroupBoard } from './group-board';
 import { AnyObj, ConfigDoc, addNode, deleteImpact, deleteNode, findNode, groups, nodes, parseConfig, serializeConfig, updateNode, validateDoc } from './config-ops';
 import { ParsedNode, parseShareLinks } from './share-link';
 import { NodeForm, NODE_TYPES, buildNode, emptyForm, formFromNode } from './node-form';
@@ -26,7 +27,7 @@ type FormMode = 'none' | 'add' | 'edit';
 @Component({
   selector: 'app-config-pane',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [MonacoEditorComponent, RuleSelector],
+  imports: [MonacoEditorComponent, RuleSelector, GroupBoard],
   templateUrl: './config-pane.html',
 })
 export class ConfigPane {
@@ -56,6 +57,9 @@ export class ConfigPane {
 
   // —— 分流规则选择器（只读视图内；基准是原始配置，见 origDoc）——
   readonly rulesOpen = signal(false);
+
+  // —— 分组看板（只读视图内；拖拽改分组成员=改 config 结构，同样走暂存复核）——
+  readonly boardOpen = signal(false);
 
   // —— 分享链接导入 ——
   readonly importOpen = signal(false);
@@ -104,6 +108,9 @@ export class ConfigPane {
   });
 
   /** 原始配置（最近一次读取）的结构化文档 — 分流规则选择器的稳定基准，不随暂存文本漂移 */
+  /** 看板/规则面板的基准文档：优先用「当前文本」（可连续拖拽），解析失败回退原始 */
+  readonly workDoc = computed<ConfigDoc | null>(() => this.doc());
+
   readonly origDoc = computed<ConfigDoc | null>(() => {
     try {
       return parseConfig(this.original());
@@ -406,6 +413,13 @@ export class ConfigPane {
 
   /** 选择器产出新文档 → 走既有暂存复核（serializeConfig 序列化 + diff + 应用并重启） */
   onRulesDoc(d: ConfigDoc): void {
+    this.enterReview(d);
+  }
+
+  // ---------- 分组看板（模型见 group-board-model.ts，交互见 group-board.ts）----------
+
+  /** 看板拖拽产出新文档 → 同样进暂存复核（改分组成员 = 改 config 结构） */
+  onBoardDoc(d: ConfigDoc): void {
     this.enterReview(d);
   }
 
