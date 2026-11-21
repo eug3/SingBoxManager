@@ -1,0 +1,12 @@
+[Unit]
+Description=Rule-set vault edit/publish service
+After=network-online.target remote-fs.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/bin/python3 /home/beijihu/vault-edit/vault_edit.py
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
