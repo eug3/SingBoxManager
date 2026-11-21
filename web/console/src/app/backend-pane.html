@@ -1,0 +1,202 @@
+<div class="bp-head">
+<div class="strip">
+  <div class="stat"><span>引擎</span><b class="sm">{{ version() || '—' }}</b></div>
+  <div class="stat"><span>活跃连接</span><b>{{ conns().length }}</b></div>
+  <div class="stat"><span>流量 ↓/↑</span><b class="sm">{{ fmtB(totalDown()) }} / {{ fmtB(totalUp()) }}</b></div>
+  <div class="stat"><span>分组</span><b>{{ groupList().length }}</b></div>
+  <div class="stat"><span>节点</span><b>{{ nodes() }}</b></div>
+</div>
+
+@if (unauthorized()) {
+  <div class="banner show">✗ 密钥未填或错误（401）—— 在该后端的「⚙ 后端配置」里填密钥，或填顶部「发布密钥」</div>
+}
+@if (loadErr()) {
+  <div class="banner show">
+    ✗ 连不上 {{ backend().api }}：{{ loadErr() }}
+    <br />常见原因：① CORS 白名单没含本页来源（{{ origins.join(' 或 ') }}）② 地址/端口不对 ③ 后端不在本机可达网段
+  </div>
+}
+
+<div class="cfgb">
+  <button class="ghost" (click)="cfgOpen.set(!cfgOpen())">⚙ 后端配置</button>
+  <span class="dim">{{ backend().name }} · {{ backend().api }}</span>
+  <button class="ghost" (click)="refreshAll()">刷新</button>
+</div>
+
+@if (cfgOpen()) {
+  <div class="bset">
+    <input class="nm" [value]="cfgName()" (input)="cfgName.set($any($event.target).value)" placeholder="名称" />
+    <input class="url" [value]="cfgApi()" (input)="cfgApi.set($any($event.target).value)" placeholder="http://主机:9090" />
+    <input class="kk" [value]="cfgKey()" (input)="cfgKey.set($any($event.target).value)" placeholder="密钥（留空=发布密钥）" />
+    <button class="acc" (click)="saveCfg()">保存</button>
+    <button class="danger" (click)="delCfg()">删除</button>
+    <div class="hint">
+      clash_api 由浏览器直连：该地址的 CORS 白名单必须包含本页来源 <b>{{ origins.join(' 与 ') }}</b
+      >，否则读到的是浏览器拦截错误；密钥只存本浏览器 localStorage。
+      @if (cfgMsg()) {
+        <b class="ok">{{ cfgMsg() }}</b>
+      }
+    </div>
+  </div>
+}
+
+<nav class="subtabs">
+  @for (t of tabs; track t.key) {
+    <button class="subtab" [class.on]="tab() === t.key" (click)="setTab(t.key)">
+      {{ t.label }}
+      @if (t.key === 'groups') {
+        <span class="cnt">{{ groupList().length }}</span>
+      }
+      @if (t.key === 'connections') {
+        <span class="cnt">{{ conns().length }}</span>
+      }
+      @if (t.key === 'rules' && rules().length) {
+        <span class="cnt">{{ rules().length }}</span>
+      }
+    </button>
+  }
+</nav>
+
+</div>
+
+<div class="bp-body">
+@switch (tab()) {
+  @case ('overview') {
+    <app-overview [backend]="backend()" />
+  }
+
+  @case ('groups') {
+    <div class="bar">
+      <span class="dim small">Selector 组点成员即切换；URLTest 组按延迟自动选择（只读）</span>
+      <button (click)="testAll()" [disabled]="testing()">
+        {{ testing() ? '测速中 ' + testProgress() : '全部测速' }}
+      </button>
+    </div>
+    <div class="ggrid">
+      @for (g of groupList(); track g.name) {
+        <div class="gcard">
+          <div class="gn"><span class="nm">{{ g.name }}</span><span class="gt">{{ g.type }}</span></div>
+          <div class="now">▸ {{ g.now || '—' }}</div>
+          <div class="chips">
+            @for (m of g.all ?? []; track m) {
+              <span
+                class="chip {{ g.type === 'Selector' ? 'clk' : '' }} {{ m === g.now ? 'on' : '' }}"
+                [title]="g.type === 'Selector' ? '点击切换' : 'URLTest 组按延迟自动选择，不能手动指定'"
+                (click)="select(g, m)"
+              >
+                {{ m }}<span class="lat {{ latClass(lastLat(m)) }}">{{ latText(lastLat(m)) }}</span>
+              </span>
+            }
+          </div>
+        </div>
+      }
+    </div>
+  }
+
+  @case ('connections') {
+    <div class="bar">
+      <input
+        class="flt"
+        placeholder="过滤：域名 / 链 / 规则…"
+        [value]="filter()"
+        (input)="filter.set($any($event.target).value)"
+      />
+      <label class="chk">
+        <input type="checkbox" [checked]="autoRefresh()" (change)="autoRefresh.set($any($event.target).checked)" />
+        自动刷新
+      </label>
+      <button (click)="refreshConns()">刷新</button>
+      <button class="danger" (click)="killAll()">全部断开</button>
+      <span class="dim small">↑↓ 为连接流量 · 最多显示 120 条</span>
+    </div>
+    <div class="tblwrap">
+      <table>
+        <thead>
+          <tr><th>主机</th><th>目标</th><th>链</th><th>规则</th><th>↑</th><th>↓</th><th></th></tr>
+        </thead>
+        <tbody>
+          @for (c of filteredConns(); track c.id) {
+            <tr>
+              <td class="ch mono">{{ c.metadata?.host || c.metadata?.sniffHost }}</td>
+              <td class="dim mono">{{ c.metadata?.destinationIP }}:{{ c.metadata?.destinationPort }}</td>
+              <td>
+                @for (h of chainOf(c); track $index) {
+                  <span class="tag {{ $index === 0 ? 'first' : '' }}" [title]="h">{{ h }}</span>
+                  @if ($index < chainOf(c).length - 1) {
+                    <span class="sep">›</span>
+                  }
+                }
+                @if (!chainOf(c).length) {
+                  <span class="dim">—</span>
+                }
+              </td>
+              <td>
+                @if (c.rule) {
+                  <span class="tag rule" [title]="c.rule + (c.rulePayload ? ': ' + c.rulePayload : '')"
+                    >{{ c.rule }}{{ c.rulePayload ? ': ' + c.rulePayload : '' }}</span
+                  >
+                } @else {
+                  <span class="dim">—</span>
+                }
+              </td>
+              <td class="dim">{{ fmtB(c.upload) }}</td>
+              <td class="dim">{{ fmtB(c.download) }}</td>
+              <td><span class="x" (click)="kill(c)" title="断开">✕</span></td>
+            </tr>
+          } @empty {
+            <tr><td colspan="7" class="dim">当前没有活跃连接</td></tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  }
+
+  @case ('logs') {
+    <div class="bar">
+      <select [value]="level()" (change)="setLevel($any($event.target).value)">
+        @for (l of levels; track l) {
+          <option [value]="l">{{ l }}</option>
+        }
+      </select>
+      <button (click)="paused.set(!paused())">{{ paused() ? '继续' : '暂停' }}</button>
+      <button (click)="logLines.set([])">清空</button>
+      <span class="dim small">切走该 tab 即断开 WebSocket</span>
+    </div>
+    <div class="logbox" #logbox (scroll)="onLogScroll()">
+      @for (l of logLines(); track $index) {
+        <div class="logline">
+          <span class="lv {{ l.type }}">{{ l.type }}</span>{{ l.text }}
+        </div>
+      } @empty {
+        <div class="dim small">等待日志…</div>
+      }
+    </div>
+  }
+
+  @case ('rules') {
+    <div class="bar">
+      <button (click)="loadRules()">重新拉取</button>
+      <span class="dim small">sing-box 实际生效的规则表（GET /rules，只读）</span>
+    </div>
+    <div class="tblwrap">
+      <table>
+        <thead>
+          <tr><th>#</th><th>类型</th><th>条件 / payload</th><th>动作 / 出站</th></tr>
+        </thead>
+        <tbody>
+          @for (r of rules(); track $index) {
+            <tr>
+              <td class="dim">{{ $index }}</td>
+              <td><span class="tag">{{ r.type }}</span></td>
+              <td class="mono" [title]="r.payload || ''">{{ r.payload || '—' }}</td>
+              <td class="mono">{{ r.proxy }}</td>
+            </tr>
+          } @empty {
+            <tr><td colspan="4" class="dim">没有规则（或还没拉取）</td></tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  }
+}
+</div>

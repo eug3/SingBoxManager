@@ -1,0 +1,53 @@
+<div class="wrap">
+  <header class="top">
+    <h1>规则编辑台 <b>◆ VAULT CONSOLE</b></h1>
+    <span class="dim small">Angular 22 · TypeScript</span>
+    <div class="key">
+      <span>发布密钥</span>
+      <input
+        type="password"
+        [value]="keyDraft()"
+        (input)="onKey($any($event.target).value)"
+        placeholder="X-Vault-Key"
+        autocomplete="off"
+      />
+    </div>
+  </header>
+
+  @if (!originOk) {
+    <div class="banner show">
+      ⚠ 请从 {{ origins.join(' 或 ') }} 访问（当前来源不受信，路由与本页接口将被浏览器拦截）
+    </div>
+  }
+
+  <nav class="tabs">
+    @for (b of backends(); track $index) {
+      <button class="tab" [class.on]="active() === 'b' + $index" (click)="active.set('b' + $index)">
+        {{ b.name || '后端' + ($index + 1) }}
+        @if (b.draft) {
+          <span class="dft" title="未保存的草稿：刷新即消失">✎</span>
+        }
+      </button>
+    }
+    <button class="tab add" (click)="addBackend()">＋ 添加后端</button>
+    <button class="tab" [class.on]="active() === 'edit'" (click)="active.set('edit')">🧩 规则编辑</button>
+  </nav>
+
+  <div class="content">
+    @for (b of backends(); track $index) {
+      @if (active() === 'b' + $index) {
+        <app-backend-pane [backend]="b" [index]="$index" (removed)="onRemoved()" />
+      }
+    }
+
+    @if (active() === 'edit') {
+      <app-rule-editor />
+    }
+
+    <footer class="foot">
+    发布链路：浏览器 → 99 号机编译（sing-box）→ 写入 NAS → 两台路由 60s 内自动拉取，全程零重启<br />
+    管理台两个入口等价：http://192.168.31.99:9099/edit/（LAN）· http://10.1.1.99:9099/edit/（EasyTier）<br />
+    公网 https://router.guaishoudejia.com/ 只读规则与 zashboard，不含本页
+    </footer>
+  </div>
+</div>

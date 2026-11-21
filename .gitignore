@@ -1,0 +1,15 @@
+# macOS / 编辑器
+.DS_Store
+.idea/
+.vscode/
+
+# 构建与依赖（web/console 内部也有同名规则，这里兜底）
+web/console/node_modules/
+web/console/dist/
+web/console/.angular/
+
+# 临时产物
+*.bak
+*.bak-*
+*.log
+/tmp/

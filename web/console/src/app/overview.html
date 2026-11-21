@@ -1,0 +1,77 @@
+@if (err()) {
+  <div class="banner show">✗ {{ err() }}</div>
+}
+
+<div class="ovgrid">
+  <div class="ovcard wide">
+    <div class="ovhd">
+      <span>速率</span>
+      <span class="ovvals">
+        <b class="dl">↓ {{ rateText(rateDown()) }}</b>
+        <b class="ul">↑ {{ rateText(rateUp()) }}</b>
+        <span class="dim small">累计 ↓{{ fmtB(totals().down) }} · ↑{{ fmtB(totals().up) }}</span>
+      </span>
+    </div>
+    <app-area-chart [series]="rateSeries()" [height]="96" />
+    <div class="ovleg">
+      <span class="lg dl">下载</span><span class="lg ul">上传</span>
+      <span class="dim small">{{ windowLabel() }}（1s 采样，已采 {{ sampleCount() }} 点，来自 ws /traffic）</span>
+      <span class="winsel">
+        @for (w of windowOptions; track w) {
+          <button class="win" [class.on]="w === windowMin()" (click)="windowMin.set(w)">{{ w }} 分</button>
+        }
+      </span>
+    </div>
+  </div>
+
+  <div class="ovcard">
+    <div class="ovhd"><span>连接数</span><span class="ovvals"><b>{{ connCount() }}</b><span class="dim small">{{ windowLabel() }}</span></span></div>
+    <app-area-chart [series]="connSeries()" [height]="96" />
+  </div>
+
+  <div class="ovcard">
+    <div class="ovhd"><span>内存使用</span><span class="ovvals"><b>{{ memText() }}</b><span class="dim small">{{ windowLabel() }}</span></span></div>
+    <app-area-chart [series]="memSeries()" [height]="96" />
+  </div>
+
+  <div class="ovcard">
+    <div class="ovhd"><span>网络信息</span></div>
+    <table class="kv">
+      <tr><td>后端</td><td>{{ backend().name }} · {{ backend().api }}</td></tr>
+      <tr><td>页面来源</td><td>{{ origin }}</td></tr>
+      <tr><td>运行模式</td><td>{{ mode() || '—' }}</td></tr>
+      <tr><td>活跃连接</td><td>{{ connCount() }}</td></tr>
+      <tr><td>累计流量</td><td>↓{{ fmtB(totals().down) }} · ↑{{ fmtB(totals().up) }}</td></tr>
+    </table>
+    <div class="bar" style="margin: 8px 0 0">
+      @for (m of modeList(); track m) {
+        <button [class.acc]="m === mode()" (click)="setMode(m)">{{ m }}</button>
+      }
+    </div>
+    <div class="dim small" style="margin-top:6px">模式切换是 sing-box 唯一开放的运行时写操作（PATCH /configs）</div>
+  </div>
+
+  <div class="ovcard wide">
+    <div class="ovhd">
+      <span>分组延时速览</span>
+      <span class="ovvals">
+        <button (click)="testAll()" [disabled]="testing()">
+          {{ testing() ? '测速中 ' + testProgress() : '全部测速' }}
+        </button>
+        <button (click)="loadGroups()">刷新</button>
+      </span>
+    </div>
+    <div class="latgrid">
+      @for (g of groups(); track g.name) {
+        <div class="latrow">
+          <span class="ln">{{ g.name }}</span>
+          <span class="lnode">{{ g.now || '—' }}</span>
+          <span class="lat {{ latClass(lat(g.now)) }}">{{ latText(lat(g.now)) }}</span>
+          <span class="dim small">{{ groupCount(g) }} 成员 · {{ g.type }}</span>
+        </div>
+      } @empty {
+        <div class="dim small">没有分组数据（可能密钥不对或无分组）</div>
+      }
+    </div>
+  </div>
+</div>

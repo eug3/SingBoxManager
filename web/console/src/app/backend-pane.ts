@@ -1,0 +1,387 @@
+import {
+  ChangeDetectionStrategy,
+  Component,
+  ElementRef,
+  OnDestroy,
+  OnInit,
+  effect,
+  computed,
+  inject,
+  input,
+  linkedSignal,
+  output,
+  signal,
+  viewChild,
+} from '@angular/core';
+import { Backend, Connection, LAT_LOW, LAT_MID, PAGE_ORIGINS, ProxyNode, RuleEntry } from './models';
+import { BackendsService } from './backends.service';
+import { OverviewPane } from './overview';
+import { ClashService } from './clash.service';
+
+type PaneTab = 'overview' | 'groups' | 'connections' | 'logs' | 'rules';
+interface LogLine {
+  type: string;
+  text: string;
+}
+
+@Component({
+  selector: 'app-backend-pane',
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [OverviewPane],
+  templateUrl: './backend-pane.html',
+  styles: `
+    :host {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      min-height: 0;
+    }
+    .bp-head {
+      flex: 0 0 auto;
+    }
+    .bp-body {
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding-right: 2px;
+    }
+  `,
+})
+export class BackendPane implements OnInit, OnDestroy {
+  readonly backend = input.required<Backend>();
+  readonly index = input.required<number>();
+  readonly removed = output<void>();
+
+  private readonly bsvc = inject(BackendsService);
+  private readonly clash = inject(ClashService);
+
+  readonly tab = signal<PaneTab>('overview');
+  readonly tabs: { key: PaneTab; label: string }[] = [
+    { key: 'overview', label: '概览' },
+    { key: 'groups', label: '分组与节点' },
+    { key: 'connections', label: '连接' },
+    { key: 'logs', label: '日志' },
+    { key: 'rules', label: '规则' },
+  ];
+
+  readonly version = signal('');
+  readonly proxyMap = signal<Record<string, ProxyNode>>({});
+  readonly conns = signal<Connection[]>([]);
+  readonly rules = signal<RuleEntry[]>([]);
+  readonly loadErr = signal('');
+  readonly unauthorized = signal(false);
+
+  readonly filter = signal('');
+  readonly autoRefresh = signal(true);
+  readonly paused = signal(false);
+  readonly level = signal('info');
+  readonly logLines = signal<LogLine[]>([]);
+  readonly testing = signal(false);
+  readonly testProgress = signal('');
+  readonly cfgOpen = signal(false);
+  readonly cfgMsg = signal('');
+  readonly origins = PAGE_ORIGINS;
+  readonly levels = ['debug', 'info', 'warn', 'error'];
+
+  readonly cfgName = linkedSignal(() => this.backend().name);
+  readonly cfgApi = linkedSignal(() => this.backend().api);
+  readonly cfgKey = linkedSignal(() => this.backend().key);
+
+  private readonly logBox = viewChild<ElementRef<HTMLDivElement>>('logbox');
+  private timer: ReturnType<typeof setInterval> | null = null;
+  private ws: WebSocket | null = null;
+  private stickToBottom = true;
+
+  readonly groupList = computed(() =>
+    Object.values(this.proxyMap()).filter((p) => p.type === 'Selector' || p.type === 'URLTest'),
+  );
+  readonly nodes = computed(() => Object.keys(this.proxyMap()).length);
+  readonly totalDown = computed(() => this.conns().reduce((n, c) => n + (c.download ?? 0), 0));
+  readonly totalUp = computed(() => this.conns().reduce((n, c) => n + (c.upload ?? 0), 0));
+  readonly filteredConns = computed(() => {
+    const q = this.filter().trim().toLowerCase();
+    const list = this.conns();
+    if (!q) return list.slice(0, 120);
+    return list
+      .filter((c) => this.connText(c).includes(q))
+      .slice(0, 120);
+  });
+
+  constructor() {
+    // 密钥/后端地址变化时自动重新拉取（顶部「发布密钥」晚填也能立刻生效）
+    effect(() => {
+      const b = this.backend();
+      this.bsvc.globalKey();
+      if (this.bsvc.valid(b)) void this.load();
+    });
+  }
+
+  ngOnInit(): void {
+    this.timer = setInterval(() => {
+      if (document.hidden) return;
+      if (this.tab() === 'connections' && this.autoRefresh()) void this.refreshConns();
+    }, 3000);
+  }
+
+  ngOnDestroy(): void {
+    if (this.timer) clearInterval(this.timer);
+    this.timer = null;
+    this.stopLogs();
+  }
+
+  async load(): Promise<void> {
+    this.loadErr.set('');
+    this.unauthorized.set(false);
+    if (!this.bsvc.valid(this.backend())) {
+      this.loadErr.set('该后端还没配置地址：点「⚙ 后端配置」填 http(s)://主机:9090 并保存（草稿不保存就刷新即消失）');
+      return;
+    }
+    try {
+      const [ver, proxies, conns] = await Promise.all([
+        this.clash.version(this.backend()),
+        this.clash.proxies(this.backend()),
+        this.clash.connections(this.backend()),
+      ]);
+      this.version.set(ver?.version ?? '');
+      this.proxyMap.set(proxies?.proxies ?? {});
+      this.conns.set(conns?.connections ?? []);
+    } catch (e) {
+      const err = e as { status?: number; message?: string };
+      if (err?.status === 401) this.unauthorized.set(true);
+      else this.loadErr.set(err?.message ?? String(e));
+    }
+  }
+
+  async refreshConns(): Promise<void> {
+    try {
+      const conns = await this.clash.connections(this.backend());
+      this.conns.set(conns?.connections ?? []);
+    } catch {
+      /* 自动刷新失败不打扰用户 */
+    }
+  }
+
+  async refreshAll(): Promise<void> {
+    await this.load();
+    if (this.tab() === 'rules') await this.loadRules();
+  }
+
+  setLevel(l: string): void {
+    this.level.set(l);
+    if (this.tab() === 'logs') this.startLogs();
+  }
+
+  setTab(t: PaneTab): void {
+    this.tab.set(t);
+    if (t === 'logs') this.startLogs();
+    else this.stopLogs();
+    if (t === 'rules' && !this.rules().length) void this.loadRules();
+    if (t === 'connections') void this.refreshConns();
+  }
+
+  /* ── 分组 / 节点 ── */
+  lastLat(name: string): number | null {
+    const h = this.proxyMap()[name]?.history ?? [];
+    return h.length ? (h[h.length - 1].delay ?? 0) : null;
+  }
+
+  latClass(d: number | null): string {
+    if (d === null) return 'na';
+    if (d <= 0) return 'r';
+    if (d < LAT_LOW) return 'g';
+    if (d < LAT_MID) return 'y';
+    return 'r';
+  }
+
+  latText(d: number | null): string {
+    if (d === null) return '';
+    if (d <= 0) return '✗';
+    return d >= 1000 ? (d / 1000).toFixed(1) + 's' : d + 'ms';
+  }
+
+  async select(group: ProxyNode, member: string): Promise<void> {
+    if (group.type !== 'Selector') return;
+    try {
+      await this.clash.select(this.backend(), group.name, member);
+      this.proxyMap.update((m) => ({ ...m, [group.name]: { ...group, now: member } }));
+    } catch (e) {
+      alert('切换失败：' + ((e as Error)?.message ?? e));
+    }
+  }
+
+  async testAll(): Promise<void> {
+    if (this.testing()) return;
+    this.testing.set(true);
+    try {
+      const res = await this.clash.proxies(this.backend());
+      const map = res?.proxies ?? {};
+      const groups = Object.values(map).filter((p) => p.type === 'Selector' || p.type === 'URLTest');
+      const names = [
+        ...new Set(groups.flatMap((g) => g.all ?? [])),
+      ].filter((n) => map[n] && map[n].type !== 'Selector' && map[n].type !== 'URLTest');
+      let done = 0;
+      const queue = [...names];
+      const work = async () => {
+        for (;;) {
+          const name = queue.shift();
+          if (!name) return;
+          let d = 0;
+          try {
+            d = await this.clash.delay(this.backend(), name);
+          } catch {
+            d = 0;
+          }
+          this.patchLat(name, d);
+          done++;
+          this.testProgress.set(`${done}/${names.length}`);
+        }
+      };
+      await Promise.all(Array.from({ length: 6 }, () => work()));
+    } finally {
+      this.testing.set(false);
+      this.testProgress.set('');
+    }
+  }
+
+  private patchLat(name: string, d: number): void {
+    this.proxyMap.update((m) => {
+      const p = m[name];
+      if (!p) return m;
+      return { ...m, [name]: { ...p, history: [...(p.history ?? []), { time: new Date().toISOString(), delay: d }] } };
+    });
+  }
+
+  /* ── 连接 ── */
+  private connText(c: Connection): string {
+    const m = c.metadata ?? {};
+    return [
+      m.host,
+      m.sniffHost,
+      m.destinationIP,
+      m.destinationPort,
+      c.rule,
+      c.rulePayload,
+      ...(c.chains ?? []),
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+  }
+
+  chainOf(c: Connection): string[] {
+    return c.chains ?? [];
+  }
+
+  async kill(c: Connection): Promise<void> {
+    try {
+      await this.clash.kill(this.backend(), c.id);
+      this.conns.update((list) => list.filter((x) => x.id !== c.id));
+    } catch {
+      /* 连接可能已关闭 */
+    }
+  }
+
+  async killAll(): Promise<void> {
+    if (!confirm('断开全部连接？（会立刻断开当前所有代理连接）')) return;
+    try {
+      await this.clash.killAll(this.backend());
+      await this.refreshConns();
+    } catch {
+      /* ignore */
+    }
+  }
+
+  fmtB(n?: number): string {
+    return this.bsvcFmt(n ?? 0);
+  }
+
+  private bsvcFmt(n: number): string {
+    if (!n || n < 0) return '0B';
+    if (n < 1024) return n + 'B';
+    if (n < 1024 * 1024) return (n / 1024).toFixed(1) + 'K';
+    return (n / 1024 / 1024).toFixed(1) + 'M';
+  }
+
+  /* ── 日志 ── */
+  private startLogs(): void {
+    this.stopLogs();
+    this.logLines.set([]);
+    try {
+      this.ws = new WebSocket(this.clash.logsUrl(this.backend(), this.level()));
+    } catch (e) {
+      this.pushLog('error', '无法建立 WebSocket：' + ((e as Error)?.message ?? e));
+      return;
+    }
+    this.pushLog('info', `— 已连接 ${this.level()} 日志 —`);
+    this.ws.onmessage = (ev) => {
+      if (this.paused()) return;
+      let type = 'info';
+      let text = String(ev.data);
+      try {
+        const m = JSON.parse(String(ev.data)) as { type?: string; payload?: string };
+        type = m.type ?? 'info';
+        text = m.payload ?? text;
+      } catch {
+        /* 纯文本行 */
+      }
+      this.pushLog(type, text);
+    };
+    this.ws.onerror = () => this.pushLog('error', '— 日志连接出错（密钥不对 / ws 被拦？）—');
+    this.ws.onclose = () => this.pushLog('info', '— 连接已关闭 —');
+  }
+
+  private stopLogs(): void {
+    if (!this.ws) return;
+    this.ws.onmessage = null;
+    this.ws.onerror = null;
+    this.ws.onclose = null;
+    try {
+      this.ws.close();
+    } catch {
+      /* ignore */
+    }
+    this.ws = null;
+  }
+
+  private pushLog(type: string, text: string): void {
+    this.logLines.update((l) => [...l.slice(-299), { type, text }]);
+    if (this.stickToBottom) {
+      setTimeout(() => {
+        const el = this.logBox()?.nativeElement;
+        if (el) el.scrollTop = el.scrollHeight;
+      }, 0);
+    }
+  }
+
+  onLogScroll(): void {
+    const el = this.logBox()?.nativeElement;
+    if (!el) return;
+    this.stickToBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 30;
+  }
+
+  /* ── 规则 ── */
+  async loadRules(): Promise<void> {
+    try {
+      const res = await this.clash.rules(this.backend());
+      this.rules.set(res?.rules ?? []);
+    } catch (e) {
+      this.rules.set([]);
+      alert('规则拉取失败：' + ((e as Error)?.message ?? e));
+    }
+  }
+
+  /* ── 后端配置 ── */
+  saveCfg(): void {
+    const ok = this.bsvc.save(this.index(), this.cfgName(), this.cfgApi(), this.cfgKey());
+    this.cfgMsg.set(ok ? '已保存' : '地址必须形如 http(s)://主机:端口');
+    if (ok) setTimeout(() => this.cfgMsg.set(''), 2000);
+  }
+
+  delCfg(): void {
+    const b = this.backend();
+    if (!b.draft && !confirm(`删除后端「${b.name}」？（只影响本浏览器配置）`)) return;
+    this.bsvc.remove(this.index());
+    this.removed.emit();
+  }
+}

@@ -1,0 +1,47 @@
+<div class="bar">
+  <select (change)="pickBucket($any($event.target).value)">
+    @for (b of buckets; track b.name) {
+      <option [value]="b.name" [selected]="b.name === bucket()">{{ b.name }}（{{ b.rules }} 条规则）</option>
+    }
+  </select>
+  <button (click)="load()" [disabled]="loading()">{{ loading() ? '拉取中…' : '重新拉取' }}</button>
+  <button (click)="format()">格式化</button>
+  <button class="acc" (click)="publish()" [disabled]="publishing()">
+    {{ publishing() ? '发布中…' : '保存并发布 →' }}
+  </button>
+  @if (head()) {
+    <span class="dim small">线上：{{ fmtBytes(head()?.size) }} · {{ head()?.time }}</span>
+  }
+</div>
+
+<app-monaco-editor [value]="source()" (valueChange)="onValueChange($event)" />
+
+<div class="vstat" [class.bad]="!check().ok">
+  @if (check().ok) {
+    ✓ {{ check().msg }}
+    @if (check().detail) {
+      <span class="dim"> · {{ check().detail }}</span>
+    }
+  } @else {
+    ✗ {{ check().msg }}
+    @if (check().detail) {
+      <span class="dim"> —— {{ check().detail }}</span>
+    }
+  }
+</div>
+
+@if (result(); as r) {
+  @if (r.ok) {
+    <div class="result">
+      ✓ 已发布 <b>{{ r.bucket }}</b> · json {{ r.json }}B → srs {{ r.srs }}B · sha256 <span class="cd">{{ r.sha256 }}</span>
+      <div class="dim small">{{ r.hint || '两台路由 60s 内自动拉取，无需重启' }}</div>
+    </div>
+  } @else {
+    <div class="banner show">✗ 发布失败{{ r.error ? '：' + r.error : '' }}</div>
+  }
+}
+
+<div class="hint small dim" style="margin-top:14px">
+  语义提醒：桶内条目是「或」关系；同名序号桶（-2/-3）是在原位保序的影子桶，改它们不影响主桶<br />
+  服务端会拒绝：非法桶名 / 非 rules[] 结构 / 未知字段 —— 校验通过才会写盘
+</div>
