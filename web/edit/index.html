@@ -6,85 +6,128 @@
 <meta name="robots" content="noindex, nofollow">
 <title>规则编辑台 · Vault Console</title>
 <style>
-:root{--bg:#05070d;--panel:#0b101c;--line:#1b2740;--ink:#c9d6f0;--dim:#5b6b8c;
---acc:#37e0a0;--acc2:#4fc3ff;--warn:#ffb347;--bad:#ff5f6d;
+:root{--bg:#f4f6fa;--panel:#ffffff;--line:#dbe3ee;--ink:#22303f;--dim:#6c7d92;
+--acc:#0f8f68;--acc2:#1f6fd0;--warn:#a8690a;--bad:#c8384a;
 --mono:"SF Mono","JetBrains Mono","Cascadia Code",Menlo,Consolas,monospace}
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:var(--bg);color:var(--ink);font-family:var(--mono);font-size:13px}
-body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:99;
-background:repeating-linear-gradient(0deg,rgba(255,255,255,.02) 0 1px,transparent 1px 3px)}
 .wrap{max-width:1180px;margin:0 auto;padding:20px 18px 70px}
 .top{display:flex;align-items:center;gap:14px;flex-wrap:wrap;border:1px solid var(--line);
-background:var(--panel);padding:14px 18px;margin-bottom:14px}
-.top h1{font-size:16px;letter-spacing:2px;color:#eaf2ff}
+background:var(--panel);padding:14px 18px;margin-bottom:14px;box-shadow:0 1px 2px rgba(23,43,77,.05)}
+.top h1{font-size:16px;letter-spacing:2px;color:#16202c}
 .top h1 b{color:var(--acc)}
 .key{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:11px;color:var(--dim)}
-.key input{background:#0d1524;border:1px solid var(--line);color:var(--acc);font-family:var(--mono);
+.key input{background:#fff;border:1px solid var(--line);color:var(--acc);font-family:var(--mono);
 padding:6px 10px;width:170px;font-size:12px}
-.banner{border:1px solid var(--warn);color:var(--warn);background:#1a1408;padding:10px 14px;
+.key input:focus{outline:none;border-color:var(--acc)}
+.banner{border:1px solid #ecc98a;color:#8a5a00;background:#fff8e8;padding:10px 14px;
 margin-bottom:12px;font-size:12px;display:none}
 .tabs{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}
-.tab{border:1px solid var(--line);background:var(--panel);padding:9px 18px;cursor:pointer;font-size:13px}
-.tab.on{border-color:var(--acc);color:var(--acc)}
+.tab{border:1px solid var(--line);background:var(--panel);padding:9px 18px;cursor:pointer;font-size:13px;color:#3d4c5e}
+.tab:hover{border-color:#b9c8dc}
+.tab.on{border-color:var(--acc);color:var(--acc);background:#eefaf4;font-weight:400}
+.tab.add{color:var(--dim)}
 .pane{display:none}.pane.on{display:block}
 .strip{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px}
-.stat{border:1px solid var(--line);background:var(--panel);padding:10px 16px;min-width:130px}
-.stat b{display:block;font-size:16px;color:#eaf2ff;font-weight:400}
+.stat{border:1px solid var(--line);background:var(--panel);padding:10px 16px;min-width:130px;box-shadow:0 1px 2px rgba(23,43,77,.04)}
+.stat b{display:block;font-size:16px;color:#16202c;font-weight:400}
 .stat span{font-size:10px;color:var(--dim);letter-spacing:1px}
 h2{font-size:12px;color:var(--dim);letter-spacing:3px;margin:20px 0 10px;font-weight:400}
 h2::before{content:"◈ "}
 .ggrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:10px}
-.gcard{border:1px solid var(--line);background:var(--panel);padding:12px 14px}
+.gcard{border:1px solid var(--line);background:var(--panel);padding:12px 14px;box-shadow:0 1px 2px rgba(23,43,77,.04)}
 .gcard .gn{display:flex;justify-content:space-between;align-items:center}
-.gcard .gn .nm{font-size:14px;color:#eaf2ff}
+.gcard .gn .nm{font-size:14px;color:#16202c}
 .gcard .now{font-size:11px;color:var(--acc);margin:5px 0 8px}
 .chips{display:flex;flex-wrap:wrap;gap:5px}
-.chip{border:1px solid var(--line);background:#0d1524;color:var(--dim);padding:3px 9px;
+.chip{border:1px solid var(--line);background:#f8fafd;color:#4a5a6e;padding:3px 9px;
 font-size:11px;cursor:pointer;font-family:var(--mono)}
-.chip:hover{border-color:var(--acc2);color:var(--acc2)}
-.chip.on{border-color:var(--acc);color:var(--acc)}
+.chip:hover{border-color:var(--acc2);color:var(--acc2);background:#f2f7ff}
+.chip.on{border-color:var(--acc);color:var(--acc);background:#e9f8f1}
 .chip .ms{color:var(--warn);margin-left:4px}
 .chip .bad{color:var(--bad);margin-left:4px}
 .bar{display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap}
-.bar input{background:#0d1524;border:1px solid var(--line);color:var(--ink);font-family:var(--mono);
+.bar input{background:#fff;border:1px solid var(--line);color:var(--ink);font-family:var(--mono);
 padding:7px 10px;font-size:12px;flex:1;min-width:200px}
-button{font-family:var(--mono);font-size:12px;background:#0d1524;color:var(--acc2);
+.bar input:focus{outline:none;border-color:var(--acc2)}
+button{font-family:var(--mono);font-size:12px;background:#fff;color:var(--acc2);
 border:1px solid var(--line);padding:7px 14px;cursor:pointer}
-button:hover{border-color:var(--acc2)}
-button.acc{color:var(--acc)}
+button:hover{border-color:var(--acc2);background:#f2f7ff}
+button.acc{color:var(--acc);border-color:#9ed8c4;background:#eefaf4}
+button.acc:hover{background:#e2f7ed;border-color:var(--acc)}
+button.danger{color:var(--bad);border-color:#eec3c9;background:#fdf2f3}
+button.danger:hover{background:#fbe8ea;border-color:var(--bad)}
 table{width:100%;border-collapse:collapse;font-size:11px}
-th{color:var(--dim);text-align:left;font-weight:400;padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
-td{padding:5px 8px;border-bottom:1px solid #121b2e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px}
-tr:hover td{background:#0d1524}
+th{color:var(--dim);text-align:left;font-weight:400;padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap;background:#fafcfe}
+td{padding:5px 8px;border-bottom:1px solid #eef2f8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px}
+tr:hover td{background:#f6f9fd}
 .ch{color:var(--acc2)}.dl{color:var(--acc)}.x{color:var(--bad);cursor:pointer}
 .ebar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
-select,textarea{background:#0d1524;border:1px solid var(--line);color:var(--ink);font-family:var(--mono)}
+select,textarea{background:#fff;border:1px solid var(--line);color:var(--ink);font-family:var(--mono)}
 select{padding:7px 10px;font-size:12px}
-textarea{width:100%;height:380px;padding:14px;font-size:12px;line-height:1.7;color:#a8ffd9;
+textarea{width:100%;height:380px;padding:14px;font-size:12px;line-height:1.7;color:#0b5c46;background:#fbfefc;
 resize:vertical;tab-size:2}
-textarea.err{border-color:var(--bad)}
+textarea:focus{outline:none;border-color:var(--acc)}
+textarea.err{border-color:var(--bad);background:#fff7f8}
 .ev{font-size:11px;line-height:1.9}
 .ev .ok{color:var(--acc)}.ev .no{color:var(--bad)}.ev .dim{color:var(--dim)}
-.result{border:1px solid var(--acc);background:rgba(55,224,160,.06);padding:12px 16px;margin-top:12px;font-size:12px;display:none}
+.result{border:1px solid var(--acc);background:#eefaf4;padding:12px 16px;margin-top:12px;font-size:12px;display:none}
 .result .cd{color:var(--warn);font-size:15px}
-.foot{margin-top:34px;color:#3d4a66;font-size:10px;line-height:2;border-top:1px dashed var(--line);padding-top:12px}
+.foot{margin-top:34px;color:#8b98a8;font-size:10px;line-height:2;border-top:1px dashed var(--line);padding-top:12px}
+/* 后端配置条 */
+.bset{display:flex;gap:8px;flex-wrap:wrap;align-items:center;border:1px dashed #cfd9e6;
+background:#f8fafd;padding:10px 12px;margin-bottom:12px}
+.bset input{background:#fff;border:1px solid var(--line);color:var(--ink);
+font-family:var(--mono);padding:6px 9px;font-size:12px}
+.bset input:focus{outline:none;border-color:var(--acc)}
+.bset input.nm{width:130px}
+.bset input.url{flex:1;min-width:220px}
+.bset input.kk{width:160px}
+.bset .hint{width:100%;font-size:10px;color:var(--dim);line-height:1.8}
+/* 折叠区 / 延时徽标 / 链·规则标签 / 日志 */
+.sect{border:1px solid var(--line);background:var(--panel);margin:0 0 12px;box-shadow:0 1px 2px rgba(23,43,77,.04)}
+.sect>summary{cursor:pointer;list-style:none;padding:10px 14px;display:flex;align-items:center;gap:10px;font-size:13px;color:#2b3a4c;user-select:none}
+.sect>summary::-webkit-details-marker{display:none}
+.sect>summary::before{content:"▸";color:var(--dim);display:inline-block;transition:transform .15s}
+.sect[open]>summary::before{transform:rotate(90deg)}
+.sect>summary:hover{background:#f7fafe}
+.sect .cnt{font-size:11px;color:var(--dim)}
+.sect .sumact{margin-left:auto;display:flex;gap:8px}
+.sect[open]>summary+*{margin:0 14px 14px}
+.lat{display:inline-block;margin-left:5px;padding:0 5px;font-size:10px;line-height:15px;border-radius:2px;border:1px solid transparent}
+.lat.na{color:#9aa7b6;border-color:#e3e9f1;background:#f4f7fb}
+.lat.g{color:#0d7a4f;border-color:#b7e3cd;background:#eafaf1}
+.lat.y{color:#8a6100;border-color:#efd89b;background:#fff8e6}
+.lat.r{color:#a61f2f;border-color:#f0c0c6;background:#fdeef0}
+.chip.clk{cursor:pointer}
+.chip:not(.clk){cursor:default}
+.gt{font-size:10px;color:var(--dim);border:1px solid var(--line);padding:0 5px;line-height:16px}
+.tag{display:inline-block;padding:0 6px;margin:0 2px 2px 0;font-size:10px;line-height:16px;
+border:1px solid #d5e0ee;background:#f2f7fd;color:#365070;border-radius:2px;max-width:220px;overflow:hidden;text-overflow:ellipsis;vertical-align:middle}
+.tag.first{border-color:#bfe3d3;background:#eefaf4;color:#0d7a4f}
+.tag.rule{border-color:#d8d2ee;background:#f6f3fd;color:#54418a}
+.sep{color:#9aa7b6;margin:0 1px}
+.chk{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--dim)}
+.logbox{height:260px;overflow:auto;background:#fbfdff;border:1px solid var(--line);padding:8px 10px;font-size:11px;line-height:1.6}
+.logline{white-space:pre-wrap;word-break:break-all;color:#3c4b5d}
+.lv{display:inline-block;padding:0 5px;margin-right:5px;border-radius:2px;font-size:10px;border:1px solid var(--line);background:#f2f6fb;color:#5a6a7d}
+.lv.warn{color:#8a6100;border-color:#efd89b;background:#fff8e6}
+.lv.error{color:#a61f2f;border-color:#f0c0c6;background:#fdeef0}
+.lv.info{color:#0d5f8a;border-color:#c3e0f2;background:#eff8fe}
+.mono{font-family:var(--mono)}
+
 </style>
 </head>
 <body>
 <div class="wrap">
   <div class="top">
     <h1>规则编辑台 <b>◈ VAULT CONSOLE</b></h1>
-    <div class="key">访问密钥 <input type="password" id="key" placeholder="与路由 Clash API 相同"></div>
+    <div class="key">发布密钥 <input type="password" id="key" placeholder="= Clash API 密钥"></div>
   </div>
-  <div class="banner" id="oguard">⚠ 请从 <b>http://192.168.31.8:888/edit/</b> 访问以启用全部功能（当前来源不受信，路由与发布接口将被浏览器拦截）</div>
-  <div class="tabs">
-    <div class="tab" data-p="r32" onclick="sw('r32')">🛰️ 甲 · 主干</div>
-    <div class="tab" data-p="rgl" onclick="sw('rgl')">📡 乙 · 侧翼</div>
-    <div class="tab" data-p="edit" onclick="sw('edit')">🧩 规则编辑</div>
-  </div>
+  <div class="banner" id="oguard">⚠ 请从 <b>http://192.168.31.99:9099/edit/</b> 访问（当前来源不受信，路由与发布接口将被浏览器拦截）</div>
 
-  <div class="pane" id="p-r32"></div>
-  <div class="pane" id="p-rgl"></div>
+  <div class="tabs" id="tabs"></div>
+  <div id="panes"></div>
 
   <div class="pane" id="p-edit">
     <div class="ebar">
@@ -105,115 +148,382 @@ textarea.err{border-color:var(--bad)}
   </div>
 </div>
 <script>
-const R32={name:'甲 · 主干',api:'http://192.168.31.32:9090'};
-const RGL={name:'乙 · 侧翼',api:'http://172.16.8.1:9090'};
-const PUB='http://192.168.31.99:9099/publish';
-const LAN_ORIGIN='http://192.168.31.8:888';
+/* ── 常量与存储 ── */
+// 页面可以被两个来源打开：LAN 直连 或 EasyTier 虚拟网；两者都要在路由 CORS 白名单里
+const PAGE_ORIGINS=['http://192.168.31.99:9099','http://10.1.1.99:9099'];
+const STORE_KEY='vaultKey', STORE_BACKENDS='clashBackends';
+const PUB='/publish';
 const BUCKETS=[['rs-node',13],['rs-direct',17],['rs-fcm',5],['rs-custom',12],['rs-openai',9],
 ['rs-custom-2',1],['rs-balance',1],['rs-openai-2',1],['rs-iplc',1],['rs-custom-3',1],
 ['rs-fish',1],['rs-node-2',2],['rs-direct-2',1],['rs-gdirect',9],['rs-block',2],
 ['rs-purify',8],['rs-direct-3',1],['rs-msft',2],['rs-apple',3],['rs-tg',2],
 ['rs-media',58],['rs-node-3',14],['rs-gdirect-2',7],['bard-domains',1]];
-if(location.origin!==LAN_ORIGIN)document.getElementById('oguard').style.display='block';
+const DEFAULT_BACKENDS=[
+  {name:'甲 · 主干',api:'http://192.168.31.32:9090',key:''},
+  {name:'乙 · 侧翼',api:'http://172.16.8.1:9090',key:''}
+];
 const $=id=>document.getElementById(id);
-const key=()=>($('key').value||'').trim();
-$('key').value=localStorage.getItem('vaultKey')||'';
-$('key').onchange=()=>$('key').value&&localStorage.setItem('vaultKey',$('key').value);
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmtB=n=>{n=n||0;return n>1048576?(n/1048576).toFixed(1)+'M':n>1024?(n/1024).toFixed(0)+'K':n};
 
-let curPane='r32';
-function sw(p){curPane=p;document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('on',t.dataset.p===p));
-document.querySelectorAll('.pane').forEach(x=>x.classList.remove('on'));$('p-'+p).classList.add('on');
-if(p==='r32')renderR(R32,'p-r32');if(p==='rgl')renderR(RGL,'p-rgl');}
-sw('r32');
+if(!PAGE_ORIGINS.includes(location.origin))$('oguard').style.display='block';
 
-function api(r,path,method,body){
-  return fetch(r.api+path,{method:method||'GET',
-    headers:Object.assign({'Authorization':'Bearer '+key()},body?{'Content-Type':'application/json'}:{}),
+const globalKey=()=>($('key').value||'').trim();
+$('key').value=localStorage.getItem(STORE_KEY)||'';
+$('key').onchange=()=>$('key').value&&localStorage.setItem(STORE_KEY,$('key').value);
+
+/* ── 后端列表（localStorage 持久化）── */
+function loadBackends(){
+  let raw=null;
+  try{raw=JSON.parse(localStorage.getItem(STORE_BACKENDS)||'null')}catch(e){}
+  if(!Array.isArray(raw)||!raw.length)return DEFAULT_BACKENDS.map(x=>({...x}));
+  const clean=raw
+    .map(x=>({name:x.name||'后端',api:(x.api||'').trim(),key:x.key||''}))
+    .filter(x=>x.api);                       // 没配置地址的历史条目直接丢弃
+  if(clean.length!==raw.length)localStorage.setItem(STORE_BACKENDS,JSON.stringify(clean));
+  return clean.length?clean:DEFAULT_BACKENDS.map(x=>({...x}));
+}
+let backends=loadBackends();
+// 只持久化「已保存」的后端；草稿（draft）只活在本页内存里，刷新/关页即消失
+function saveBackends(){
+  const persisted=backends.filter(b=>!b.draft).map(b=>({name:b.name,api:b.api,key:b.key}));
+  localStorage.setItem(STORE_BACKENDS,JSON.stringify(persisted));
+}
+const keyFor=b=>((b.key||'').trim()||globalKey());
+const validBackend=b=>/^https?:\/\/.+/.test(b.api||'');
+
+/* ── 渲染：tabs + panes ── */
+let curPane=null;
+function renderShell(){
+  const tabs=$('tabs'),panes=$('panes');
+  tabs.innerHTML=backends.map((b,i)=>
+    `<div class="tab" data-p="b${i}" onclick="sw('b${i}')">${esc(b.name)||('后端'+(i+1))}${b.draft?' ✎':''}</div>`).join('')
+    +`<div class="tab add" data-p="add" onclick="addBackend()">＋ 添加后端</div>`
+    +`<div class="tab" data-p="edit" onclick="sw('edit')">🧩 规则编辑</div>`;
+  panes.innerHTML=backends.map((b,i)=>`
+    <div class="pane" id="p-b${i}">
+      <div class="bset">
+        ${b.draft?'<div class="hint" style="color:var(--warn)">✎ 未保存的草稿：填好地址点「保存」才会保留；刷新/关页即消失</div>':''}
+        <input class="nm" id="bn${i}" placeholder="名称" value="${esc(b.name)}">
+        <input class="url" id="bu${i}" placeholder="http://192.168.31.32:9090" value="${esc(b.api)}">
+        <input class="kk" type="password" id="bk${i}" placeholder="密钥（留空=用发布密钥）" value="${esc(b.key)}">
+        <button onclick="saveBackend(${i})">保存</button>
+        <button class="danger" onclick="delBackend(${i})">删除</button>
+        <div class="hint">clash_api 由浏览器直连：该地址的 CORS 白名单必须包含本页来源 <b>${PAGE_ORIGINS.join('</b> 与 <b>')}</b>，否则本页读到的是浏览器拦截错误；
+        密钥只存本浏览器 localStorage。</div>
+      </div>
+      <div id="bc${i}"></div>
+    </div>`).join('');
+  if(curPane===null||curPane==='add')curPane=(backends.length?'b0':'edit');
+  sw(curPane);
+}
+function sw(p,force){
+  if(p==='add')return;
+  if(p!==curPane)stopTimers();
+  curPane=p;
+  document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('on',t.dataset.p===p));
+  document.querySelectorAll('.pane').forEach(x=>x.classList.remove('on'));
+  const pane=$('p-'+p); if(!pane)return;
+  pane.classList.add('on');
+  if(p.startsWith('b')){
+    const i=+p.slice(1), b=backends[i];
+    if(validBackend(b))renderR(b,'bc'+i); else $('bc'+i).innerHTML='<div class="banner" style="display:block">先在左侧填好该后端的 clash_api 地址并保存</div>';
+  }
+}
+function addBackend(){
+  backends.push({name:'新后端',api:'',key:'',draft:true});   // 不落盘
+  renderShell(); sw('b'+(backends.length-1));
+}
+function saveBackend(i){
+  const b=backends[i];
+  const api=$('bu'+i).value.trim().replace(/\/+$/,'');
+  if(!/^https?:\/\/.+/.test(api))return alert('请先填该后端的 clash_api 地址（http(s)://主机:端口）再保存');
+  b.name=$('bn'+i).value.trim()||('后端'+(i+1));
+  b.api=api;
+  b.key=$('bk'+i).value;
+  delete b.draft;                       // 转正：此后持久化
+  saveBackends(); renderShell(); sw('b'+i);
+}
+function delBackend(i){
+  const b=backends[i];
+  if(!b.draft&&!confirm('删除后端「'+b.name+'」？（只影响本浏览器配置）'))return;
+  backends.splice(i,1);
+  if(!b.draft)saveBackends();
+  curPane='edit'; renderShell();
+}
+
+/* ── clash_api 访问（参考 zashboard：分组默认折叠 / 红黄绿延时 / 链·规则标签 / 日志 / 规则） ── */
+const LAT_LOW=400, LAT_MID=800;      // zashboard 默认阈值：<400ms 绿，<800ms 黄，>=800ms 红
+const UI={};                          // 每个后端的界面状态（折叠/过滤/自动刷新/日志级别）
+function uiKey(b){return b.api+'|'+b.name}
+function uiState(b){
+  const k=uiKey(b);
+  if(!UI[k])UI[k]={grp:false,conn:true,log:false,rules:false,filter:'',auto:true,level:'info',paused:false};
+  return UI[k];
+}
+let timer=null, logWS=null, curPid=null;
+function stopTimers(){if(timer){clearInterval(timer);timer=null}stopLogs()}
+function stopLogs(){if(logWS){try{logWS.close()}catch(e){}logWS=null}}
+const latCls=d=>(d==null)?'na':(d<=0?'r':(d<LAT_LOW?'g':(d<LAT_MID?'y':'r')));
+const latTxt=d=>(d==null)?'':(d<=0?'✗':(d>=1000?(d/1000).toFixed(1)+'s':d+'ms'));
+
+function api(b,path,method,body){
+  return fetch(b.api+path,{method:method||'GET',
+    headers:Object.assign({'Authorization':'Bearer '+keyFor(b)},body?{'Content-Type':'application/json'}:{}),
     body:body?JSON.stringify(body):undefined});
 }
-async function renderR(r,pid){
-  const el=$(pid);
-  el.innerHTML='<div class="strip"><div class="stat"><span>状态</span><b>加载中…</b></div></div>';
+
+async function renderR(b,pid){
+  const el=$(pid), st=uiState(b);
+  stopTimers(); curPid=pid;
+  el.innerHTML=`
+    <div class="strip" id="${pid}-stats"><div class="stat"><span>状态</span><b>加载中…</b></div></div>
+    <details class="sect" id="${pid}-grp" ${st.grp?'open':''}>
+      <summary>分组与节点<span class="cnt" id="${pid}-gcnt"></span>
+        <span class="sumact"><button data-act="testall">全部测速</button></span></summary>
+      <div class="ggrid" id="${pid}-grid"></div>
+    </details>
+    <details class="sect" id="${pid}-conn" ${st.conn?'open':''}>
+      <summary>连接<span class="cnt" id="${pid}-ccnt"></span></summary>
+      <div class="bar">
+        <input id="${pid}-filter" placeholder="过滤：域名 / 链 / 规则…">
+        <label class="chk"><input type="checkbox" id="${pid}-auto" ${st.auto?'checked':''}> 自动刷新</label>
+        <button data-act="refresh">刷新</button>
+        <button class="danger" data-act="closeall">全部断开</button>
+        <span class="dim" style="font-size:10px">↑↓ 为连接流量</span>
+      </div>
+      <div style="overflow-x:auto"><table id="${pid}-tbl"><thead><tr>
+        <th>主机</th><th>目标</th><th>链</th><th>规则</th><th>↑</th><th>↓</th><th></th>
+      </tr></thead><tbody id="${pid}-tb"><tr><td colspan="7" class="dim">加载中…</td></tr></tbody></table></div>
+    </details>
+    <details class="sect" id="${pid}-log" ${st.log?'open':''}>
+      <summary>日志<span class="cnt" id="${pid}-lcnt">ws /logs</span></summary>
+      <div class="bar">
+        <select id="${pid}-lvl">${['debug','info','warn','error'].map(l=>`<option value="${l}" ${st.level===l?'selected':''}>${l}</option>`).join('')}</select>
+        <button data-act="logpause">${st.paused?'继续':'暂停'}</button>
+        <button data-act="logclear">清空</button>
+        <span class="dim" style="font-size:10px">展开本区才建立 WebSocket，收起即断开</span>
+      </div>
+      <div class="logbox" id="${pid}-logbox"></div>
+    </details>
+    <details class="sect" id="${pid}-rules" ${st.rules?'open':''}>
+      <summary>规则<span class="cnt" id="${pid}-rcnt"></span></summary>
+      <div style="overflow-x:auto"><table id="${pid}-rtbl"></table></div>
+    </details>`;
+  bindPane(b,pid,st);
   let ver,proxies,conns;
   try{
-    const [vr,pr,cr]=await Promise.all([
-      api(r,'/version'),api(r,'/proxies'),api(r,'/connections')]);
+    const [vr,pr,cr]=await Promise.all([api(b,'/version'),api(b,'/proxies'),api(b,'/connections')]);
     if(vr.status===401||pr.status===401){
-      el.innerHTML='<div class="banner" style="display:block">✗ 密钥未填或错误（401）—— 右上角填入与 Clash API 相同的访问密钥后自动重试</div>';return}
+      $(pid+'-stats').innerHTML='<div class="banner" style="display:block">✗ 密钥未填或错误（401）—— 填该后端的密钥，或填顶部「发布密钥」后重试</div>';return}
     ver=await vr.json();proxies=await pr.json();conns=await cr.json();
-  }catch(e){el.innerHTML='<div class="banner" style="display:block">✗ 连不上 '+r.api+'：'+e.message+'（检查密钥 / 是否在 888 来源打开）</div>';return}
+  }catch(e){
+    $(pid+'-stats').innerHTML='<div class="banner" style="display:block">✗ 连不上 '+esc(b.api)+'：'+esc(e.message)
+      +'<br>常见原因：① CORS 白名单没含本页来源（'+PAGE_ORIGINS.join(' 或 ')+'）② 地址/端口不对 ③ 后端不在本机可达网段</div>';
+    return;
+  }
+  fillStats(b,pid,ver,proxies,conns);
+  fillGroups(b,pid,proxies);
+  fillConns(pid,conns);
+  if(st.rules)loadRules(b,pid);
+  if(st.log)startLogs(b,pid);
+  if(st.auto)startAuto(b,pid);
+}
+
+function fillStats(b,pid,ver,proxies,conns){
   const P=proxies.proxies||{};
   const groups=Object.values(P).filter(x=>['Selector','URLTest'].includes(x.type));
   const cl=conns.connections||[];
   let up=0,dn=0;cl.forEach(c=>{up+=c.upload||0;dn+=c.download||0});
-  const mb=n=>(n/1048576).toFixed(1)+' MB';
-  el.innerHTML=`
-  <div class="strip">
-    <div class="stat"><span>引擎</span><b style="font-size:12px">${ver.version||'—'}</b></div>
+  $(pid+'-stats').innerHTML=`
+    <div class="stat"><span>引擎</span><b style="font-size:12px">${esc(ver.version||'—')}</b></div>
     <div class="stat"><span>活跃连接</span><b>${cl.length}</b></div>
-    <div class="stat"><span>流量 ↓/↑</span><b style="font-size:13px">${mb(conns.downloadTotal||dn)} / ${mb(conns.uploadTotal||up)}</b></div>
+    <div class="stat"><span>流量 ↓/↑</span><b style="font-size:13px">${fmtB(conns.downloadTotal||dn)} / ${fmtB(conns.uploadTotal||up)}</b></div>
     <div class="stat"><span>分组</span><b>${groups.length}</b></div>
-    <div class="stat"><span>角色</span><b style="font-size:13px">${r.name}</b></div>
-  </div>
-  <h2>分组与节点 · 点成员即切换</h2>
-  <div class="ggrid">${groups.map(g=>`
-    <div class="gcard">
-      <div class="gn"><span class="nm">${g.name}</span><span class="dim" style="font-size:10px">${g.type}</span></div>
-      <div class="now">▸ ${g.now||'—'}</div>
-      <div class="chips">${g.all.map(m=>`<span class="chip ${m===g.now?'on':''}" title="点击切换"
-        onclick="pick('${r.api}','${esc(g.name)}','${esc(m)}',this)">${esc(m)}</span>`).join('')}</div>
-    </div>`).join('')}
-  </div>
-  <h2>连接表</h2>
-  <div class="bar"><input placeholder="过滤：域名 / 链 / 规则…" oninput="filt('${pid}',this.value)">
-  <button onclick="sw(curPane)">刷新</button>
-  <span class="dim" style="font-size:10px">↑↓ 为连接流量 · ✕ 断开</span></div>
-  <div style="overflow-x:auto"><table><thead><tr>
-    <th>主机</th><th>目标</th><th>链</th><th>规则</th><th>↑</th><th>↓</th><th></th>
-  </tr></thead><tbody id="${pid}-tb">${connRows(cl)}</tbody></table></div>`;
-  el.dataset.loaded='1';
+    <div class="stat"><span>后端</span><b style="font-size:13px">${esc(b.name)}</b></div>`;
+  $(pid+'-ccnt').textContent=' '+cl.length+' 条 ';
 }
-let _curR=null;
-function connRows(cl){
-  return cl.slice().sort((a,b)=>(b.start||'').localeCompare(a.start||'')).slice(0,80).map(c=>{
-    const m=c.metadata||{};
-    return `<tr><td class="ch">${esc(m.host||'')}</td><td class="dim">${m.destinationIP||''}:${m.destinationPort||''}</td>
-    <td class="dl">${esc((c.chains||[]).slice().reverse().join('>')||'')}</td>
-    <td class="dim">${esc(c.rule||'')} ${esc(c.rulePayload||'')}</td>
-    <td class="dim">${fmtB(c.upload)}</td><td class="dim">${fmtB(c.download)}</td>
-    <td><span class="x" onclick="kill('${c.id}')">✕</span></td></tr>`;}).join('');
-}
-function filt(pid,q){q=(q||'').toLowerCase();
-  document.querySelectorAll('#'+pid+' tbody tr').forEach(tr=>{
-    tr.style.display=tr.textContent.toLowerCase().includes(q)?'':'none';});}
-async function kill(id){for(const r of [R32,RGL]){try{await api(r,'/connections/'+id,'DELETE')}catch(e){}}}
-async function pick(apiBase,g,m,chipEl){
-  const r=apiBase===R32.api?R32:RGL;
-  try{
-    const resp=await api(r,'/proxies/'+encodeURIComponent(g),'PUT',{name:m});
-    if(!resp.ok)throw new Error('HTTP '+resp.status);
-    chipEl.parentElement.querySelectorAll('.chip').forEach(c=>c.classList.remove('on'));
-    chipEl.classList.add('on');
-    chipEl.closest('.gcard').querySelector('.now').textContent='▸ '+m;
-  }catch(e){alert('切换失败：'+e.message)}
-  try{const d=await api(r,'/proxies/'+encodeURIComponent(m)+'/delay?timeout=3000&url='+encodeURIComponent('http://www.gstatic.com/generate_204')).then(x=>x.json());
-    if(d.delay)chipEl.innerHTML=esc(m)+'<span class="ms">'+d.delay+'ms</span>';
-    else chipEl.innerHTML=esc(m)+'<span class="bad">✗</span>';
-  }catch(e){chipEl.innerHTML=esc(m)+'<span class="bad">✗</span>'}
-}
-function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
-function fmtB(n){n=n||0;return n>1048576?(n/1048576).toFixed(1)+'M':n>1024?(n/1024).toFixed(0)+'K':n}
 
-/* ── 编辑台 ── */
+const lastLat=(P,name)=>{const h=(P[name]||{}).history||[];return h.length?(h[h.length-1].delay??0):null};
+
+function fillGroups(b,pid,proxies){
+  const P=proxies.proxies||{};
+  const groups=Object.values(P).filter(x=>['Selector','URLTest'].includes(x.type));
+  const gcnt=$(pid+'-gcnt'); if(gcnt)gcnt.textContent=` ${groups.length} 组 · ${Object.keys(P).length} 项 `;
+  const grid=$(pid+'-grid'); if(!grid)return;
+  grid.innerHTML=groups.map(g=>{
+    const chips=(g.all||[]).map(m=>{
+      const sel=m===g.now, clickable=g.type==='Selector', d=lastLat(P,m);
+      const attrs=clickable?`class="chip clk ${sel?'on':''}" data-g="${esc(g.name)}" data-m="${esc(m)}" title="点击切换"`
+                          :`class="chip ${sel?'on':''}" data-m="${esc(m)}" title="URLTest 组按延迟自动选择，不能手动指定"`;
+      return `<span ${attrs}>${esc(m)}<span class="lat ${latCls(d)}">${latTxt(d)}</span></span>`;
+    }).join('');
+    return `<div class="gcard"><div class="gn"><span class="nm">${esc(g.name)}</span><span class="gt">${esc(g.type)}</span></div>
+      <div class="now">▸ ${esc(g.now||'—')}</div><div class="chips">${chips}</div></div>`;
+  }).join('');
+}
+
+function chipTag(txt,cls){return `<span class="tag ${cls||''}" title="${esc(txt)}">${esc(txt)}</span>`}
+function connRows(cl){
+  if(!cl.length)return '<tr><td colspan="7" class="dim">当前没有活跃连接</td></tr>';
+  return cl.slice().sort((a,b)=>(b.start||'').localeCompare(a.start||'')).slice(0,120).map(c=>{
+    const m=c.metadata||{};
+    const chain=(c.chains||[]).map((h,i)=>chipTag(h,i===0?'first':'')).join('<span class="sep">›</span>')||'<span class="dim">—</span>';
+    const rule=c.rule?chipTag(c.rule+((c.rulePayload)?': '+c.rulePayload:''),'rule'):'<span class="dim">—</span>';
+    return `<tr><td class="ch mono">${esc(m.host||m.sniffHost||'')}</td>
+      <td class="dim mono">${esc((m.destinationIP||'')+':'+(m.destinationPort||''))}</td>
+      <td>${chain}</td><td>${rule}</td>
+      <td class="dim">${fmtB(c.upload)}</td><td class="dim">${fmtB(c.download)}</td>
+      <td><span class="x" data-kill="${esc(c.id)}" title="断开">✕</span></td></tr>`;
+  }).join('');
+}
+function fillConns(pid,conns){
+  const cl=conns.connections||[];
+  const cnt=$(pid+'-ccnt'); if(cnt)cnt.textContent=' '+cl.length+' 条 ';
+  const tb=$(pid+'-tb'); if(!tb)return;
+  tb.innerHTML=connRows(cl);
+  applyFilter(pid);
+}
+function applyFilter(pid){
+  const f=$(pid+'-filter'); const q=(f?f.value:'').toLowerCase();
+  document.querySelectorAll('#'+pid+'-tb tr').forEach(tr=>{tr.style.display=(!q||tr.textContent.toLowerCase().includes(q))?'':'none'});
+}
+async function refreshConns(b,pid){
+  if(!$(pid+'-tb'))return;
+  try{fillConns(pid,await api(b,'/connections').then(r=>r.json()))}catch(e){}
+}
+async function refreshProxiesOnly(b,pid){
+  if(!$(pid+'-grid'))return;
+  try{fillGroups(b,pid,await api(b,'/proxies').then(r=>r.json()))}catch(e){}
+}
+function startAuto(b,pid){
+  if(timer){clearInterval(timer);timer=null}
+  const st=uiState(b);
+  if(!st.auto)return;
+  timer=setInterval(()=>{if(curPane===('b'+pid.replace(/^bc/,''))&&$(pid+'-tb'))refreshConns(b,pid)},3000);
+}
+
+/* 全部测速：并发 6，红黄绿回填到 chip */
+async function testAll(b,pid,btn){
+  const grid=$(pid+'-grid'); if(!grid)return;
+  const old=btn.textContent; btn.disabled=true; btn.textContent='测速中…';
+  try{
+    const P=(await api(b,'/proxies').then(r=>r.json())).proxies||{};
+    const groups=Object.values(P).filter(x=>['Selector','URLTest'].includes(x.type));
+    const names=[...new Set(groups.flatMap(g=>g.all||[]))].filter(n=>P[n]&&!['Selector','URLTest'].includes(P[n].type));
+    const q=names.slice(); let done=0;
+    const one=async n=>{
+      try{const j=await api(b,'/proxies/'+encodeURIComponent(n)+'/delay?timeout=3000&url='+encodeURIComponent('http://www.gstatic.com/generate_204')).then(x=>x.json());setChipLat(pid,n,j.delay||0)}
+      catch(e){setChipLat(pid,n,0)}
+      done++;btn.textContent='测速中 '+done+'/'+names.length;
+    };
+    await Promise.all(Array.from({length:6},async()=>{while(q.length)await one(q.shift())}));
+  }finally{btn.disabled=false;btn.textContent=old}
+}
+function setChipLat(pid,name,d){
+  document.querySelectorAll('#'+pid+'-grid .chip').forEach(c=>{
+    if(c.dataset.m!==name)return;
+    const el=c.querySelector('.lat'); if(!el)return;
+    el.className='lat '+latCls(d); el.textContent=latTxt(d);
+  });
+}
+
+/* 日志：展开才连 WS，收起即断 */
+function appendLog(pid,html){
+  const box=$(pid+'-logbox'); if(!box)return;
+  const stick=box.scrollTop+box.clientHeight>=box.scrollHeight-30;
+  box.insertAdjacentHTML('beforeend','<div class="logline">'+html+'</div>');
+  while(box.childElementCount>300)box.removeChild(box.firstElementChild);
+  if(stick)box.scrollTop=box.scrollHeight;
+}
+function startLogs(b,pid){
+  stopLogs();
+  const box=$(pid+'-logbox'); if(!box)return;
+  const st=uiState(b);
+  let host=''; try{host=new URL(b.api).host}catch(e){}
+  if(!host){appendLog(pid,'<span class="no">clash_api 地址无效</span>');return}
+  const url='ws://'+host+'/logs?token='+encodeURIComponent(keyFor(b))+'&level='+encodeURIComponent(st.level);
+  appendLog(pid,'<span class="dim">— 连接 ws://'+esc(host)+'/logs（level='+esc(st.level)+'）—</span>');
+  try{logWS=new WebSocket(url)}catch(e){appendLog(pid,'<span class="no">无法建立 WebSocket：'+esc(e.message)+'</span>');return}
+  logWS.onopen=()=>appendLog(pid,'<span class="ok">— 已连接，日志流入 —</span>');
+  logWS.onerror=()=>appendLog(pid,'<span class="no">— 日志连接出错（密钥不对 / ws 被拦？）—</span>');
+  logWS.onclose=()=>{appendLog(pid,'<span class="dim">— 已断开 —</span>');logWS=null};
+  logWS.onmessage=ev=>{
+    if(uiState(b).paused)return;
+    let txt=String(ev.data),type='info';
+    try{const m=JSON.parse(ev.data);type=m.type||'info';txt=m.payload||ev.data}catch(e){}
+    appendLog(pid,`<span class="lv ${esc(type)}">${esc(type)}</span>${esc(txt)}`);
+  };
+}
+
+/* 规则：展开才拉 /rules */
+async function loadRules(b,pid){
+  const tbl=$(pid+'-rtbl'); if(!tbl)return;
+  tbl.innerHTML='<tbody><tr><td class="dim">加载中…</td></tr></tbody>';
+  try{
+    const rs=(await api(b,'/rules').then(r=>r.json())).rules||[];
+    $(pid+'-rcnt').textContent=' '+rs.length+' 条 ';
+    tbl.innerHTML='<thead><tr><th>#</th><th>类型</th><th>条件 / payload</th><th>动作 / 出站</th></tr></thead><tbody>'+
+      rs.map((r,i)=>`<tr><td class="dim">${i}</td>
+        <td>${chipTag(r.type||'','')}</td>
+        <td class="mono" title="${esc(r.payload||'')}" style="max-width:520px;overflow:hidden;text-overflow:ellipsis">${esc(r.payload||'—')}</td>
+        <td>${esc(r.proxy||'')}</td></tr>`).join('')+'</tbody>';
+  }catch(e){tbl.innerHTML='<tbody><tr><td class="no">规则拉取失败：'+esc(e.message)+'</td></tr></tbody>'}
+}
+
+function bindPane(b,pid,st){
+  const el=$(pid);
+  el.querySelectorAll('details.sect').forEach(d=>{
+    const key=d.id.slice(pid.length+1);
+    d.addEventListener('toggle',()=>{
+      st[key]=d.open;
+      if(key==='log'){d.open?startLogs(b,pid):stopLogs()}
+      if(key==='rules'&&d.open)loadRules(b,pid);
+    });
+  });
+  const f=$(pid+'-filter'); if(f){f.value=st.filter||'';f.oninput=()=>{st.filter=f.value;applyFilter(pid)}}
+  const a=$(pid+'-auto'); if(a)a.onchange=()=>{st.auto=a.checked;startAuto(b,pid)};
+  const lv=$(pid+'-lvl'); if(lv)lv.onchange=()=>{st.level=lv.value;if($(pid+'-log').open)startLogs(b,pid)};
+  el.querySelectorAll('[data-act]').forEach(btn=>{
+    btn.onclick=e=>{
+      e.preventDefault();e.stopPropagation();
+      const act=btn.dataset.act;
+      if(act==='testall')testAll(b,pid,btn);
+      else if(act==='refresh'){refreshConns(b,pid);refreshProxiesOnly(b,pid)}
+      else if(act==='closeall'){if(confirm('断开全部连接？（会立刻断开当前所有代理连接）'))api(b,'/connections','DELETE').then(()=>refreshConns(b,pid)).catch(()=>{})}
+      else if(act==='logclear'){$(pid+'-logbox').innerHTML=''}
+      else if(act==='logpause'){st.paused=!st.paused;btn.textContent=st.paused?'继续':'暂停'}
+    };
+  });
+  const grid=$(pid+'-grid');
+  if(grid)grid.addEventListener('click',async e=>{
+    const chip=e.target.closest('.chip[data-g]'); if(!chip)return;
+    const g=chip.dataset.g,m=chip.dataset.m;
+    try{
+      const r=await api(b,'/proxies/'+encodeURIComponent(g),'PUT',{name:m});
+      if(!r.ok){const j=await r.json().catch(()=>({}));throw new Error(j.message||('HTTP '+r.status))}
+      chip.parentElement.querySelectorAll('.chip').forEach(c=>c.classList.remove('on'));
+      chip.classList.add('on');
+      const card=chip.closest('.gcard'); if(card)card.querySelector('.now').textContent='▸ '+m;
+    }catch(err){alert('切换失败：'+err.message)}
+  });
+  const tb=$(pid+'-tb');
+  if(tb)tb.addEventListener('click',async e=>{
+    const x=e.target.closest('[data-kill]'); if(!x)return;
+    try{await api(b,'/connections/'+encodeURIComponent(x.dataset.kill),'DELETE');refreshConns(b,pid)}catch(err){}
+  });
+}
+
+/* ── 规则编辑 / 发布 ── */
 const sel=$('bucket');
 BUCKETS.forEach(([b,n])=>{const o=document.createElement('option');o.value=b;o.textContent=`${b}（${n} 条规则）`;sel.appendChild(o)});
 sel.value='rs-tg';
 loadBucket();
 async function loadBucket(){
   $('src').value='加载中…';
-  try{$('src').value=await(await fetch(`../rule-set/${sel.value}.json`,{cache:'no-store'})).text();}
+  try{$('src').value=await(await fetch(`/rule-set/${sel.value}.json`,{cache:'no-store'})).text();}
   catch(e){$('src').value='拉取失败：'+e}
-  try{const h=await fetch(`../rule-set/${sel.value}.srs`,{method:'HEAD',cache:'no-store'});
+  try{const h=await fetch(`/rule-set/${sel.value}.srs`,{method:'HEAD',cache:'no-store'});
     $('liveinfo').textContent=`线上: ${h.headers.get('content-length')}B · ${h.headers.get('last-modified')||''}`;}catch(e){}
   validate();
 }
@@ -249,23 +559,25 @@ function validate(){
 function fmt(){try{$('src').value=JSON.stringify(JSON.parse($('src').value),null,2);validate()}catch(e){}}
 async function publish(){
   if(!validate())return alert('内容不合法，未发布');
-  if(!key())return alert('请先在右上角填访问密钥');
+  if(!globalKey())return alert('请先在右上角填「发布密钥」');
   const res=$('pres');res.style.display='block';
   res.innerHTML='<span class="dim">发布中：编译 → 写入 NAS → …</span>';
   try{
     const r=await fetch(PUB,{method:'POST',
-      headers:{'Content-Type':'application/json','X-Vault-Key':key()},
+      headers:{'Content-Type':'application/json','X-Vault-Key':globalKey()},
       body:JSON.stringify({bucket:sel.value,content:$('src').value})});
     const j=await r.json();
     if(!r.ok)throw new Error(j.error||('HTTP '+r.status));
     let s=60;
-    res.innerHTML=`✓ 已发布 <b>${j.bucket}</b> · json ${j.json}B · srs ${j.srs}B · sha256 <span class="dl">${j.sha256}…</span><br>
+    res.innerHTML=`✓ 已发布 <b>${esc(j.bucket)}</b> · json ${j.json}B · srs ${j.srs}B · sha256 <span class="dl">${esc(j.sha256)}…</span><br>
       <span class="cd" id="cd">60</span> 秒后两台路由自动生效（无需任何操作）
       <button onclick="loadBucket()" style="margin-left:10px">重新拉取确认</button>`;
     const cd=()=>$('cd')&&($('cd').textContent=--s>0?s:0);
     const iv=setInterval(()=>{cd();if(s<=0){clearInterval(iv);}},1000);
   }catch(e){res.innerHTML=`<span style="color:var(--bad)">✗ 发布失败：${esc(e.message)}</span>`}
 }
+
+renderShell();
 </script>
 </body>
 </html>
