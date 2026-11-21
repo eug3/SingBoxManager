@@ -42,7 +42,7 @@ function curve(pts: readonly (readonly [number, number])[]): string {
 /**
  * 轻量 SVG 图表（无第三方库）
  * - 序列长度固定 = 窗口格数（如 10 分钟 = 300 格），空位为 null，数据靠右推进
- * - mode='line'：平滑曲线 + 半透明面积，线宽 1px
+ * - mode='line'：平滑曲线 + 很淡的面积，线宽 0.6px（non-scaling-stroke，不随 viewBox 拉伸变粗）
  * - mode='bar'：柱形；mirror=true 时以中线为轴（series[0] 向上、series[1] 向下）
  */
 @Component({
@@ -68,8 +68,14 @@ function curve(pts: readonly (readonly [number, number])[]): string {
         }
       } @else {
         @for (s of paths(); track $index) {
-          <path [attr.d]="s.area" [attr.fill]="s.color" fill-opacity="0.12" stroke="none" />
-          <path [attr.d]="s.line" fill="none" [attr.stroke]="s.color" stroke-width="1" />
+          <path [attr.d]="s.area" [attr.fill]="s.color" fill-opacity="0.07" stroke="none" />
+          <path
+            [attr.d]="s.line"
+            fill="none"
+            [attr.stroke]="s.color"
+            stroke-width="0.6"
+            vector-effect="non-scaling-stroke"
+          />
         }
       }
 
