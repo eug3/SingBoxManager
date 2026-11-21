@@ -1,29 +1,34 @@
 # SingBoxManager
 
-双路由 **sing-box** 分流规则的托管仓库 + 内网管理台。
+多路由 **sing-box** 分流规则的托管仓库 + 内网管理台。
 
-两台路由（甲 `192.168.31.32` OpenWrt / 乙 `172.16.8.1` GL-BE3600）的**全部域名/IP 分流规则**托管成 23 个远程 rule-set 桶放在 NAS 上，
-改 NAS 文件 → 两台路由 60 秒内自动拉取生效，**全程零重启**；规则的编辑、发布、节点切换、流量/连接/日志监控集中在一台内网 99 号机（`192.168.31.99:9099`）的管理台里，公网只保留只读页面。
+多台路由器的**全部域名/IP 分流规则**统一托管成 23 个远程 rule-set 桶放在 NAS 上：
+改 NAS 文件 → 各路由 60 秒内自动拉取生效，**全程零重启**；规则的编辑、发布、节点切换、流量/连接/日志监控集中在一台内网**管理机**的管理台里，公网只保留只读页面。
+
+> 本文所有主机名 / IP / 域名均为**示例占位**（`console.lan`、`router-a.lan`、`rules.example.com` 等），部署时替换为自己的真实地址；真实拓扑只记录在内部运维文档，不进本仓库。
 
 ---
 
 ## 架构
 
 ```
-                          ┌──────────── NAS /Volumes/HddShare/WebEdit ─────────────┐
+                          ┌──────────── NAS <规则桶目录> ────────────────────────────┐
    公网 (Cloudflare Tunnel)│ index.html(脱敏首页)  rule-set/*.json|*.srs  zashboard/ │
         ─── 只读 ────────▶ │                                          ▲             │
                           └──────────────────────────────────────────┼─────────────┘
                                                                      │ 编译产物写回
-  浏览器 ── LAN / EasyTier ──▶ 99 号机  vault-edit (Go, :9099) ◀──────┘
+  浏览器 ── LAN / 虚拟内网 ─▶  管理机  vault-edit (Go, :9099) ◀────────┘
         (管理台 Angular 22)     │  GET  /edit/            前端静态（Angular 产物）
                                 │  GET  /static/          Monaco 编辑器静态
                                 │  GET  /rule-set/*       读 NAS（同源，免 CORS）
                                 │  POST /publish          校验 → sing-box 编译 → 写 NAS
                                 ▼
-            甲 32 sing-box ◀── remote rule-set, update_interval=1m ──▶ 乙 GL sing-box
-            (OpenWrt x86_64)                                        (GL-BE3600 aarch64)
+       路由 A sing-box ◀── remote rule-set, update_interval=1m ──▶ 路由 B sing-box …（可继续扩展）
 ```
+
+- **写通道唯一**：规则编译需要 `sing-box` 二进制、写回需要 NAS 挂载，只有管理机同时满足，所以管理台与发布接口都放在管理机（`/publish` 用 `X-Vault-Key` 鉴权 + 仅内网可用）。
+- **读通道**：NAS 上的 `.srs/.json` 由公网首页与路由直接拉取；管理台自己读 `.json` 源走同源接口。
+- **多路由扩展**：新路由只要配置同一批远程 rule-set 的 URL，即可接入同一套规则源，无需改动本仓库。
 
 - **写通道唯一**：规则编译需要 `sing-box` 二进制、写回需要 NAS 挂载，只有 99 号机同时满足，所以管理台与发布接口都放在 99（`/publish` 用 `X-Vault-Key` 鉴权 + 仅内网可用）。
 - **读通道**：NAS 上的 `.srs/.json` 由公网首页与路由直接拉取；管理台自己读 `.json` 源走同源接口。
@@ -89,7 +94,7 @@ VAULT_KEY="$VAULT_KEY" scripts/check.sh
 - **改规则**：管理台 → `🧩 规则编辑` → 选桶 → 编辑（Monaco）→ `保存并发布` → 两台路由 60s 内自动拉取。
 - **看/切节点**：管理台后端 tab → `分组与节点`（Selector 组可点切换，URLTest 组只读、按延迟自动选）。
 - **看流量/连接/日志**：后端 tab → `概览`（下载/上传/连接数/内存曲线，1s 采样，可选 1/5/10 分钟窗口）、`连接`、`日志`。
-- **改节点配置/重启**：后端 tab → `配置`（读 config.json、节点表、Monaco 编辑整份配置、实时 diff 与结构校验、`校验` → `应用并重启`（约 1s 断流、失败自动回滚）、`重启 sing-box`）。链路：浏览器 → 99 `/router/*` → 受限 SSH → 路由本地 `singbox-apply`。
+- **改节点配置/重启**：后端 tab → `配置`（读 config.json、节点表、**按协议表单新增/编辑节点**、**删除带引用联动**、**ss/vmess/vless/trojan/hysteria2 分享链接导入**、Monaco 编辑整份配置、实时 diff 与结构校验、`校验` → `应用并重启`（约 1s 断流、失败自动回滚）、`重启 sing-box`）。链路：浏览器 → 99 `/router/*` → 受限 SSH → 路由本地 `singbox-apply`。
 - **多后端**：`＋ 添加后端` 可挂任意 clash_api（名称/地址/密钥存本浏览器 localStorage）；地址没填=草稿，刷新即消失。
 - **不用管理台时**：直接改 NAS `rule-set/*.json` 再编译成 `.srs` 也可以，见 `scripts/publish.sh` 与 runbook。
 

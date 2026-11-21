@@ -3,26 +3,69 @@ import { Backend } from './models';
 import { RouterService } from './router.service';
 import { BackendsService } from './backends.service';
 import { MonacoEditorComponent } from './monaco-editor';
+import {
+  AnyObj,
+  ConfigDoc,
+  addNode,
+  deleteImpact,
+  deleteNode,
+  findNode,
+  groups,
+  nodes,
+  parseConfig,
+  serializeConfig,
+  updateNode,
+  validateDoc,
+} from './config-ops';
+import { ParsedNode, parseShareLinks } from './share-link';
 
-interface NodeRow {
+type FormMode = 'none' | 'add' | 'edit';
+
+interface NodeForm {
   tag: string;
   type: string;
   server: string;
-  credential: string;
-  groups: string[];
-  routeRefs: number;
-  special: boolean;
+  server_port: number;
+  method: string;
+  password: string;
+  uuid: string;
+  alter_id: number;
+  security: string;
+  flow: string;
+  tls: boolean;
+  tls_server_name: string;
+  tls_insecure: boolean;
+  transport: 'none' | 'ws' | 'grpc';
+  transport_path: string;
+  transport_service: string;
+  socks_version: string;
 }
 
-interface DiffLine {
-  kind: 'add' | 'del';
-  text: string;
+const NODE_TYPES = ['shadowsocks', 'vmess', 'vless', 'trojan', 'socks', 'hysteria2', 'tuic', 'anytls'];
+
+function emptyForm(): NodeForm {
+  return {
+    tag: '',
+    type: 'shadowsocks',
+    server: '',
+    server_port: 443,
+    method: 'aes-256-gcm',
+    password: '',
+    uuid: '',
+    alter_id: 0,
+    security: 'auto',
+    flow: '',
+    tls: false,
+    tls_server_name: '',
+    tls_insecure: false,
+    transport: 'none',
+    transport_path: '/',
+    transport_service: '',
+    socks_version: '5',
+  };
 }
 
-const SPECIAL_TYPES = new Set(['direct', 'block', 'dns']);
-const GROUP_TYPES = new Set(['selector', 'urltest']);
-
-/** 「配置」子页：读/校验/应用/重启 sing-box 配置（经 99 受限 SSH → 路由器单脚本） */
+/** 「配置」子页：读/校验/表单增删改/导入/应用/重启 sing-box 配置 */
 @Component({
   selector: 'app-config-pane',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -46,20 +89,34 @@ export class ConfigPane {
   readonly log = signal('');
   readonly loaded = signal(false);
 
+  // —— 节点表单 ——
+  readonly formMode = signal<FormMode>('none');
+  readonly form = signal<NodeForm>(emptyForm());
+  readonly editingTag = signal('');
+  readonly nodeTypes = NODE_TYPES;
+
+  // —— 导入 ——
+  readonly importOpen = signal(false);
+  readonly importText = signal('');
+  readonly importGroups = signal<string[]>([]);
+  readonly importResult = signal<ParsedNode[]>([]);
+
+  // —— 删除 ——
+  readonly deleteTag = signal('');
+
   constructor() {
     effect(() => {
       const b = this.backend();
-      // 读/写路由配置只需要发布密钥（X-Vault-Key），与后端 clash secret 无关
       const vaultKey = this.bsvc.globalKey();
       if (!b.api || !vaultKey) return;
       void this.reload();
     });
   }
 
-  readonly parsed = computed<Record<string, unknown> | null>(() => {
+  // ---------- 只读派生 ----------
+  readonly doc = computed<ConfigDoc | null>(() => {
     try {
-      const v = JSON.parse(this.raw()) as unknown;
-      return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
+      return parseConfig(this.raw());
     } catch {
       return null;
     }
@@ -75,73 +132,29 @@ export class ConfigPane {
     }
   });
 
-  /** 节点（outbounds 里的代理节点 + endpoints） */
-  readonly nodes = computed<NodeRow[]>(() => {
-    const cfg = this.parsed();
-    if (!cfg) return [];
-    const outbounds = Array.isArray(cfg['outbounds']) ? (cfg['outbounds'] as Record<string, unknown>[]) : [];
-    const endpoints = Array.isArray(cfg['endpoints']) ? (cfg['endpoints'] as Record<string, unknown>[]) : [];
-    const groups = outbounds.filter((o) => GROUP_TYPES.has(String(o['type'])));
-    const routeRefs = new Map<string, number>();
-    const route = cfg['route'] as Record<string, unknown> | undefined;
-    const rules = Array.isArray(route?.['rules']) ? (route!['rules'] as Record<string, unknown>[]) : [];
-    for (const r of rules) {
-      const ref = r['outbound'];
-      if (typeof ref === 'string') routeRefs.set(ref, (routeRefs.get(ref) ?? 0) + 1);
-    }
-    const rows: NodeRow[] = [];
-    for (const o of [...outbounds, ...endpoints]) {
-      const type = String(o['type'] ?? '?');
-      if (GROUP_TYPES.has(type)) continue;
-      const tag = String(o['tag'] ?? '?');
-      const inGroups = groups
-        .filter((g) => Array.isArray(g['outbounds']) && (g['outbounds'] as string[]).includes(tag))
-        .map((g) => String(g['tag']));
-      const host = o['server'] ?? o['server_name'] ?? o['host'] ?? '';
-      const port = o['server_port'] ?? o['port'] ?? '';
-      rows.push({
-        tag,
-        type,
-        server: host ? `${host}${port ? ':' + port : ''}` : '—',
-        credential: this.maskCredential(o),
-        groups: inGroups,
-        routeRefs: routeRefs.get(tag) ?? 0,
-        special: SPECIAL_TYPES.has(type) || SPECIAL_TYPES.has(tag.toLowerCase()),
-      });
-    }
-    return rows.sort((a, b) => (a.special === b.special ? a.tag.localeCompare(b.tag) : a.special ? 1 : -1));
+  readonly nodeRows = computed(() => {
+    const d = this.doc();
+    return d ? nodes(d) : [];
   });
 
-  /** 结构校验：tag 唯一 / 组引用存在 / route 引用存在 */
-  readonly issues = computed<string[]>(() => {
-    const cfg = this.parsed();
-    if (!cfg) return [];
-    const out = [...(Array.isArray(cfg['outbounds']) ? (cfg['outbounds'] as Record<string, unknown>[]) : []),
-                 ...(Array.isArray(cfg['endpoints']) ? (cfg['endpoints'] as Record<string, unknown>[]) : [])];
-    const tags = new Map<string, number>();
-    for (const o of out) {
-      const t = String(o['tag'] ?? '');
-      tags.set(t, (tags.get(t) ?? 0) + 1);
-    }
-    const list: string[] = [];
-    for (const [t, n] of tags) if (n > 1) list.push(`tag 重复：${t} ×${n}`);
-    for (const o of out) {
-      const members = o['outbounds'];
-      if (!Array.isArray(members)) continue;
-      for (const m of members as string[]) {
-        if (!tags.has(m)) list.push(`组 ${String(o['tag'])} 引用了不存在的 ${m}`);
-      }
-    }
-    const route = cfg['route'] as Record<string, unknown> | undefined;
-    const rules = Array.isArray(route?.['rules']) ? (route!['rules'] as Record<string, unknown>[]) : [];
-    for (const r of rules) {
-      const ref = r['outbound'];
-      if (typeof ref === 'string' && !tags.has(ref)) list.push(`route 规则引用了不存在的 ${ref}`);
-    }
-    return list;
+  readonly groupNames = computed(() => {
+    const d = this.doc();
+    return d ? groups(d).map((g) => String(g['tag'])) : [];
   });
 
-  readonly diff = computed<{ lines: DiffLine[]; adds: number; dels: number }>(() => {
+  readonly issues = computed(() => {
+    const d = this.doc();
+    return d ? validateDoc(d) : [];
+  });
+
+  readonly deleteInfo = computed(() => {
+    const d = this.doc();
+    const tag = this.deleteTag();
+    if (!d || !tag) return null;
+    return deleteImpact(d, tag);
+  });
+
+  readonly diff = computed<{ lines: { kind: 'add' | 'del'; text: string }[]; adds: number; dels: number }>(() => {
     const a = this.original().split('\n');
     const b = this.raw().split('\n');
     if (a.length * b.length > 4_000_000) return { lines: [], adds: 0, dels: 0 };
@@ -153,7 +166,7 @@ export class ConfigPane {
         dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
       }
     }
-    const lines: DiffLine[] = [];
+    const lines: { kind: 'add' | 'del'; text: string }[] = [];
     let adds = 0;
     let dels = 0;
     let i = 0;
@@ -181,6 +194,7 @@ export class ConfigPane {
     return { lines: lines.slice(0, 60), adds, dels };
   });
 
+  // ---------- 读取 / 应用 ----------
   async reload(): Promise<void> {
     this.busy.set(true);
     this.err.set('');
@@ -248,12 +262,9 @@ export class ConfigPane {
     this.err.set('');
     try {
       const res = await this.router.apply(this.backend(), this.raw(), this.sha());
-      const summary = res.changed
-        ? `✓ 已应用并重启（${res.ms}ms）：${res.log}`
-        : `未变化，跳过重启：${res.log}`;
+      const summary = res.changed ? `✓ 已应用并重启（${res.ms}ms）：${res.log}` : `未变化，跳过重启：${res.log}`;
       this.editing.set(false);
       await this.reload();
-      // reload() 会覆盖 log，把应用结果补在最前面
       this.log.set(summary + '\n' + (this.log() ?? ''));
     } catch (e) {
       this.err.set(this.msg(e));
@@ -276,21 +287,223 @@ export class ConfigPane {
     }
   }
 
+  // ---------- 表单：新增 / 编辑 ----------
+  openAdd(): void {
+    if (!this.doc()) {
+      this.err.set('当前配置无法解析，无法用表单编辑；请先修好 JSON');
+      return;
+    }
+    this.editingTag.set('');
+    this.form.set(emptyForm());
+    this.formMode.set('add');
+  }
+
+  openEdit(tag: string): void {
+    const d = this.doc();
+    if (!d) return;
+    const o = findNode(d, tag);
+    if (!o) return;
+    const tls = (o['tls'] ?? {}) as AnyObj;
+    const tr = (o['transport'] ?? {}) as AnyObj;
+    this.editingTag.set(tag);
+    this.form.set({
+      tag,
+      type: String(o['type'] ?? 'shadowsocks'),
+      server: String(o['server'] ?? ''),
+      server_port: Number(o['server_port'] ?? 0),
+      method: String(o['method'] ?? ''),
+      password: String(o['password'] ?? ''),
+      uuid: String(o['uuid'] ?? ''),
+      alter_id: Number(o['alter_id'] ?? 0),
+      security: String(o['security'] ?? 'auto'),
+      flow: String(o['flow'] ?? ''),
+      tls: tls['enabled'] === true,
+      tls_server_name: String(tls['server_name'] ?? ''),
+      tls_insecure: tls['insecure'] === true,
+      transport: (tr['type'] as 'ws' | 'grpc') ?? 'none',
+      transport_path: String(tr['path'] ?? '/'),
+      transport_service: String(tr['service_name'] ?? ''),
+      socks_version: String(o['version'] ?? '5'),
+    });
+    this.formMode.set('edit');
+  }
+
+  cancelForm(): void {
+    this.formMode.set('none');
+  }
+
+  patch<K extends keyof NodeForm>(key: K, value: NodeForm[K]): void {
+    this.form.update((f) => ({ ...f, [key]: value }));
+  }
+
+  toggleFormGroup(name: string, on: boolean): void {
+    // 仅用于新增时选择加入哪些组；编辑模式下沿用当前归属
+    this.formGroups.update((list) => (on ? [...new Set([...list, name])] : list.filter((x) => x !== name)));
+  }
+
+  readonly formGroups = signal<string[]>([]);
+
+  submitForm(): void {
+    const d = this.doc();
+    if (!d) return;
+    const f = this.form();
+    if (!f.tag.trim() || !f.server.trim() || !f.server_port) {
+      this.err.set('标签 / 服务器 / 端口 必填');
+      return;
+    }
+    const node: AnyObj = { type: f.type, tag: f.tag.trim(), server: f.server.trim(), server_port: f.server_port };
+    switch (f.type) {
+      case 'shadowsocks':
+        if (!f.method.trim() || !f.password) {
+          this.err.set('shadowsocks 需要 method 与 password');
+          return;
+        }
+        node['method'] = f.method.trim();
+        node['password'] = f.password;
+        break;
+      case 'vmess':
+        if (!f.uuid.trim()) {
+          this.err.set('vmess 需要 uuid');
+          return;
+        }
+        node['uuid'] = f.uuid.trim();
+        node['security'] = f.security || 'auto';
+        node['alter_id'] = f.alter_id;
+        break;
+      case 'vless':
+        if (!f.uuid.trim()) {
+          this.err.set('vless 需要 uuid');
+          return;
+        }
+        node['uuid'] = f.uuid.trim();
+        if (f.flow.trim()) node['flow'] = f.flow.trim();
+        break;
+      case 'trojan':
+      case 'hysteria2':
+      case 'tuic':
+      case 'anytls':
+        if (!f.password) {
+          this.err.set(`${f.type} 需要密码`);
+          return;
+        }
+        node['password'] = f.password;
+        break;
+      case 'socks':
+        node['version'] = f.socks_version || '5';
+        if (f.password) {
+          node['username'] = f.uuid || '';
+          node['password'] = f.password;
+        }
+        break;
+    }
+    if (f.tls && f.type !== 'shadowsocks' && f.type !== 'socks') {
+      const tls: AnyObj = { enabled: true, server_name: f.tls_server_name || f.server };
+      if (f.tls_insecure) tls['insecure'] = true;
+      node['tls'] = tls;
+    }
+    if (f.transport !== 'none') {
+      node['transport'] =
+        f.transport === 'ws'
+          ? { type: 'ws', path: f.transport_path || '/' }
+          : { type: 'grpc', service_name: f.transport_service || '' };
+    }
+
+    try {
+      if (this.formMode() === 'add') {
+        const tag = addNode(d, node, this.formGroups());
+        this.log.set(`已生成新节点 ${tag}（尚未应用，先看 diff 再点「应用并重启」）`);
+      } else {
+        const tag = this.editingTag();
+        updateNode(d, tag, node, this.formGroups().length ? this.formGroups() : undefined);
+        this.log.set(`已修改节点 ${tag}（尚未应用）`);
+      }
+      this.formMode.set('none');
+      this.enterReview(d);
+    } catch (e) {
+      this.err.set((e as Error).message);
+    }
+  }
+
+  // ---------- 删除（引用联动）----------
+  askDelete(tag: string): void {
+    this.deleteTag.set(tag);
+    const info = this.deleteInfo();
+    if (!info) return;
+    if (info.blocked) {
+      this.err.set(`不能删除 ${tag}：` + info.reasons.join('；'));
+      return;
+    }
+    const lines = [
+      `删除节点 ${tag}？`,
+      info.groups.length ? `· 会从 ${info.groups.length} 个分组中移除：${info.groups.join('、')}` : '· 没有被任何分组引用',
+      info.isDefault.length ? `· 这些组的 default 会改成第一个成员：${info.isDefault.map((x) => x.group).join('、')}` : '',
+      '· 生成后先看 diff，再点「应用并重启」',
+    ].filter(Boolean);
+    if (!confirm(lines.join('\n'))) {
+      this.deleteTag.set('');
+      return;
+    }
+    const d = this.doc();
+    if (!d) return;
+    try {
+      deleteNode(d, tag);
+      this.log.set(`已从配置中移除节点 ${tag}（尚未应用）`);
+      this.enterReview(d);
+    } catch (e) {
+      this.err.set((e as Error).message);
+    } finally {
+      this.deleteTag.set('');
+    }
+  }
+
+  // ---------- 导入分享链接 ----------
+  toggleImport(): void {
+    this.importOpen.update((v) => !v);
+  }
+
+  onImportText(v: string): void {
+    this.importText.set(v);
+    this.importResult.set(parseShareLinks(v));
+  }
+
+  toggleImportGroup(name: string, on: boolean): void {
+    this.importGroups.update((list) => (on ? [...new Set([...list, name])] : list.filter((x) => x !== name)));
+  }
+
+  importAll(): void {
+    const d = this.doc();
+    if (!d) return;
+    const good = this.importResult().filter((r) => r.ok && r.node);
+    if (!good.length) {
+      this.err.set('没有可导入的链接（检查格式或协议是否支持）');
+      return;
+    }
+    const tags: string[] = [];
+    for (const r of good) tags.push(addNode(d, r.node as AnyObj, this.importGroups()));
+    this.log.set(`已导入 ${tags.length} 个节点：${tags.join('、')}（尚未应用）`);
+    this.importOpen.set(false);
+    this.importText.set('');
+    this.importResult.set([]);
+    this.enterReview(d);
+  }
+
+  // ---------- 内部 ----------
+  private enterReview(d: ConfigDoc): void {
+    this.raw.set(serializeConfig(d, this.original()));
+    this.editing.set(true);
+  }
+
   private msg(e: unknown): string {
     const anyE = e as { error?: { error?: string }; message?: string };
     return anyE?.error?.error ?? anyE?.message ?? String(e);
   }
 
-  private maskCredential(o: Record<string, unknown>): string {
+  maskCredential(o: AnyObj): string {
     for (const k of ['password', 'uuid', 'psk', 'private_key']) {
       const v = o[k];
       if (typeof v === 'string' && v) return `${k}=${'•'.repeat(Math.min(8, Math.max(4, v.length)))}`;
     }
     if (o['username']) return `user=${String(o['username'])}`;
     return '—';
-  }
-
-  trackTag(_i: number, r: NodeRow): string {
-    return r.tag;
   }
 }

@@ -156,7 +156,11 @@ sing-box 没有 reload/写配置 API，所以「改节点配置 → 生效」由
 - **健康判据**：必须「换了新 pid」且 `:9090` 在监听（只看端口会被旧进程 socket 骗过）；失败自动回滚并重启旧配置。
 - **并发保护**：apply 带 `expectSha`，配置被别人改过会返回 **409 STALE**，需刷新后重试。
 - **实测**：apply/restart 断流约 **1 秒**（`downtime_s=1`）。
-- **前端行为**：「配置」tab 显示节点表（凭证掩码）、`编辑配置` 打开整份 JSON 的 Monaco 编辑器、实时 diff 与结构校验（tag 重复/组引用/route 引用），`校验` → `应用并重启` → 自动刷新。
+- **前端行为**：「配置」tab 显示节点表（凭证掩码）、`编辑 JSON` 打开 Monaco、实时 diff 与结构校验（tag 重复/组引用/route 引用），`校验` → `应用并重启` → 自动刷新。
+- **表单增删改（2026-11-21）**：`＋ 新增节点` / 行内 `编辑`：按协议字段（ss=vmethod+password；vmess=uuid+security+alter_id；vless=uuid+flow；trojan/hysteria2/tuic/anytls=密码；socks=版本+用户名/密码），可勾 TLS（SNI/insecure）与传输（tcp/ws path/grpc service_name），并勾选加入哪些分组；提交后生成新配置并进入 diff 复核，不会立即下发。
+- **删除引用联动**：删除时自动从所有分组摘除；若组内 `default` 指向它则改成第一个成员；若被 `route.rules[].outbound` 直接引用则**拒绝删除**并说明原因；direct/block 等特殊出站不可删。
+- **分享链接导入**：支持 `ss://`（两种 base64 形态）、`vmess://`（base64 JSON）、`vless://`、`trojan://`、`hysteria2://`、`socks://`，可一次粘贴多行、勾选统一加入的分组，导入后同样先进 diff 复核。
+- **格式说明**：表单/导入走的是「解析 → 改结构 → 按文件现有缩进与行尾重新序列化」，所以手写紧凑处（如 `"rules":[`）会被规范成 `"rules": [`，diff 里会多出个别纯格式行；只改 JSON 文本（Monaco 手改）时不会动其它行。
 - **部署**：`R32_PW=… GL_PW=… scripts/deploy_router_apply.sh`（只装路由脚本，不碰配置）；routers.json 需手工放 99（含口令，不入库）。
 - **回滚**：路由上每次 apply 前都有 `/etc/sing-box/config.json.bak-<ts>-before-apply`；页面也可改回原内容再 apply。
 
