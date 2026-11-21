@@ -12,6 +12,7 @@ import {
 import { AreaChartComponent, ChartSeries } from './area-chart';
 import { Backend, ProxyNode } from './models';
 import { ClashService } from './clash.service';
+import { fmtBytes, fmtMib, fmtRate, latClass, latText, mibToBytes, runPool } from './util';
 
 const MAX_POINTS = 600; // 原始 1s 采样缓冲 = 10 分钟
 const BUCKET_SECONDS = 2; // 图形窗口按 2 秒一格填充（10 分钟 = 300 格）
@@ -19,11 +20,7 @@ const BUCKET_SECONDS = 2; // 图形窗口按 2 秒一格填充（10 分钟 = 300
 const DEFAULT_BANDWIDTH_MIB = 1000;
 const BW_STORE_KEY = 'rateBandwidthMib';
 
-/** Mib/s → sing-box 的字节/秒 */
-const mibToBytes = (mib: number): number => (mib * 1024 * 1024) / 8;
 const WINDOW_OPTIONS = [1, 5, 10];
-const OK_GREEN = 400;
-const OK_YELLOW = 800;
 
 /** 概览：速率 / 连接数 / 内存曲线 + 分组延时速览 + 网络信息（参考 zashboard 概览页） */
 @Component({
@@ -155,10 +152,12 @@ export class OverviewPane implements OnInit, OnDestroy {
     }
   }
 
+  /** 追加一个 1s 采样点，环形保留最近 MAX_POINTS 个 */
   private push(target: WritableSignal<number[]>, v: number): void {
     target.update((arr) => [...arr, v].slice(-MAX_POINTS));
   }
 
+  /** 打开一条 clash WebSocket（/traffic /memory /connections），单条解析失败不影响后续 */
   private openWs(path: string, onMessage: (msg: string) => void): void {
     try {
       const ws = new WebSocket(this.clash.wsUrl(this.backend(), path));
@@ -226,24 +225,19 @@ export class OverviewPane implements OnInit, OnDestroy {
       const names = [...new Set(this.groups().flatMap((g) => g.all ?? []))].filter(
         (n) => map[n] && map[n].type !== 'Selector' && map[n].type !== 'URLTest',
       );
-      const queue = [...names];
+      // 并发 6 逐节点测延迟（runPool 见 util.ts），结果存 nodeLat
       let done = 0;
-      const work = async () => {
-        for (;;) {
-          const name = queue.shift();
-          if (!name) return;
-          let d = 0;
-          try {
-            d = await this.clash.delay(this.backend(), name);
-          } catch {
-            d = 0;
-          }
-          this.nodeLat.update((m) => ({ ...m, [name]: d }));
-          done++;
-          this.testProgress.set(`${done}/${names.length}`);
+      await runPool(names, 6, async (name) => {
+        let d = 0;
+        try {
+          d = await this.clash.delay(this.backend(), name);
+        } catch {
+          d = 0;
         }
-      };
-      await Promise.all(Array.from({ length: 6 }, () => work()));
+        this.nodeLat.update((m) => ({ ...m, [name]: d }));
+        done++;
+        this.testProgress.set(`${done}/${names.length}`);
+      });
     } finally {
       this.testing.set(false);
       this.testProgress.set('');
@@ -257,26 +251,16 @@ export class OverviewPane implements OnInit, OnDestroy {
   }
 
   latClass(d: number | null): string {
-    if (d === null) return 'na';
-    if (d <= 0) return 'r';
-    if (d < OK_GREEN) return 'g';
-    if (d < OK_YELLOW) return 'y';
-    return 'r';
+    return latClass(d);
   }
 
   latText(d: number | null): string {
-    if (d === null) return '—';
-    if (d <= 0) return '✗';
-    return d >= 1000 ? (d / 1000).toFixed(1) + 's' : d + 'ms';
+    return latText(d, '—');
   }
 
-  /** 字节/秒 → Mib/s（1 Mib = 2^20 bit） */
+  /** 字节/秒 → Mib/s 主读数（util.fmtMib） */
   rateTextMib(n: number): string {
-    const mib = (n * 8) / (1024 * 1024);
-    if (!mib) return '0 Mib/s';
-    if (mib < 1) return mib.toFixed(2) + ' Mib/s';
-    if (mib < 10) return mib.toFixed(2) + ' Mib/s';
-    return mib.toFixed(1) + ' Mib/s';
+    return fmtMib(n);
   }
 
   private loadBandwidth(): number {
@@ -303,10 +287,7 @@ export class OverviewPane implements OnInit, OnDestroy {
   }
 
   rateText(n: number): string {
-    if (!n) return '0B/s';
-    if (n < 1024) return n + 'B/s';
-    if (n < 1024 * 1024) return (n / 1024).toFixed(1) + 'K/s';
-    return (n / 1024 / 1024).toFixed(2) + 'M/s';
+    return fmtRate(n);
   }
 
   memText(): string {
@@ -315,11 +296,7 @@ export class OverviewPane implements OnInit, OnDestroy {
   }
 
   fmtB(n: number): string {
-    if (!n || n < 0) return '0B';
-    if (n < 1024) return n + 'B';
-    if (n < 1024 * 1024) return (n / 1024).toFixed(1) + 'K';
-    if (n < 1024 * 1024 * 1024) return (n / 1024 / 1024).toFixed(1) + 'M';
-    return (n / 1024 / 1024 / 1024).toFixed(2) + 'G';
+    return fmtBytes(n);
   }
 
   groupCount(g: ProxyNode): number {

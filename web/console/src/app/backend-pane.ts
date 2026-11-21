@@ -13,12 +13,14 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
-import { Backend, Connection, LAT_LOW, LAT_MID, PAGE_ORIGINS, ProxyNode, RuleEntry } from './models';
+import { Backend, Connection, PAGE_ORIGINS, ProxyNode, RuleEntry } from './models';
 import { BackendsService } from './backends.service';
 import { OverviewPane } from './overview';
 import { ConfigPane } from './config-pane';
 import { ClashService } from './clash.service';
+import { fmtBytes, latClass, latText, runPool } from './util';
 
+/** 后端子页签 */
 type PaneTab = 'overview' | 'groups' | 'connections' | 'logs' | 'rules' | 'config';
 interface LogLine {
   type: string;
@@ -51,6 +53,10 @@ interface LogLine {
     }
   `,
 })
+/**
+ * 后端面板 — 一台路由的六个子页：概览 / 分组与节点 / 连接 / 日志 / 规则 / 配置。
+ * 概览与配置是独立组件；本组件持有其余四个子页的状态与 clash_api 交互。
+ */
 export class BackendPane implements OnInit, OnDestroy {
   readonly backend = input.required<Backend>();
   readonly index = input.required<number>();
@@ -134,6 +140,7 @@ export class BackendPane implements OnInit, OnDestroy {
     this.stopLogs();
   }
 
+  /** 首屏三连拉：版本 / 分组节点 / 连接（401 单独提示填密钥） */
   async load(): Promise<void> {
     this.loadErr.set('');
     this.unauthorized.set(false);
@@ -185,23 +192,19 @@ export class BackendPane implements OnInit, OnDestroy {
   }
 
   /* ── 分组 / 节点 ── */
+
+  /** 最近一次延迟（history 尾部；未测为 null） */
   lastLat(name: string): number | null {
     const h = this.proxyMap()[name]?.history ?? [];
     return h.length ? (h[h.length - 1].delay ?? 0) : null;
   }
 
   latClass(d: number | null): string {
-    if (d === null) return 'na';
-    if (d <= 0) return 'r';
-    if (d < LAT_LOW) return 'g';
-    if (d < LAT_MID) return 'y';
-    return 'r';
+    return latClass(d);
   }
 
   latText(d: number | null): string {
-    if (d === null) return '';
-    if (d <= 0) return '✗';
-    return d >= 1000 ? (d / 1000).toFixed(1) + 's' : d + 'ms';
+    return latText(d);
   }
 
   async select(group: ProxyNode, member: string): Promise<void> {
@@ -224,24 +227,19 @@ export class BackendPane implements OnInit, OnDestroy {
       const names = [
         ...new Set(groups.flatMap((g) => g.all ?? [])),
       ].filter((n) => map[n] && map[n].type !== 'Selector' && map[n].type !== 'URLTest');
+      // 并发 6 逐节点测延迟，结果写回 history（runPool 见 util.ts）
       let done = 0;
-      const queue = [...names];
-      const work = async () => {
-        for (;;) {
-          const name = queue.shift();
-          if (!name) return;
-          let d = 0;
-          try {
-            d = await this.clash.delay(this.backend(), name);
-          } catch {
-            d = 0;
-          }
-          this.patchLat(name, d);
-          done++;
-          this.testProgress.set(`${done}/${names.length}`);
+      await runPool(names, 6, async (name) => {
+        let d = 0;
+        try {
+          d = await this.clash.delay(this.backend(), name);
+        } catch {
+          d = 0; // 超时/不可达记 0，界面显示 ✗
         }
-      };
-      await Promise.all(Array.from({ length: 6 }, () => work()));
+        this.patchLat(name, d);
+        done++;
+        this.testProgress.set(`${done}/${names.length}`);
+      });
     } finally {
       this.testing.set(false);
       this.testProgress.set('');
@@ -297,17 +295,11 @@ export class BackendPane implements OnInit, OnDestroy {
   }
 
   fmtB(n?: number): string {
-    return this.bsvcFmt(n ?? 0);
-  }
-
-  private bsvcFmt(n: number): string {
-    if (!n || n < 0) return '0B';
-    if (n < 1024) return n + 'B';
-    if (n < 1024 * 1024) return (n / 1024).toFixed(1) + 'K';
-    return (n / 1024 / 1024).toFixed(1) + 'M';
+    return fmtBytes(n ?? 0);
   }
 
   /* ── 日志 ── */
+  /** 日志 WebSocket：token 走 query（sing-box 只认这种）；暂停时丢弃新行 */
   private startLogs(): void {
     this.stopLogs();
     this.logLines.set([]);
@@ -348,6 +340,7 @@ export class BackendPane implements OnInit, OnDestroy {
     this.ws = null;
   }
 
+  /** 追加日志行（保留最近 300 行），贴底时自动滚动 */
   private pushLog(type: string, text: string): void {
     this.logLines.update((l) => [...l.slice(-299), { type, text }]);
     if (this.stickToBottom) {
@@ -358,6 +351,7 @@ export class BackendPane implements OnInit, OnDestroy {
     }
   }
 
+  /** 用户上滚离开底部 30px 后停止自动贴底 */
   onLogScroll(): void {
     const el = this.logBox()?.nativeElement;
     if (!el) return;

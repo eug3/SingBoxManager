@@ -2,6 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { BUCKETS, PublishResp } from './models';
+import { fmtBytes } from './util';
 
 export interface RuleCheck {
   ok: boolean;
@@ -103,9 +104,6 @@ export class VaultService {
   }
 
   formatBytes(n: number): string {
-    if (!n || n < 0) return '0B';
-    if (n < 1024) return n + 'B';
-    if (n < 1024 * 1024) return (n / 1024).toFixed(1) + 'K';
-    return (n / 1024 / 1024).toFixed(1) + 'M';
+    return fmtBytes(n);
   }
 }

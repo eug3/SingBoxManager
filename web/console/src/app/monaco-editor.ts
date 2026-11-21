@@ -19,6 +19,7 @@ declare global {
   }
 }
 
+/** 全局只加载一次 Monaco（多个编辑器实例共享同一个 loader Promise） */
 let loading: Promise<any> | null = null;
 
 /** 从本站 /static/monaco/vs 异步加载 Monaco（AMD loader，离线可用，不依赖 CDN） */
@@ -54,6 +55,11 @@ function loadMonaco(): Promise<any> {
     .monaco-host { width: 100%; height: 420px; border: 1px solid var(--line); }
   `,
 })
+/**
+ * Monaco 编辑器封装 — [value] 进 /(valueChange) 出 的受控组件。
+ * 资源来自本站 /static/monaco/vs（AMD loader，离线可用）；外部 setValue 与
+ * 用户输入通过 lastEmitted 去重，避免「输出→回填→再输出」回环。
+ */
 export class MonacoEditorComponent implements OnDestroy {
   readonly value = input<string>('');
   readonly valueChange = output<string>();

@@ -3,15 +3,18 @@ import { BackendPane } from './backend-pane';
 import { RuleEditor } from './rule-editor';
 import { BackendsService } from './backends.service';
 import { ClashService } from './clash.service';
-import { CONSOLE_VERSION, PAGE_ORIGINS } from './models';
+import { Backend, CONSOLE_VERSION, PAGE_ORIGINS } from './models';
 
 @Component({
   selector: 'app-root',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [BackendPane, RuleEditor],
   templateUrl: './app.html',
-  styleUrl: './app.css',
 })
+/**
+ * 根组件 — 顶栏（标题 + 发布密钥）+ 主 tab（各后端面板 / 规则编辑）+ 底部信息条。
+ * 布局：100dvh 固定壳，滚动只发生在各面板内部（见 styles.css）。
+ */
 export class App {
   readonly bsvc = inject(BackendsService);
   private readonly clash = inject(ClashService);
@@ -35,7 +38,8 @@ export class App {
     });
   }
 
-  private async loadVersion(b: ReturnType<BackendsService['backends']>[number] | undefined): Promise<void> {
+  /** 底部信息条的 sing-box 版本：取第一个有效后端探测 */
+  private async loadVersion(b: Backend | undefined): Promise<void> {
     if (!b) {
       this.sbVersion.set('');
       return;

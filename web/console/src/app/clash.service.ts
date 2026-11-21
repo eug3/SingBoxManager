@@ -4,7 +4,11 @@ import { firstValueFrom } from 'rxjs';
 import { Backend, ConnectionsResp, ProxiesResp, RulesResp } from './models';
 import { BackendsService } from './backends.service';
 
-/** clash_api 客户端（浏览器直连；鉴权头 = 该后端密钥或全局发布密钥） */
+/**
+ * clash_api 客户端 — 浏览器直连路由的 9090 端口（REST + WebSocket）。
+ * 鉴权：REST 用 Authorization: Bearer；WebSocket 用 ?token=（sing-box 只认 query）。
+ * 路由侧 CORS 白名单需包含本页来源（192.168.31.99:9099 / 10.1.1.99:9099）。
+ */
 @Injectable({ providedIn: 'root' })
 export class ClashService {
   private readonly http = inject(HttpClient);
@@ -53,10 +57,12 @@ export class ClashService {
     return resp?.delay ?? 0;
   }
 
+  /** 断开单条连接 */
   kill(b: Backend, id: string): Promise<unknown> {
     return firstValueFrom(this.http.delete(`${this.base(b)}/connections/${encodeURIComponent(id)}`, { headers: this.headers(b) }));
   }
 
+  /** 断开全部连接 */
   killAll(b: Backend): Promise<unknown> {
     return firstValueFrom(this.http.delete(`${this.base(b)}/connections`, { headers: this.headers(b) }));
   }

@@ -2,6 +2,7 @@
 
 import { AnyObj } from './config-ops';
 
+/** base64 → UTF-8 文本（兼容 URL-safe 变体与缺 padding） */
 function b64decode(s: string): string {
   const t = s.replace(/-/g, '+').replace(/_/g, '/').replace(/\s/g, '');
   const pad = t.length % 4 === 0 ? '' : '='.repeat(4 - (t.length % 4));
@@ -51,6 +52,7 @@ export interface ParsedNode {
   warnings: string[];
 }
 
+/** 链接里的 type=ws/grpc/http → sing-box transport 对象（tcp 返回 undefined） */
 function transportOf(net: string | null, path: string | null, host: string | null, serviceName: string | null): AnyObj | undefined {
   const t = (net ?? '').toLowerCase();
   if (t === 'ws') {
@@ -64,6 +66,7 @@ function transportOf(net: string | null, path: string | null, host: string | nul
   return undefined;
 }
 
+/** security=tls/reality → sing-box tls 对象（SNI 缺省用服务器名） */
 function tlsOf(security: string | null, sni: string | null, insecure: string | null, alpn: string | null, server: string): AnyObj | undefined {
   const sec = (security ?? '').toLowerCase();
   if (sec !== 'tls' && sec !== 'reality') return undefined;
@@ -73,6 +76,11 @@ function tlsOf(security: string | null, sni: string | null, insecure: string | n
   return tls;
 }
 
+/**
+ * parseShareLink 解析单条分享链接 → sing-box outbound。
+ * 支持：ss（两种 base64 形态）/ vmess（base64 JSON）/ vless / trojan / hysteria2 / socks。
+ * 解析失败不抛异常，返回 {ok:false, error}，导入面板逐条展示。
+ */
 export function parseShareLink(raw: string): ParsedNode {
   const link = raw.trim();
   const out: ParsedNode = { ok: false, link, warnings: [] };
@@ -236,6 +244,7 @@ export function parseShareLink(raw: string): ParsedNode {
   }
 }
 
+/** 多行/逗号/空白分隔的批量解析（导入面板实时预览用） */
 export function parseShareLinks(text: string): ParsedNode[] {
   return text
     .split(/[\r\n,;\s]+/)

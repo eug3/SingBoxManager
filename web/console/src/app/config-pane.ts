@@ -3,69 +3,25 @@ import { Backend } from './models';
 import { RouterCredInfo, RouterService } from './router.service';
 import { BackendsService } from './backends.service';
 import { MonacoEditorComponent } from './monaco-editor';
-import {
-  AnyObj,
-  ConfigDoc,
-  addNode,
-  deleteImpact,
-  deleteNode,
-  findNode,
-  groups,
-  nodes,
-  parseConfig,
-  serializeConfig,
-  updateNode,
-  validateDoc,
-} from './config-ops';
+import { AnyObj, ConfigDoc, addNode, deleteImpact, deleteNode, findNode, groups, nodes, parseConfig, serializeConfig, updateNode, validateDoc } from './config-ops';
 import { ParsedNode, parseShareLinks } from './share-link';
+import { NodeForm, NODE_TYPES, buildNode, emptyForm, formFromNode } from './node-form';
+import { lineDiff } from './line-diff';
+import { errMsg } from './util';
 
 type FormMode = 'none' | 'add' | 'edit';
 
-interface NodeForm {
-  tag: string;
-  type: string;
-  server: string;
-  server_port: number;
-  method: string;
-  password: string;
-  uuid: string;
-  alter_id: number;
-  security: string;
-  flow: string;
-  tls: boolean;
-  tls_server_name: string;
-  tls_insecure: boolean;
-  transport: 'none' | 'ws' | 'grpc';
-  transport_path: string;
-  transport_service: string;
-  socks_version: string;
-}
-
-const NODE_TYPES = ['shadowsocks', 'vmess', 'vless', 'trojan', 'socks', 'hysteria2', 'tuic', 'anytls'];
-
-function emptyForm(): NodeForm {
-  return {
-    tag: '',
-    type: 'shadowsocks',
-    server: '',
-    server_port: 443,
-    method: 'aes-256-gcm',
-    password: '',
-    uuid: '',
-    alter_id: 0,
-    security: 'auto',
-    flow: '',
-    tls: false,
-    tls_server_name: '',
-    tls_insecure: false,
-    transport: 'none',
-    transport_path: '/',
-    transport_service: '',
-    socks_version: '5',
-  };
-}
-
-/** 「配置」子页：读/校验/表单增删改/导入/应用/重启 sing-box 配置 */
+/**
+ * 「配置」子页 — 路由 config.json 的完整生命周期：
+ *
+ *   连接门禁（缺密钥/凭据时像登录页）→ 读取（sha 乐观锁基准）
+ *   → 查看节点清单 / 表单增删改 / 分享链接导入 / Monaco 手改
+ *   → 所有改动先「暂存」（黄色横幅 + diff 预览）
+ *   → 校验（路由上 sing-box check）→ 应用并重启（99 编排，失败自动回滚）
+ *
+ * 结构化编辑逻辑在 config-ops.ts，表单转换在 node-form.ts，diff 在 line-diff.ts；
+ * 本组件只做状态编排与用户交互。
+ */
 @Component({
   selector: 'app-config-pane',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -78,31 +34,30 @@ export class ConfigPane {
   private readonly router = inject(RouterService);
   private readonly bsvc = inject(BackendsService);
 
+  // —— 配置文本与元信息 ——
   readonly host = computed(() => this.router.host(this.backend()));
-  readonly raw = signal('');
-  readonly original = signal('');
-  readonly sha = signal('');
+  readonly raw = signal('');      // 当前编辑中的文本（可能与 original 不同 = 暂存）
+  readonly original = signal(''); // 最近一次从路由读到的原文（diff/还原基准）
+  readonly sha = signal('');      // 原文 sha256（apply 的 expectSha 乐观锁）
   readonly size = signal(0);
-  readonly editing = signal(false);
+  readonly editing = signal(false); // Monaco 编辑视图开关
   readonly busy = signal(false);
   readonly err = signal('');
   readonly log = signal('');
   readonly loaded = signal(false);
 
-  // —— 节点表单 ——
+  // —— 节点表单（模型/转换见 node-form.ts）——
   readonly formMode = signal<FormMode>('none');
   readonly form = signal<NodeForm>(emptyForm());
+  readonly formGroups = signal<string[]>([]); // 表单勾选的分组归属
   readonly editingTag = signal('');
   readonly nodeTypes = NODE_TYPES;
 
-  // —— 导入 ——
+  // —— 分享链接导入 ——
   readonly importOpen = signal(false);
   readonly importText = signal('');
   readonly importGroups = signal<string[]>([]);
   readonly importResult = signal<ParsedNode[]>([]);
-
-  // —— 删除 ——
-  readonly deleteTag = signal('');
 
   // —— 连接门禁（连不上时像登录页一样要求填凭据）——
   readonly gate = signal(false);
@@ -111,7 +66,7 @@ export class ConfigPane {
   readonly gateUser = signal('root');
   readonly gatePass = signal('');
 
-  // —— 路由 SSH 凭据（只提交给 99 落盘，不存浏览器）——
+  // —— 路由 SSH 凭据面板（只提交给 99 落盘，不存浏览器）——
   readonly credsOpen = signal(false);
   readonly credsUser = signal('root');
   readonly credsPassword = signal('');
@@ -119,12 +74,12 @@ export class ConfigPane {
   readonly credsAllow = signal<string[]>([]);
 
   constructor() {
+    // 后端或全局密钥变化时自动重读；没密钥直接进连接页，别停在「读取中」
     effect(() => {
       const b = this.backend();
       const vaultKey = this.bsvc.globalKey();
       if (!b.api) return;
       if (!vaultKey) {
-        // 还没填发布密钥：直接进连接页，别停在"读取中"
         this.gateError.set('请先填写 clash 密钥（路由管理密钥）与路由 SSH 账号');
         this.gate.set(true);
         return;
@@ -134,6 +89,8 @@ export class ConfigPane {
   }
 
   // ---------- 只读派生 ----------
+
+  /** 当前文本的结构化文档（解析失败为 null，表单/清单随之不可用） */
   readonly doc = computed<ConfigDoc | null>(() => {
     try {
       return parseConfig(this.raw());
@@ -162,62 +119,19 @@ export class ConfigPane {
     return d ? groups(d).map((g) => String(g['tag'])) : [];
   });
 
-  /** 有暂存未应用的改动 */
+  /** 有暂存未应用的改动（黄色横幅的开关） */
   readonly pending = computed(() => this.raw() !== this.original() && this.raw() !== '');
 
+  /** 结构预检（tag 重复 / 组引用 / route 引用；最终以路由上的 check 为准） */
   readonly issues = computed(() => {
     const d = this.doc();
     return d ? validateDoc(d) : [];
   });
 
-  readonly deleteInfo = computed(() => {
-    const d = this.doc();
-    const tag = this.deleteTag();
-    if (!d || !tag) return null;
-    return deleteImpact(d, tag);
-  });
+  readonly diff = computed(() => lineDiff(this.original(), this.raw()));
 
-  readonly diff = computed<{ lines: { kind: 'add' | 'del'; text: string }[]; adds: number; dels: number }>(() => {
-    const a = this.original().split('\n');
-    const b = this.raw().split('\n');
-    if (a.length * b.length > 4_000_000) return { lines: [], adds: 0, dels: 0 };
-    const n = a.length;
-    const m = b.length;
-    const dp: number[][] = Array.from({ length: n + 1 }, () => new Array<number>(m + 1).fill(0));
-    for (let i = n - 1; i >= 0; i--) {
-      for (let j = m - 1; j >= 0; j--) {
-        dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
-      }
-    }
-    const lines: { kind: 'add' | 'del'; text: string }[] = [];
-    let adds = 0;
-    let dels = 0;
-    let i = 0;
-    let j = 0;
-    while (i < n && j < m) {
-      if (a[i] === b[j]) {
-        i++;
-        j++;
-      } else if (dp[i + 1][j] >= dp[i][j + 1]) {
-        lines.push({ kind: 'del', text: a[i++] });
-        dels++;
-      } else {
-        lines.push({ kind: 'add', text: b[j++] });
-        adds++;
-      }
-    }
-    while (i < n) {
-      lines.push({ kind: 'del', text: a[i++] });
-      dels++;
-    }
-    while (j < m) {
-      lines.push({ kind: 'add', text: b[j++] });
-      adds++;
-    }
-    return { lines: lines.slice(0, 60), adds, dels };
-  });
+  // ---------- 读取 / 校验 / 应用 / 重启 ----------
 
-  // ---------- 读取 / 应用 ----------
   async reload(): Promise<void> {
     this.busy.set(true);
     this.err.set('');
@@ -230,9 +144,9 @@ export class ConfigPane {
       this.loaded.set(true);
       this.log.set(`已读取 ${res.host} · ${res.size}B · sha ${res.sha256.slice(0, 12)} · ${res.ms}ms`);
     } catch (e) {
-      const m = this.msg(e);
+      const m = errMsg(e);
       this.err.set(m);
-      // 认不出 / 连不上 / 没凭据 / 密钥错 → 弹连接页（像登录）
+      // 没凭据 / 密钥错 / SSH 失败 / 超时 → 弹连接页（像登录）
       if (/未配置路由凭据|bad key|401|ssh|Permission denied|超时|失败/i.test(m)) {
         this.gateError.set(m);
         this.gate.set(true);
@@ -244,7 +158,7 @@ export class ConfigPane {
     }
   }
 
-  /** 连接页提交：先存发布密钥（如有），再存 SSH 凭据（如有），然后重读配置 */
+  /** 连接页提交：先存 clash 密钥（如有），再存 SSH 凭据（如有），然后重读配置 */
   async connect(): Promise<void> {
     this.busy.set(true);
     this.err.set('');
@@ -259,7 +173,7 @@ export class ConfigPane {
       const pass = this.gatePass();
       if (user && pass) {
         await this.router.setCredentials(this.backend(), this.host(), user, pass, this.backend().name);
-        this.gatePass.set('');
+        this.gatePass.set(''); // 口令只经过一次，立即从页面内存清掉
       }
       await this.reload();
       if (this.loaded()) {
@@ -269,7 +183,7 @@ export class ConfigPane {
       }
     } catch (e) {
       this.gate.set(true);
-      this.gateError.set(this.msg(e));
+      this.gateError.set(errMsg(e));
     } finally {
       this.busy.set(false);
     }
@@ -308,7 +222,7 @@ export class ConfigPane {
       this.log.set(res.ok ? `✓ sing-box check 通过（${res.host}）` : `✗ check 未通过：${res.output}`);
       if (!res.ok) this.err.set('sing-box check 未通过');
     } catch (e) {
-      this.err.set(this.msg(e));
+      this.err.set(errMsg(e));
     } finally {
       this.busy.set(false);
     }
@@ -331,9 +245,9 @@ export class ConfigPane {
       const summary = res.changed ? `✓ 已应用并重启（${res.ms}ms）：${res.log}` : `未变化，跳过重启：${res.log}`;
       this.editing.set(false);
       await this.reload();
-      this.log.set(summary + '\n' + (this.log() ?? ''));
+      this.log.set(summary + '\n' + (this.log() ?? '')); // reload 会覆盖 log，把应用结果补在最前
     } catch (e) {
-      this.err.set(this.msg(e));
+      this.err.set(errMsg(e));
     } finally {
       this.busy.set(false);
     }
@@ -347,13 +261,14 @@ export class ConfigPane {
       const res = await this.router.restart(this.backend());
       this.log.set(`✓ 已重启（${res.ms}ms）：${res.log}`);
     } catch (e) {
-      this.err.set(this.msg(e));
+      this.err.set(errMsg(e));
     } finally {
       this.busy.set(false);
     }
   }
 
-  // ---------- 表单：新增 / 编辑 ----------
+  // ---------- 节点表单：新增 / 编辑 ----------
+
   openAdd(): void {
     if (!this.doc()) {
       this.err.set('当前配置无法解析，无法用表单编辑；请先修好 JSON');
@@ -361,6 +276,7 @@ export class ConfigPane {
     }
     this.editingTag.set('');
     this.form.set(emptyForm());
+    this.formGroups.set([]);
     this.formMode.set('add');
     this.scrollFormIntoView();
   }
@@ -370,28 +286,10 @@ export class ConfigPane {
     if (!d) return;
     const o = findNode(d, tag);
     if (!o) return;
-    const tls = (o['tls'] ?? {}) as AnyObj;
-    const tr = (o['transport'] ?? {}) as AnyObj;
     this.editingTag.set(tag);
-    this.form.set({
-      tag,
-      type: String(o['type'] ?? 'shadowsocks'),
-      server: String(o['server'] ?? ''),
-      server_port: Number(o['server_port'] ?? 0),
-      method: String(o['method'] ?? ''),
-      password: String(o['password'] ?? ''),
-      uuid: String(o['uuid'] ?? ''),
-      alter_id: Number(o['alter_id'] ?? 0),
-      security: String(o['security'] ?? 'auto'),
-      flow: String(o['flow'] ?? ''),
-      tls: tls['enabled'] === true,
-      tls_server_name: String(tls['server_name'] ?? ''),
-      tls_insecure: tls['insecure'] === true,
-      transport: (tr['type'] as 'ws' | 'grpc') ?? 'none',
-      transport_path: String(tr['path'] ?? '/'),
-      transport_service: String(tr['service_name'] ?? ''),
-      socks_version: String(o['version'] ?? '5'),
-    });
+    this.form.set(formFromNode(tag, o));
+    // 编辑模式预勾当前归属，取消勾选 = 从该组移除（updateNode 会联动 default）
+    this.formGroups.set(groups(d).filter((g) => (g['outbounds'] as string[] | undefined)?.includes(tag)).map((g) => String(g['tag'])));
     this.formMode.set('edit');
     this.scrollFormIntoView();
   }
@@ -400,96 +298,30 @@ export class ConfigPane {
     this.formMode.set('none');
   }
 
-  /** 表单在清单下方，打开时滚到可见处 */
-  private scrollFormIntoView(): void {
-    setTimeout(() => {
-      document.getElementById('cfg-form')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    }, 60);
-  }
-
   patch<K extends keyof NodeForm>(key: K, value: NodeForm[K]): void {
     this.form.update((f) => ({ ...f, [key]: value }));
   }
 
   toggleFormGroup(name: string, on: boolean): void {
-    // 仅用于新增时选择加入哪些组；编辑模式下沿用当前归属
     this.formGroups.update((list) => (on ? [...new Set([...list, name])] : list.filter((x) => x !== name)));
   }
 
-  readonly formGroups = signal<string[]>([]);
-
+  /** 提交表单：校验 + 组装（node-form.ts）→ 写进文档 → 进入暂存复核 */
   submitForm(): void {
     const d = this.doc();
     if (!d) return;
-    const f = this.form();
-    if (!f.tag.trim() || !f.server.trim() || !f.server_port) {
-      this.err.set('标签 / 服务器 / 端口 必填');
+    const built = buildNode(this.form());
+    if (!built.ok) {
+      this.err.set(built.error);
       return;
     }
-    const node: AnyObj = { type: f.type, tag: f.tag.trim(), server: f.server.trim(), server_port: f.server_port };
-    switch (f.type) {
-      case 'shadowsocks':
-        if (!f.method.trim() || !f.password) {
-          this.err.set('shadowsocks 需要 method 与 password');
-          return;
-        }
-        node['method'] = f.method.trim();
-        node['password'] = f.password;
-        break;
-      case 'vmess':
-        if (!f.uuid.trim()) {
-          this.err.set('vmess 需要 uuid');
-          return;
-        }
-        node['uuid'] = f.uuid.trim();
-        node['security'] = f.security || 'auto';
-        node['alter_id'] = f.alter_id;
-        break;
-      case 'vless':
-        if (!f.uuid.trim()) {
-          this.err.set('vless 需要 uuid');
-          return;
-        }
-        node['uuid'] = f.uuid.trim();
-        if (f.flow.trim()) node['flow'] = f.flow.trim();
-        break;
-      case 'trojan':
-      case 'hysteria2':
-      case 'tuic':
-      case 'anytls':
-        if (!f.password) {
-          this.err.set(`${f.type} 需要密码`);
-          return;
-        }
-        node['password'] = f.password;
-        break;
-      case 'socks':
-        node['version'] = f.socks_version || '5';
-        if (f.password) {
-          node['username'] = f.uuid || '';
-          node['password'] = f.password;
-        }
-        break;
-    }
-    if (f.tls && f.type !== 'shadowsocks' && f.type !== 'socks') {
-      const tls: AnyObj = { enabled: true, server_name: f.tls_server_name || f.server };
-      if (f.tls_insecure) tls['insecure'] = true;
-      node['tls'] = tls;
-    }
-    if (f.transport !== 'none') {
-      node['transport'] =
-        f.transport === 'ws'
-          ? { type: 'ws', path: f.transport_path || '/' }
-          : { type: 'grpc', service_name: f.transport_service || '' };
-    }
-
     try {
       if (this.formMode() === 'add') {
-        const tag = addNode(d, node, this.formGroups());
+        const tag = addNode(d, built.node, this.formGroups());
         this.log.set(`已生成新节点 ${tag}（尚未应用，先看 diff 再点「应用并重启」）`);
       } else {
         const tag = this.editingTag();
-        updateNode(d, tag, node, this.formGroups().length ? this.formGroups() : undefined);
+        updateNode(d, tag, built.node, this.formGroups());
         this.log.set(`已修改节点 ${tag}（尚未应用）`);
       }
       this.formMode.set('none');
@@ -499,11 +331,12 @@ export class ConfigPane {
     }
   }
 
-  // ---------- 删除（引用联动）----------
+  // ---------- 删除（引用联动，见 config-ops.deleteImpact/deleteNode）----------
+
   askDelete(tag: string): void {
-    this.deleteTag.set(tag);
-    const info = this.deleteInfo();
-    if (!info) return;
+    const d = this.doc();
+    if (!d) return;
+    const info = deleteImpact(d, tag);
     if (info.blocked) {
       this.err.set(`不能删除 ${tag}：` + info.reasons.join('；'));
       return;
@@ -514,24 +347,18 @@ export class ConfigPane {
       info.isDefault.length ? `· 这些组的 default 会改成第一个成员：${info.isDefault.map((x) => x.group).join('、')}` : '',
       '· 生成后先看 diff，再点「应用并重启」',
     ].filter(Boolean);
-    if (!confirm(lines.join('\n'))) {
-      this.deleteTag.set('');
-      return;
-    }
-    const d = this.doc();
-    if (!d) return;
+    if (!confirm(lines.join('\n'))) return;
     try {
       deleteNode(d, tag);
       this.log.set(`已从配置中移除节点 ${tag}（尚未应用）`);
       this.enterReview(d);
     } catch (e) {
       this.err.set((e as Error).message);
-    } finally {
-      this.deleteTag.set('');
     }
   }
 
-  // ---------- 导入分享链接 ----------
+  // ---------- 分享链接导入（解析见 share-link.ts）----------
+
   toggleImport(): void {
     this.importOpen.update((v) => !v);
   }
@@ -562,7 +389,8 @@ export class ConfigPane {
     this.enterReview(d);
   }
 
-  // ---------- 路由 SSH 凭据 ----------
+  // ---------- 路由 SSH 凭据面板 ----------
+
   async toggleCreds(): Promise<void> {
     const open = !this.credsOpen();
     this.credsOpen.set(open);
@@ -577,7 +405,7 @@ export class ConfigPane {
       const me = (res.hosts ?? []).find((h) => h.host === this.host());
       if (me?.user) this.credsUser.set(me.user);
     } catch (e) {
-      this.err.set(this.msg(e));
+      this.err.set(errMsg(e));
     }
   }
 
@@ -593,13 +421,12 @@ export class ConfigPane {
     this.err.set('');
     try {
       await this.router.setCredentials(this.backend(), host, user, pw, this.backend().name);
-      // 口令只在提交时经过一次，提交后立刻从页面内存里清掉
-      this.credsPassword.set('');
+      this.credsPassword.set(''); // 提交后立刻从页面内存清掉
       this.credsOpen.set(false);
       this.log.set(`已保存 ${host} 的 SSH 凭据（99 上 0600 落盘，页面不再保留口令）`);
       await this.reload();
     } catch (e) {
-      this.err.set(this.msg(e));
+      this.err.set(errMsg(e));
     } finally {
       this.busy.set(false);
     }
@@ -612,27 +439,22 @@ export class ConfigPane {
       await this.loadCreds();
       this.log.set(`已删除 ${host} 的凭据`);
     } catch (e) {
-      this.err.set(this.msg(e));
+      this.err.set(errMsg(e));
     }
   }
 
   // ---------- 内部 ----------
+
+  /** 结构化改动落回文本：按原文件的缩进/行尾重新序列化，并切到 diff 复核视图 */
   private enterReview(d: ConfigDoc): void {
     this.raw.set(serializeConfig(d, this.original()));
     this.editing.set(true);
   }
 
-  private msg(e: unknown): string {
-    const anyE = e as { error?: { error?: string }; message?: string };
-    return anyE?.error?.error ?? anyE?.message ?? String(e);
-  }
-
-  maskCredential(o: AnyObj): string {
-    for (const k of ['password', 'uuid', 'psk', 'private_key']) {
-      const v = o[k];
-      if (typeof v === 'string' && v) return `${k}=${'•'.repeat(Math.min(8, Math.max(4, v.length)))}`;
-    }
-    if (o['username']) return `user=${String(o['username'])}`;
-    return '—';
+  /** 表单在清单下方，打开时滚到可见处 */
+  private scrollFormIntoView(): void {
+    setTimeout(() => {
+      document.getElementById('cfg-form')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }, 60);
   }
 }

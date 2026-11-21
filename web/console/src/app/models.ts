@@ -1,3 +1,4 @@
+/** 一个 clash_api 后端（路由）；key 为该路由的 secret，空则用全局密钥 */
 export interface Backend {
   name: string;
   api: string;
@@ -6,10 +7,12 @@ export interface Backend {
   draft?: boolean;
 }
 
+/** GET /version 应答 */
 export interface ClashVersion {
   version: string;
 }
 
+/** /proxies 里的一个条目：组（Selector/URLTest）或节点；history 是延迟测速记录 */
 export interface ProxyNode {
   type: string;
   name: string;
@@ -22,6 +25,7 @@ export interface ProxiesResp {
   proxies: Record<string, ProxyNode>;
 }
 
+/** /connections 里的一条活跃连接（metadata 为目标信息） */
 export interface Connection {
   id: string;
   upload: number;
@@ -45,6 +49,7 @@ export interface ConnectionsResp {
   connections?: Connection[];
 }
 
+/** /rules 里的一条 route 规则（只读展示用） */
 export interface RuleEntry {
   type?: string;
   payload?: string;
@@ -55,6 +60,7 @@ export interface RulesResp {
   rules?: RuleEntry[];
 }
 
+/** POST /publish 应答（error 非空即失败） */
 export interface PublishResp {
   ok: boolean;
   bucket: string;
@@ -65,8 +71,10 @@ export interface PublishResp {
   error?: string;
 }
 
-/** 桶清单（与 NAS rule-set 目录一致） */
+/** 管理台版本号（页脚展示；发版时手工更新） */
 export const CONSOLE_VERSION = '2026.11.21';
+
+/** 桶清单（与 NAS rule-set 目录一致；第二个数字是历史快照的规则条数，仅作展示参考） */
 
 export const BUCKETS: [string, number][] = [
   ['rs-node', 13], ['rs-direct', 17], ['rs-fcm', 5], ['rs-custom', 12], ['rs-openai', 9],

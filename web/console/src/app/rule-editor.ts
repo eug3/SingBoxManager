@@ -6,6 +6,10 @@ import { PublishResp } from './models';
 
 const BUCKET_KEY = 'vaultBucket';
 
+/**
+ * 「规则编辑」主 tab — NAS 规则桶的读取 / 校验 / 格式化 / 发布。
+ * 发布走 99 的 /publish（编译 .srs 后成对写回 NAS），路由约 60s 自动拉取。
+ */
 @Component({
   selector: 'app-rule-editor',
   changeDetection: ChangeDetectionStrategy.OnPush,

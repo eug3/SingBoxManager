@@ -18,6 +18,7 @@ export class BackendsService {
   /** 已持久化（非草稿）的后端，供顶栏渲染 */
   readonly persisted = computed(() => this.backends().filter((b) => !b.draft));
 
+  /** 从 localStorage 恢复后端列表；坏数据清洗，空则回退两台默认路由 */
   private load(): Backend[] {
     let raw: unknown = null;
     try {
@@ -33,6 +34,7 @@ export class BackendsService {
     return clean.length ? clean : DEFAULT_BACKENDS.map((b) => ({ ...b }));
   }
 
+  /** 持久化（草稿不落盘） */
   private persist(): void {
     const list = this.backends()
       .filter((b) => !b.draft)
@@ -40,6 +42,7 @@ export class BackendsService {
     localStorage.setItem(STORE_BACKENDS, JSON.stringify(list));
   }
 
+  /** 全局密钥（顶部输入框 / 连接页提交都会写这里） */
   setGlobalKey(v: string): void {
     this.globalKey.set(v.trim());
     if (v.trim()) localStorage.setItem(STORE_KEY, v.trim());
@@ -55,6 +58,7 @@ export class BackendsService {
     this.persist();
   }
 
+  /** 某后端实际使用的密钥：自己的优先，空则用全局 */
   keyFor(b: Backend): string {
     return (b.key || '').trim() || this.globalKey();
   }
@@ -63,6 +67,7 @@ export class BackendsService {
     return /^https?:\/\/.+/.test(b.api || '');
   }
 
+  /** 追加一个内存草稿后端，返回其下标（保存前刷新即消失） */
   addDraft(): number {
     const next = [...this.backends(), { name: '新后端', api: '', key: '', draft: true }];
     this.backends.set(next);

@@ -43,7 +43,11 @@ export interface RouterCheckResp {
   output: string;
 }
 
-/** 99 的 vault-edit 代理：受限 SSH → 路由器本地 singbox-apply 脚本 */
+/**
+ * 99 的 vault-edit 路由配置通道客户端。
+ * 服务端在 99 侧编排（SSH 上传候选配置 + 内联脚本），路由无需预装任何东西。
+ * 鉴权头 X-Vault-Key 直接用该后端的 clash 密钥（服务端认 VAULT_KEY 或 clash secret）。
+ */
 @Injectable({ providedIn: 'root' })
 export class RouterService {
   private readonly http = inject(HttpClient);
