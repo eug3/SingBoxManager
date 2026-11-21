@@ -1,0 +1,65 @@
+<!-- ③ 规则集编辑弹窗：已应用 chips（可删、可拖入）+ 可用规则集 palette（拖拽 / 点 +） -->
+<div class="modal-mask" (click)="onMask($event)">
+  <div class="modal" role="dialog" aria-modal="true" [attr.aria-label]="'编辑分组 ' + group() + ' 的规则集'">
+    <div class="modal-hd">
+      <b>③ 规则集 · {{ group() }}</b>
+      <span class="dim small">拖拽或点 ＋ 添加引用 · ✕ 移除</span>
+      <button class="x" (click)="close()" title="关闭">✕</button>
+    </div>
+
+    <div class="modal-body">
+      @if (!work()) {
+        <div class="dim">配置还没读到：先到「配置」页连接成功，或等「流向」页拉取配置后再试。</div>
+      } @else if (!groupExists()) {
+        <div class="dim">「{{ group() }}」不是当前配置里的分组（DIRECT / block 等非分组出站不可编辑）。</div>
+      } @else {
+        <div class="rs-sec">已应用（{{ applied().length }}）<span class="dim small">· 拖到这里 = 添加</span></div>
+        <div
+          class="rs-applied"
+          [class.dragover]="dragOver()"
+          (dragover)="onDragOver($event)"
+          (dragleave)="onDragLeave($event)"
+          (drop)="onDrop($event)"
+        >
+          @for (t of applied(); track t) {
+            <span class="chip rs-chip on">
+              {{ t }}
+              <span class="x" (click)="remove(t)" title="从该分组移除此引用">✕</span>
+            </span>
+          } @empty {
+            <span class="dim small">暂无 rule_set 引用 —— 把下面的规则集拖进来，或点 ＋</span>
+          }
+        </div>
+
+        <div class="rs-sec">可用规则集（{{ palette().length }}）</div>
+        <div class="rs-palette">
+          @for (p of palette(); track p.tag) {
+            <span
+              class="chip rs-chip drag"
+              draggable="true"
+              [class.dragging]="dragging() === p.tag"
+              (dragstart)="onDragStart(p.tag, $event)"
+              (dragend)="onDragEnd()"
+              (click)="add(p.tag)"
+              title="点击或拖到上方「已应用」区添加"
+            >
+              {{ p.tag }}<span class="rs-type">{{ p.type }}</span><span class="rs-plus">＋</span>
+            </span>
+          } @empty {
+            <span class="dim small">没有其它可用规则集（route.rule_set 里的桶都已应用）</span>
+          }
+        </div>
+
+        <div class="hint dim">
+          只增删该分组的 rule_set 引用，不删规则集定义本身（桶还在）。每次改动即时暂存，
+          点顶部「保存并重启」才写回路由；remote 桶内容更新本就免重启，这里改的是「谁引用它」。
+        </div>
+      }
+    </div>
+
+    <div class="modal-ft">
+      <span class="dim small">改动已暂存到顶部「待保存条」，可随时取消</span>
+      <button class="acc" (click)="close()">完成</button>
+    </div>
+  </div>
+</div>

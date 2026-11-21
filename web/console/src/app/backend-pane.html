@@ -40,6 +40,23 @@
   </div>
 }
 
+<!-- 全局待保存条：流向图 ③④ 弹窗的改动暂存后出现，跨子 tab 可见 -->
+@if (draft.dirty()) {
+  <div class="draftbar">
+    <span class="dot"></span>
+    <b>已修改 config</b>
+    <span class="dim small">改动只暂存在本页，保存并重启后才写回路由</span>
+    <span class="spacer"></span>
+    @if (draft.error()) {
+      <span class="dberr">✗ {{ draft.error() }}</span>
+    }
+    <button class="acc" (click)="saveDraft()" [disabled]="draft.saving()">
+      {{ draft.saving() ? '保存中…' : '保存并重启' }}
+    </button>
+    <button (click)="cancelDraft()" [disabled]="draft.saving()">取消</button>
+  </div>
+}
+
 <nav class="subtabs">
   @for (t of tabs; track t.key) {
     <button class="subtab" [class.on]="tab() === t.key" (click)="setTab(t.key)">
@@ -172,7 +189,7 @@
   }
 
   @case ('flow') {
-    <app-flow-anim [backend]="backend()" />
+    <app-flow-anim [backend]="backend()" (editRule)="openRule($event)" (editGroup)="openGroup($event)" />
   }
 
   @case ('logs') {
@@ -228,3 +245,15 @@
   }
 }
 </div>
+
+<!-- 流向图编辑弹窗（fixed 遮罩，跨子 tab 挂在面板根部）：改动即时暂存到 draft -->
+@if (editRuleTag(); as tag) {
+  <app-rule-set-dialog [group]="tag" [backend]="backend()" (closed)="editRuleTag.set(null)" />
+}
+@if (editGroupTag(); as tag) {
+  <app-group-dialog [group]="tag" [backend]="backend()" (closed)="editGroupTag.set(null)" />
+}
+<!-- SSH 凭据弹窗：保存并重启缺凭据时弹出；saved → 关窗并自动重试保存 -->
+@if (credOpen()) {
+  <app-ssh-cred-dialog [backend]="backend()" (saved)="onCredSaved()" (closed)="credOpen.set(false)" />
+}

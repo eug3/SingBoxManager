@@ -18,6 +18,11 @@ import { BackendsService } from './backends.service';
 import { OverviewPane } from './overview';
 import { ConfigPane } from './config-pane';
 import { FlowAnim } from './flow-anim';
+import { RuleSetDialog } from './rule-set-dialog';
+import { GroupDialog } from './group-dialog';
+import { SshCredDialog } from './ssh-cred-dialog';
+import { ConfigDraftService } from './config-draft.service';
+import { groups, validateDoc } from './config-ops';
 import { ClashService } from './clash.service';
 import { fmtBytes, latClass, latText, runPool } from './util';
 
@@ -31,7 +36,7 @@ interface LogLine {
 @Component({
   selector: 'app-backend-pane',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [OverviewPane, ConfigPane, FlowAnim],
+  imports: [OverviewPane, ConfigPane, FlowAnim, RuleSetDialog, GroupDialog, SshCredDialog],
   templateUrl: './backend-pane.html',
   styles: `
     :host {
@@ -65,6 +70,14 @@ export class BackendPane implements OnInit, OnDestroy {
 
   private readonly bsvc = inject(BackendsService);
   private readonly clash = inject(ClashService);
+  /** 流向图编辑的全局配置草稿（待保存条 + ③④ 弹窗共用） */
+  readonly draft = inject(ConfigDraftService);
+
+  /** 正在编辑的分组 tag（null = 弹窗关闭）：③ 规则集 / ④ 分组 */
+  readonly editRuleTag = signal<string | null>(null);
+  readonly editGroupTag = signal<string | null>(null);
+  /** SSH 凭据弹窗（save 发现缺凭据时打开；saved 后自动重试保存） */
+  readonly credOpen = signal(false);
 
   readonly tab = signal<PaneTab>('overview');
   readonly tabs: { key: PaneTab; label: string }[] = [
@@ -153,11 +166,18 @@ export class BackendPane implements OnInit, OnDestroy {
   });
 
   constructor() {
-    // 密钥/后端地址变化时自动重新拉取（连接页填入全局密钥后也能立刻生效）
+    // 密钥/后端地址变化时自动重新拉取（连接页填入全局密钥后也能立刻生效）；
+    // 配置草稿基准同步重读（load 会清掉旧草稿），并关掉属于上一后端的编辑弹窗
     effect(() => {
       const b = this.backend();
       this.bsvc.globalKey();
-      if (this.bsvc.valid(b)) void this.load();
+      this.editRuleTag.set(null);
+      this.editGroupTag.set(null);
+      this.credOpen.set(false);
+      if (this.bsvc.valid(b)) {
+        void this.load();
+        void this.draft.load(b);
+      }
     });
   }
 
@@ -477,6 +497,52 @@ export class BackendPane implements OnInit, OnDestroy {
       this.rules.set([]);
       alert('规则拉取失败：' + ((e as Error)?.message ?? e));
     }
+  }
+
+  /* ── 流向图编辑：③④ 弹窗 + 全局待保存条 ── */
+
+  /** 点 ③ 规则集卡：分组在当前配置里才开弹窗（DIRECT/block 带不弹） */
+  openRule(tag: string): void {
+    const doc = this.draft.draft() ?? this.draft.baseDoc();
+    if (!doc || !groups(doc).some((g) => String(g['tag']) === tag)) return;
+    this.editRuleTag.set(tag);
+  }
+
+  /** 点 ④ 分组卡 */
+  openGroup(tag: string): void {
+    const doc = this.draft.draft() ?? this.draft.baseDoc();
+    if (!doc || !groups(doc).some((g) => String(g['tag']) === tag)) return;
+    this.editGroupTag.set(tag);
+  }
+
+  /** 待保存条「保存并重启」：结构预检 + 确认后走草稿服务（内部备份/check/替换/重启/回滚） */
+  saveDraft(): void {
+    const doc = this.draft.draft();
+    if (!doc || this.draft.saving()) return;
+    const issues = validateDoc(doc);
+    const msg = issues.length
+      ? `结构校验有 ${issues.length} 条问题，仍要保存并重启？\n\n` + issues.slice(0, 8).join('\n')
+      : `把修改写回 ${this.backend().name}（${this.backend().api}）并重启 sing-box？\n断流约 1 秒，失败会自动回滚。`;
+    if (!confirm(msg)) return;
+    void this.runSave();
+  }
+
+  /** 执行保存；被「缺 SSH 凭据」挡住时打开凭据弹窗 */
+  private async runSave(): Promise<void> {
+    await this.draft.save(this.backend());
+    if (this.draft.needCreds()) this.credOpen.set(true);
+  }
+
+  /** 凭据保存成功：关窗 → 自动重试刚才的保存（不再重复确认） */
+  onCredSaved(): void {
+    this.credOpen.set(false);
+    this.draft.needCreds.set(false);
+    void this.runSave();
+  }
+
+  /** 待保存条「取消」：丢弃全部暂存改动 */
+  cancelDraft(): void {
+    this.draft.cancel();
   }
 
   /* ── 后端配置 ── */

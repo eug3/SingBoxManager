@@ -1,0 +1,68 @@
+<!-- SSH 凭据弹窗：保存并重启缺凭据时弹出；提交成功 → saved → 关窗自动重试保存 -->
+<div class="modal-mask" (click)="onMask($event)">
+  <div class="modal ssh-modal" role="dialog" aria-modal="true" [attr.aria-label]="'填写 ' + host() + ' 的 SSH 凭据'">
+    <div class="modal-hd">
+      <b>SSH 凭据 · {{ host() }}</b>
+      <button class="x" (click)="close()" title="关闭">✕</button>
+    </div>
+
+    <div class="modal-body">
+      <div class="ssh-note">
+        @if (configured()) {
+          99 上已有该主机的凭据，重新提交将覆盖（口令不回显）。
+        } @else {
+          99 上还没有该主机的 SSH 凭据，「保存并重启」需要它来上传配置并重启 sing-box。
+        }
+        凭据只提交给 99 落盘（0600），不存浏览器；保存成功后会自动重试刚才的保存。
+      </div>
+
+      <div class="row">
+        <span>用户名</span>
+        <input
+          type="text"
+          [value]="user()"
+          (input)="user.set($any($event.target).value)"
+          (keydown.enter)="submit()"
+          placeholder="root"
+          autocomplete="username"
+        />
+      </div>
+      <div class="row">
+        <span>口令</span>
+        <input
+          type="password"
+          [value]="password()"
+          (input)="password.set($any($event.target).value)"
+          (keydown.enter)="submit()"
+          placeholder="SSH 登录口令"
+          autocomplete="new-password"
+        />
+      </div>
+      <div class="row">
+        <span>端口（可选）</span>
+        <input
+          type="number"
+          min="1"
+          max="65535"
+          [value]="port()"
+          (input)="port.set($any($event.target).value)"
+          (keydown.enter)="submit()"
+          placeholder="22"
+        />
+      </div>
+      @if (portNote()) {
+        <div class="hint ssh-portnote">⚠ {{ portNote() }}</div>
+      }
+      @if (err()) {
+        <div class="ssh-err">✗ {{ err() }}</div>
+      }
+    </div>
+
+    <div class="modal-ft">
+      <button (click)="close()" [disabled]="busy()">取消</button>
+      <button class="acc" (click)="submit()" [disabled]="busy()">
+        {{ busy() ? '保存中…' : '保存凭据并重试' }}
+      </button>
+    </div>
+  </div>
+</div>

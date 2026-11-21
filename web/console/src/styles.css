@@ -1015,3 +1015,91 @@ tr.oldconn td { background: #fffaf0; }
 .fd.direct { fill: #9aa7b6; }
 .fd.proxy { fill: var(--acc2); }
 .fd.block { fill: var(--bad); }
+
+/* ==========================================================================
+   流向图编辑（③ 规则集 / ④ 分组弹窗 + 全局待保存条 + SSH 凭据弹窗）
+   弹窗复用上方 .modal-mask / .modal / .modal-hd / .modal-body / .modal-ft / .row；
+   chips 复用 .chip 体系，颜色全部走 :root 变量（浅色主题）
+   ========================================================================== */
+
+/* 待保存条：backend-pane 子 tab 行上方，dirty 时出现（口径同 .cfgpending） */
+.draftbar {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  border: 1px solid #f0d9b5; background: #fff8e9; color: #8a5a12;
+  font-size: 11px; padding: 8px 12px; margin: 4px 0 8px;
+}
+.draftbar b { color: #7a4a08; }
+.draftbar .dot { width: 8px; height: 8px; border-radius: 50%; background: #d68a12; box-shadow: 0 0 0 3px rgba(214,138,18,.18); }
+.draftbar .spacer { flex: 1 1 auto; }
+.draftbar button { white-space: nowrap; }
+.draftbar .dberr { color: var(--bad); font-size: 11px; max-width: 46%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ③④ 可编辑卡片：手型光标提示「点得动」（hover 高亮仍由 .fn.hi 负责） */
+.fn.editable { cursor: pointer; }
+
+/* 弹窗内小节标题 */
+.rs-sec { font-size: 11px; color: var(--dim); margin-top: 4px; }
+.rs-sec .dim { margin-left: 6px; }
+
+/* 已应用区：chips + 拖拽落点（dragover 时绿框高亮，口径同 .gbcol.dragover） */
+.rs-applied {
+  display: flex; flex-wrap: wrap; gap: 5px; align-items: center;
+  min-height: 46px; padding: 8px 10px;
+  border: 1px dashed #cfd9e6; background: #fbfdff;
+}
+.rs-applied.dragover {
+  border-style: solid; border-color: var(--acc); background: #f1faf6;
+  box-shadow: 0 0 0 2px rgba(15, 143, 104, .18);
+}
+.rs-chip { display: inline-flex; align-items: center; gap: 5px; user-select: none; }
+.rs-chip .x { font-size: 10px; line-height: 1; padding: 1px 2px; }
+.rs-chip.drag { cursor: grab; }
+.rs-chip.drag:active { cursor: grabbing; }
+.rs-chip.drag:hover { border-color: var(--acc2); color: var(--acc2); background: #f2f7ff; }
+.rs-chip.dragging { opacity: .45; }
+.rs-type {
+  font-size: 9px; line-height: 14px; padding: 0 4px;
+  border: 1px solid var(--line); background: #f7f9fc; color: var(--dim); border-radius: 2px;
+}
+.rs-plus { color: var(--acc); font-size: 11px; }
+
+/* 可用规则集 palette */
+.rs-palette {
+  display: flex; flex-wrap: wrap; gap: 5px;
+  max-height: 220px; overflow-y: auto; padding: 8px 10px;
+  border: 1px solid #eef2f8; background: #f8fafd;
+}
+
+/* ④ 分组成员 checkbox 列表（可滚动；特殊出站/嵌套分组底色区分，口径同看板） */
+.gd-members {
+  display: flex; flex-direction: column; gap: 3px;
+  max-height: 300px; overflow-y: auto; padding: 6px 8px;
+  border: 1px solid #eef2f8; background: #fbfdff;
+}
+.gd-row {
+  display: flex; align-items: center; gap: 7px;
+  padding: 3px 6px; border: 1px solid transparent; font-size: 11px; cursor: pointer;
+}
+.gd-row:hover { background: #f6f9fd; border-color: var(--line); }
+.gd-row input[type='checkbox'] { flex: 0 0 auto; accent-color: var(--acc); cursor: pointer; }
+.gd-row .gd-tag { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
+.gd-row .gd-type {
+  flex: 0 0 auto; font-size: 9px; line-height: 14px; padding: 0 4px;
+  border: 1px solid var(--line); background: #f7f9fc; color: var(--dim); border-radius: 2px;
+}
+.gd-row.special { background: #f6f3fb; }
+.gd-row.special .gd-type { background: #efe9fa; border-color: #ddd4ef; color: #5b4a86; }
+.gd-row.nested { background: #fff8e6; }
+.gd-row.nested .gd-type { background: #fdf3d7; border-color: #efd89b; color: #8a6100; }
+
+/* SSH 凭据弹窗：窄一点，表单行复用 .modal-body .row */
+.ssh-modal { width: min(480px, calc(100vw - 40px)); }
+.ssh-note {
+  font-size: 11px; line-height: 1.8; color: #8a5a12;
+  border: 1px solid #f0d9b5; background: #fff8e9; padding: 8px 10px;
+}
+.ssh-err {
+  font-size: 11px; color: var(--bad);
+  border: 1px solid #f2cfd5; background: #fdf1f3; padding: 6px 8px;
+}
+.ssh-portnote { color: var(--warn); }

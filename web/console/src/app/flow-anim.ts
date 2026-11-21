@@ -9,6 +9,7 @@ import {
   effect,
   inject,
   input,
+  output,
   signal,
   untracked,
   viewChild,
@@ -17,7 +18,7 @@ import type { Backend, Connection } from './models';
 import { ClashService } from './clash.service';
 import { RouterService } from './router.service';
 import { errMsg } from './util';
-import { buildFlow, buildLayout, buildStatic, emptyStatic, pointOnPath } from './flow-model';
+import { buildFlow, buildLayout, buildStatic, emptyStatic, nameOfKey, pointOnPath } from './flow-model';
 import type { FlowEdgeGeom, FlowKind, FlowLayout, FlowNodeGeom, FlowSize, FlowStat } from './flow-model';
 
 /** 连接采样间隔（clash_api /connections） */
@@ -36,10 +37,19 @@ const FALLBACK_H = 520;
 
 const round1 = (n: number): number => Math.round(n * 10) / 10;
 
-/** 模板里用的节点块（几何 + hover 派生状态） */
+/** 模板里用的节点块（几何 + hover 派生状态 + 是否可点开编辑弹窗） */
 interface NodeView extends FlowNodeGeom {
   hi: boolean;
   dim: boolean;
+  /** ③④ 卡片且指向 config 里真实分组 → 可点击编辑（DIRECT/block 带不可编辑） */
+  edit: boolean;
+}
+
+/** ③ 规则卡 key（`rule:分组名[桶 …]`）→ 分组 tag：取 '[' 前缀 */
+function ruleGroupTag(key: string): string {
+  const name = nameOfKey(key);
+  const i = name.indexOf('[');
+  return i > 0 ? name.slice(0, i) : name;
 }
 
 /** 模板里用的连线（几何 + hover 派生状态） */
@@ -97,6 +107,10 @@ interface Particle {
 })
 export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
   readonly backend = input.required<Backend>();
+  /** 点 ③ 规则集卡 → 打开该分组的规则集编辑弹窗（参数 = 分组 tag） */
+  readonly editRule = output<string>();
+  /** 点 ④ 分组卡 → 打开该分组的成员/类型编辑弹窗（参数 = 分组 tag） */
+  readonly editGroup = output<string>();
 
   private readonly clash = inject(ClashService);
   private readonly router = inject(RouterService);
@@ -156,7 +170,7 @@ export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
     }));
   });
 
-  /** 节点块：hover 的节点与它的邻居高亮，其余变淡 */
+  /** 节点块：hover 的节点与它的邻居高亮，其余变淡；③④ 真实分组卡片标记可编辑 */
   readonly nodesView = computed<NodeView[]>(() => {
     const h = this.hover();
     const near = new Set<string>();
@@ -167,7 +181,17 @@ export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
         if (e.to === h) near.add(e.from);
       }
     }
-    return this.geom().nodes.map((n) => ({ ...n, hi: n.key === h, dim: !!h && !near.has(n.key) }));
+    // 可编辑判定用 config 名册：只有真实分组才弹编辑窗（实时兜底卡 / DIRECT 带不弹）
+    const groupTags = new Set(this.stat().groups.map((g) => g.tag));
+    return this.geom().nodes.map((n) => ({
+      ...n,
+      hi: n.key === h,
+      dim: !!h && !near.has(n.key),
+      edit:
+        n.mode === 'card' &&
+        ((n.col === 'rule' && groupTags.has(ruleGroupTag(n.key))) ||
+          (n.col === 'group' && groupTags.has(nameOfKey(n.key)))),
+    }));
   });
 
   /** tooltip（自绘 HTML 层，位置跟随指针，靠近右边/下边时收进来） */
@@ -401,6 +425,18 @@ export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
 
   clearHover(): void {
     if (this.hover()) this.hover.set(null);
+  }
+
+  /**
+   * 点 ③④ 卡片 → 抛编辑事件（backend-pane 接去开弹窗）。
+   * 只处理「可编辑」节点（config 里真实分组的卡片）；hover 逻辑不受影响。
+   * groupTag 从 key 解析（label 会被列宽截断，key 才是全名）：
+   *  · ③ `rule:分组名[桶 …]` → '[' 前缀；④ `group:分组名` → 名即 tag。
+   */
+  onNodeClick(n: NodeView): void {
+    if (!n.edit) return;
+    if (n.col === 'rule') this.editRule.emit(ruleGroupTag(n.key));
+    else if (n.col === 'group') this.editGroup.emit(nameOfKey(n.key));
   }
 
   private trackPointer(ev: MouseEvent): void {

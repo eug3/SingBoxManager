@@ -12,7 +12,7 @@
     @if (stats().hitRules) {
       <span class="fstat">命中 <b>{{ stats().hitRules }}</b></span>
     }
-    <span class="fhint">采样 1.5s · 配置 30s · ①电脑 → ②路由器 → ③规则集 → ④分组 → ⑤组成员方格 → ⑥互联网</span>
+    <span class="fhint">采样 1.5s · 配置 30s · ①电脑 → ②路由器 → ③规则集 → ④分组 → ⑤组成员方格 → ⑥互联网 · 点 ③④ 卡片可编辑</span>
     @if (cfgErr()) {
       <span class="ferr">⚠ {{ cfgErr() }}</span>
     }
@@ -121,7 +121,7 @@
         />
       }
 
-      <!-- 节点：card=③④ 文字卡片；tile=①②⑤ 方格；cloud=⑥ 大云 -->
+      <!-- 节点：card=③④ 文字卡片（真实分组可点开编辑弹窗）；tile=①②⑤ 方格；cloud=⑥ 大云 -->
       @for (n of nodesView(); track n.key) {
         <g
           [attr.class]="
@@ -130,10 +130,12 @@
             ' m-' +
             n.mode +
             (n.count > 0 ? ' live' : '') +
-            (n.hi ? ' hi' : n.dim ? ' dim' : '')
+            (n.hi ? ' hi' : n.dim ? ' dim' : '') +
+            (n.edit ? ' editable' : '')
           "
           (mouseenter)="onEnter(n.key, $event)"
           (mouseleave)="clearHover()"
+          (click)="onNodeClick(n)"
         >
           <rect
             class="fnbox"

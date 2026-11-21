@@ -1,0 +1,84 @@
+<!-- ④ 分组编辑弹窗：类型 select + urltest 参数 + 成员 checkbox 列表（改动即暂存） -->
+<div class="modal-mask" (click)="onMask($event)">
+  <div class="modal" role="dialog" aria-modal="true" [attr.aria-label]="'编辑分组 ' + group()">
+    <div class="modal-hd">
+      <b>④ 分组 · {{ group() }}</b>
+      <span class="dim small">勾选成员 · 切换类型</span>
+      <button class="x" (click)="close()" title="关闭">✕</button>
+    </div>
+
+    <div class="modal-body">
+      @if (!work()) {
+        <div class="dim">配置还没读到：先到「配置」页连接成功，或等「流向」页拉取配置后再试。</div>
+      } @else if (!groupObj()) {
+        <div class="dim">「{{ group() }}」不是当前配置里的分组。</div>
+      } @else {
+        <div class="row">
+          <span>类型</span>
+          <select [value]="type()" (change)="setType($any($event.target).value)">
+            <option value="selector">selector（手动选择）</option>
+            <option value="urltest">urltest（按延迟自动）</option>
+          </select>
+        </div>
+
+        @if (type() === 'urltest') {
+          <div class="row">
+            <span>测试 URL</span>
+            <input
+              type="text"
+              [value]="url()"
+              (change)="setUrl($any($event.target).value)"
+              placeholder="https://www.gstatic.com/generate_204（留空=默认）"
+            />
+          </div>
+          <div class="row">
+            <span>测试间隔</span>
+            <input
+              type="text"
+              [value]="interval()"
+              (change)="setInterval($any($event.target).value)"
+              placeholder="3m（留空=默认）"
+            />
+          </div>
+          <div class="row">
+            <span>容差 tolerance</span>
+            <input
+              type="number"
+              min="0"
+              [value]="tolerance()"
+              (change)="setTolerance($any($event.target).value)"
+              placeholder="50（ms，留空=默认）"
+            />
+          </div>
+        }
+
+        <div class="rs-sec">成员（已勾 {{ members().length }} / {{ candidates().length }}）</div>
+        <div class="gd-members">
+          @for (c of candidates(); track c.tag) {
+            <label class="gd-row" [class.special]="c.special" [class.nested]="c.isGroup">
+              <input
+                type="checkbox"
+                [checked]="isMember(c.tag)"
+                (change)="toggleMember(c.tag, $any($event.target).checked)"
+              />
+              <span class="gd-tag">{{ c.tag }}</span>
+              <span class="gd-type">{{ c.isGroup ? '分组 · ' + c.type : c.type }}</span>
+            </label>
+          } @empty {
+            <div class="dim small">配置里没有可选的节点 / 分组</div>
+          }
+        </div>
+
+        <div class="hint dim">
+          成员顺序按勾选先后追加；取消勾选会把该组的 default 联动修正到第一个成员。
+          其它分组也可勾入（嵌套）。改动即时暂存，点顶部「保存并重启」才写回路由。
+        </div>
+      }
+    </div>
+
+    <div class="modal-ft">
+      <span class="dim small">改动已暂存到顶部「待保存条」，可随时取消</span>
+      <button class="acc" (click)="close()">完成</button>
+    </div>
+  </div>
+</div>
