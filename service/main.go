@@ -219,6 +219,9 @@ func main() {
 	mux.HandleFunc("POST /router/restart", handleRouterRestart)
 	mux.HandleFunc("POST /router/check", handleRouterCheck)
 	mux.HandleFunc("POST /router/apply", handleRouterApply)
+	mux.HandleFunc("GET /router/credentials", handleRouterCredentialsList)
+	mux.HandleFunc("POST /router/credentials", handleRouterCredentialsSet)
+	mux.HandleFunc("DELETE /router/credentials", handleRouterCredentialsDelete)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		setCors(w.Header(), r.Header.Get("Origin"))
 		if r.Method == http.MethodOptions {

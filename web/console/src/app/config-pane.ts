@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, effect, inject, input, signal } from '@angular/core';
 import { Backend } from './models';
-import { RouterService } from './router.service';
+import { RouterCredInfo, RouterService } from './router.service';
 import { BackendsService } from './backends.service';
 import { MonacoEditorComponent } from './monaco-editor';
 import {
@@ -103,6 +103,13 @@ export class ConfigPane {
 
   // —— 删除 ——
   readonly deleteTag = signal('');
+
+  // —— 路由 SSH 凭据（只提交给 99 落盘，不存浏览器）——
+  readonly credsOpen = signal(false);
+  readonly credsUser = signal('root');
+  readonly credsPassword = signal('');
+  readonly credsHosts = signal<RouterCredInfo[]>([]);
+  readonly credsAllow = signal<string[]>([]);
 
   constructor() {
     effect(() => {
@@ -207,7 +214,12 @@ export class ConfigPane {
       this.loaded.set(true);
       this.log.set(`已读取 ${res.host} · ${res.size}B · sha ${res.sha256.slice(0, 12)} · ${res.ms}ms`);
     } catch (e) {
-      this.err.set(this.msg(e));
+      const m = this.msg(e);
+      this.err.set(m);
+      if (m.includes('未配置路由凭据')) {
+        this.credsOpen.set(true);
+        void this.loadCreds();
+      }
     } finally {
       this.busy.set(false);
     }
@@ -485,6 +497,60 @@ export class ConfigPane {
     this.importText.set('');
     this.importResult.set([]);
     this.enterReview(d);
+  }
+
+  // ---------- 路由 SSH 凭据 ----------
+  async toggleCreds(): Promise<void> {
+    const open = !this.credsOpen();
+    this.credsOpen.set(open);
+    if (open) await this.loadCreds();
+  }
+
+  async loadCreds(): Promise<void> {
+    try {
+      const res = await this.router.credentials();
+      this.credsHosts.set(res.hosts ?? []);
+      this.credsAllow.set(res.allow ?? []);
+      const me = (res.hosts ?? []).find((h) => h.host === this.host());
+      if (me?.user) this.credsUser.set(me.user);
+    } catch (e) {
+      this.err.set(this.msg(e));
+    }
+  }
+
+  async saveCreds(): Promise<void> {
+    const host = this.host();
+    const user = this.credsUser().trim();
+    const pw = this.credsPassword();
+    if (!user || !pw) {
+      this.err.set('用户名与口令都不能为空');
+      return;
+    }
+    this.busy.set(true);
+    this.err.set('');
+    try {
+      await this.router.setCredentials(host, user, pw, this.backend().name);
+      // 口令只在提交时经过一次，提交后立刻从页面内存里清掉
+      this.credsPassword.set('');
+      this.credsOpen.set(false);
+      this.log.set(`已保存 ${host} 的 SSH 凭据（99 上 0600 落盘，页面不再保留口令）`);
+      await this.reload();
+    } catch (e) {
+      this.err.set(this.msg(e));
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  async removeCreds(host: string): Promise<void> {
+    if (!confirm(`删除 ${host} 的 SSH 凭据？`)) return;
+    try {
+      await this.router.deleteCredentials(host);
+      await this.loadCreds();
+      this.log.set(`已删除 ${host} 的凭据`);
+    } catch (e) {
+      this.err.set(this.msg(e));
+    }
   }
 
   // ---------- 内部 ----------

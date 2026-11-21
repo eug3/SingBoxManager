@@ -23,6 +23,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -38,6 +39,14 @@ type routerCred struct {
 	Port     int    `json:"port"`
 }
 
+type routerCredReq struct {
+	Host     string `json:"host"`
+	User     string `json:"user"`
+	Password string `json:"password"`
+	Port     int    `json:"port"`
+	Name     string `json:"name"`
+}
+
 type routerOpReq struct {
 	Host      string `json:"host"`
 	Config    string `json:"config"`
@@ -46,6 +55,38 @@ type routerOpReq struct {
 
 func routersFile() string {
 	return env("ROUTERS_FILE", "/etc/vault-edit/routers.json")
+}
+
+// 允许配置凭据的主机白名单（默认两台路由），避免变成任意 SSH 跳板
+func routerHosts() map[string]bool {
+	out := map[string]bool{}
+	for _, h := range strings.Split(env("ROUTER_HOSTS", "192.168.31.32,172.16.8.1"), ",") {
+		if h = strings.TrimSpace(h); h != "" {
+			out[h] = true
+		}
+	}
+	return out
+}
+
+// 写 routers.json：原子替换 + 0600
+func saveRouters(m map[string]routerCred) error {
+	b, err := json.MarshalIndent(m, "", "  ")
+	if err != nil {
+		return err
+	}
+	b = append(b, '\n')
+	dir := filepath.Dir(routersFile())
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	tmp := routersFile() + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+		return err
+	}
+	if err := os.Chmod(tmp, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, routersFile())
 }
 
 func loadRouters() (map[string]routerCred, error) {
@@ -79,11 +120,11 @@ func pickRouter(host string) (routerCred, string, error) {
 	}
 	all, err := loadRouters()
 	if err != nil {
-		return routerCred{}, "", fmt.Errorf("未配置路由凭据（%s）：%w", routersFile(), err)
+		return routerCred{}, "", fmt.Errorf("未配置路由凭据（host %s）：99 上没有 %s；可在页面「路由凭据」里填写", host, routersFile())
 	}
 	c, ok := all[host]
 	if !ok {
-		return routerCred{}, "", fmt.Errorf("host %s 不在白名单", host)
+		return routerCred{}, "", fmt.Errorf("未配置路由凭据（host %s）：可在页面「路由凭据」里填写", host)
 	}
 	return c, host, nil
 }
@@ -266,6 +307,97 @@ func handleRouterApply(w http.ResponseWriter, r *http.Request) {
 		fail(w, 502, "应用失败："+trimmed)
 		return
 	}
+}
+
+// GET /router/credentials —— 只返回 host/user/port，绝不回显口令
+func handleRouterCredentialsList(w http.ResponseWriter, r *http.Request) {
+	if !routerAuthorized(w, r) {
+		return
+	}
+	all, err := loadRouters()
+	list := make([]map[string]any, 0, len(all))
+	for host, c := range all {
+		list = append(list, map[string]any{
+			"host": host, "name": c.Name, "user": c.User, "port": c.Port, "configured": c.Password != "",
+		})
+	}
+	if err != nil {
+		// 文件不存在时返回空列表 + 白名单，供页面首次填写
+		writeJSON(w, 200, map[string]any{"ok": true, "hosts": list, "allow": keysOf(routerHosts()), "file": routersFile()})
+		return
+	}
+	writeJSON(w, 200, map[string]any{"ok": true, "hosts": list, "allow": keysOf(routerHosts()), "file": routersFile()})
+}
+
+// POST /router/credentials {host,user,password,port?,name?}
+func handleRouterCredentialsSet(w http.ResponseWriter, r *http.Request) {
+	if !routerAuthorized(w, r) {
+		return
+	}
+	var req routerCredReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		fail(w, 400, "bad body")
+		return
+	}
+	req.Host = strings.TrimSpace(req.Host)
+	if req.Host == "" || !routerHosts()[req.Host] {
+		fail(w, 400, fmt.Sprintf("host %q 不在允许列表（ROUTER_HOSTS）", req.Host))
+		return
+	}
+	if strings.TrimSpace(req.User) == "" || req.Password == "" {
+		fail(w, 400, "用户名与口令都不能为空")
+		return
+	}
+	all, _ := loadRouters()
+	if all == nil {
+		all = map[string]routerCred{}
+	}
+	if req.Port == 0 {
+		req.Port = 22
+	}
+	name := req.Name
+	if name == "" {
+		name = req.Host
+	}
+	all[req.Host] = routerCred{Name: name, User: strings.TrimSpace(req.User), Password: req.Password, Port: req.Port}
+	if err := saveRouters(all); err != nil {
+		fail(w, 500, "写凭据失败: "+err.Error())
+		return
+	}
+	log.Printf("router credentials updated for %s (user=%s)", req.Host, req.User)
+	writeJSON(w, 200, map[string]any{"ok": true, "host": req.Host, "user": req.User})
+}
+
+// DELETE /router/credentials?host=
+func handleRouterCredentialsDelete(w http.ResponseWriter, r *http.Request) {
+	if !routerAuthorized(w, r) {
+		return
+	}
+	host := strings.TrimSpace(r.URL.Query().Get("host"))
+	all, err := loadRouters()
+	if err != nil {
+		fail(w, 404, "没有已配置的凭据文件")
+		return
+	}
+	if _, ok := all[host]; !ok {
+		fail(w, 404, "该 host 没有配置")
+		return
+	}
+	delete(all, host)
+	if err := saveRouters(all); err != nil {
+		fail(w, 500, "写凭据失败: "+err.Error())
+		return
+	}
+	log.Printf("router credentials removed for %s", host)
+	writeJSON(w, 200, map[string]any{"ok": true, "host": host})
+}
+
+func keysOf(m map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
 }
 
 func oneLine(s string) string {

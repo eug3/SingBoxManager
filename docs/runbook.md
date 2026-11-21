@@ -151,7 +151,8 @@ sing-box 没有 reload/写配置 API，所以「改节点配置 → 生效」由
 ```
 
 要点：
-- **凭据**：`/etc/vault-edit/routers.json`（0600 root），形如 `{"192.168.31.32":{"user":"root","password":"…"},"172.16.8.1":{…}}`；只允许文件里列出的 host，其它一律 400。
+- **两套凭据要分清**：顶部「发布密钥」= 99 服务鉴权（`X-Vault-Key`，现在与 clash secret 同值）；**路由 SSH 用户名/口令**只存在 99 的 `/etc/vault-edit/routers.json`（0600 root），浏览器不保存。没配时页面会提示，点 `路由凭据` 可现场填写（只提交一次给 99 落盘，页面立即清空口令，列表接口也不回显）。
+- **凭据接口**：`GET /router/credentials`（只返回 host/user/port）、`POST /router/credentials`（写入 0600）、`DELETE /router/credentials?host=`；host 必须在 `ROUTER_HOSTS` 白名单里（默认两台路由），否则 400。
 - **白名单命令**：服务只会执行 `singbox-apply` 的四个动作，不提供任意命令执行。
 - **健康判据**：必须「换了新 pid」且 `:9090` 在监听（只看端口会被旧进程 socket 骗过）；失败自动回滚并重启旧配置。
 - **并发保护**：apply 带 `expectSha`，配置被别人改过会返回 **409 STALE**，需刷新后重试。

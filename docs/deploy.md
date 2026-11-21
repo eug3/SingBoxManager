@@ -189,7 +189,10 @@ R32_PW='甲 root 口令' GL_PW='乙 root 口令' scripts/deploy_router_apply.sh
 # 脚本会校验 sha256；手工核验：ssh root@路由 'ls -l /usr/local/sbin/singbox-apply'
 ```
 
-2. 99 侧放凭据（0600 root，内容含口令，不入库）：
+2. 99 侧放凭据（0600 root，内容含口令，不入库）。两种方式等价：
+
+   - **页面方式（推荐，浏览器不保存）**：管理台 → 对应后端 → `配置` → `路由凭据` → 填用户名/口令 → `保存并读取配置`。99 会把口令写入 `/etc/vault-edit/routers.json`（0600），页面提交后立刻清空输入框；`GET /router/credentials` 只回显 user、不回显口令。
+   - **手工方式**：
 
 ```bash
 sudo install -d -m 0755 /etc/vault-edit
