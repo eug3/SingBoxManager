@@ -84,3 +84,27 @@ func serveStatic(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "public, max-age=86400")
 	http.ServeFile(w, r, f)
 }
+
+// handleRuleSetDelete 删除一个桶的 .json + .srs（需密钥；配置不再引用后才应调用）
+func handleRuleSetDelete(w http.ResponseWriter, r *http.Request) {
+	if preflight(w, r) {
+		return
+	}
+	if !routerAuth(w, r, "") {
+		return
+	}
+	name := strings.TrimPrefix(r.URL.Path, "/rule-set/")
+	if !rsFileRe.MatchString(name) || !strings.HasSuffix(name, ".json") {
+		fail(w, 400, "只允许删除 <桶>.json")
+		return
+	}
+	base := strings.TrimSuffix(name, ".json")
+	fs := currentShareFS()
+	var errs []string
+	for _, suffix := range []string{".json", ".srs"} {
+		if err := fs.Remove(base + suffix); err != nil {
+			errs = append(errs, suffix+": "+err.Error())
+		}
+	}
+	writeJSON(w, 200, map[string]any{"ok": len(errs) == 0, "bucket": base, "errors": errs})
+}

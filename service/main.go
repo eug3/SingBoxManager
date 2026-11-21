@@ -81,6 +81,7 @@ func main() {
 	mux.HandleFunc("GET /edit/index.html", servePage)
 	mux.HandleFunc("GET /static/", serveStatic)
 	mux.HandleFunc("GET /rule-set/", serveRuleSet)
+	mux.HandleFunc("DELETE /rule-set/", handleRuleSetDelete)
 
 	// 存储（SMB/SFTP/本机目录）与公网读取通道体检：顶栏状态点用
 	mux.HandleFunc("GET /share/health", handleShareHealth)

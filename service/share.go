@@ -37,6 +37,7 @@ type ShareFS interface {
 	WriteFile(name string, data []byte) error
 	Stat(name string) (os.FileInfo, error)
 	List() ([]os.FileInfo, error)
+	Remove(name string) error
 	Describe() string
 }
 
@@ -74,6 +75,8 @@ func (l *localShare) List() ([]os.FileInfo, error) {
 	}
 	return out, nil
 }
+
+func (l *localShare) Remove(name string) error { return os.Remove(l.path(name)) }
 
 func (l *localShare) Describe() string { return "local:" + l.dir }
 
@@ -195,6 +198,10 @@ func (s *smbShare) WriteFile(name string, data []byte) error {
 		}
 		return nil
 	})
+}
+
+func (s *smbShare) Remove(name string) error {
+	return s.with(func(fs *smb2.Share) error { return fs.Remove(s.rel(name)) })
 }
 
 func (s *smbShare) Stat(name string) (os.FileInfo, error) {
@@ -352,6 +359,10 @@ func (s *sftpShare) WriteFile(name string, data []byte) error {
 		_ = c.Remove(p)
 		return c.Rename(tmp, p)
 	})
+}
+
+func (s *sftpShare) Remove(name string) error {
+	return s.with(func(c *sftp.Client) error { return c.Remove(s.rel(name)) })
 }
 
 func (s *sftpShare) Stat(name string) (os.FileInfo, error) {
