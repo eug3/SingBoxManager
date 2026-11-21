@@ -14,17 +14,31 @@ import {
   untracked,
   viewChild,
 } from '@angular/core';
+import { HttpClient, HttpHeaders } from '@angular/common/http';
+import { firstValueFrom } from 'rxjs';
 import type { Backend, Connection } from './models';
+import { BackendsService } from './backends.service';
 import { ClashService } from './clash.service';
 import { RouterService } from './router.service';
 import { errMsg } from './util';
 import { buildFlow, buildLayout, buildStatic, emptyStatic, nameOfKey, pointOnPath } from './flow-model';
-import type { FlowEdgeGeom, FlowKind, FlowLayout, FlowNodeGeom, FlowSize, FlowStat } from './flow-model';
+import type {
+  ClientInfo,
+  ClientMap,
+  FlowEdgeGeom,
+  FlowKind,
+  FlowLayout,
+  FlowNodeGeom,
+  FlowSize,
+  FlowStat,
+} from './flow-model';
 
 /** 连接采样间隔（clash_api /connections） */
 const SAMPLE_MS = 1500;
 /** 静态拓扑（config.json）刷新间隔：结构变化不频繁，30s 足够 */
 const CFG_MS = 30_000;
+/** 局域网名册（/router/clients → ip→MAC/主机名）刷新间隔：DHCP/ARP 变化慢，30s 足够 */
+const CLIENTS_MS = 30_000;
 /** 粒子走完全程的时长 */
 const PARTICLE_MS = 1800;
 /** 同时存在的粒子上限（超出丢最旧的） */
@@ -36,6 +50,14 @@ const FALLBACK_W = 1080;
 const FALLBACK_H = 520;
 
 const round1 = (n: number): number => Math.round(n * 10) / 10;
+
+/** `GET /router/clients` 的响应（service 侧新接口；这里只声明用到的字段） */
+interface RouterClientsResp {
+  ok?: boolean;
+  host?: string;
+  clients?: { ip?: string; mac?: string; name?: string }[];
+  ms?: number;
+}
 
 /** 模板里用的节点块（几何 + hover 派生状态 + 是否可点开编辑弹窗） */
 interface NodeView extends FlowNodeGeom {
@@ -114,6 +136,8 @@ export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
 
   private readonly clash = inject(ClashService);
   private readonly router = inject(RouterService);
+  private readonly http = inject(HttpClient);
+  private readonly backends = inject(BackendsService);
   private readonly canvas = viewChild<ElementRef<HTMLDivElement>>('canvas');
 
   /** 静态结构（config 解析结果 + ②列名字） */
@@ -146,6 +170,9 @@ export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
   private cfgTimer: ReturnType<typeof setInterval> | null = null;
   private connTimer: ReturnType<typeof setInterval> | null = null;
   private ro: ResizeObserver | null = null;
+  /** ① 列名册：ip → {mac,name}（拿不到就是空表，① 回落到按源 IP） */
+  private clients: ClientMap = new Map<string, ClientInfo>();
+  private clientsTimer: ReturnType<typeof setInterval> | null = null;
   private lastFrame = 0;
 
   readonly stats = computed(() => this.flow().stats);
@@ -236,8 +263,10 @@ export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
     this.destroyed = true;
     if (this.cfgTimer) clearInterval(this.cfgTimer);
     if (this.connTimer) clearInterval(this.connTimer);
+    if (this.clientsTimer) clearInterval(this.clientsTimer);
     this.cfgTimer = null;
     this.connTimer = null;
+    this.clientsTimer = null;
     if (this.rafId) cancelAnimationFrame(this.rafId);
     this.rafId = 0;
     this.ro?.disconnect();
@@ -259,11 +288,18 @@ export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
     this.lastConns = [];
     this.version = '';
     this.stat.set(emptyStatic(this.hostOf(b)));
-    this.flow.set(buildFlow([], this.stat()));
+    this.clients = new Map<string, ClientInfo>();
+    this.rebuild();
     this.startLoops();
     void this.loadVersion(b);
+    void this.loadClients(b);
     void this.loadConfig(b);
     void this.sample(b);
+  }
+
+  /** 用当前连接 + 静态结构 + 名册重建六列（唯一出口，避免各处漏传 clients） */
+  private rebuild(): void {
+    this.flow.set(buildFlow(this.lastConns, this.stat(), this.clients));
   }
 
   /** ②列名字：后端的 host（例如 192.168.31.32）；解析不出来退回后端名 */
@@ -282,6 +318,12 @@ export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
         if (document.hidden || this.destroyed) return;
         void this.loadConfig(this.backend());
       }, CFG_MS);
+    }
+    if (!this.clientsTimer) {
+      this.clientsTimer = setInterval(() => {
+        if (document.hidden || this.destroyed) return;
+        void this.loadClients(this.backend());
+      }, CLIENTS_MS);
     }
     if (!this.connTimer) {
       this.connTimer = setInterval(() => {
@@ -310,7 +352,7 @@ export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
       this.version = (v?.version ?? '').trim();
       if (!this.version) return;
       this.stat.set({ ...this.stat(), routerSub: this.versionLabel() });
-      this.flow.set(buildFlow(this.lastConns, this.stat()));
+      this.rebuild();
     } catch {
       /* 版本拿不到就不显示，不打扰用户 */
     }
@@ -326,13 +368,43 @@ export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
       // 次行在 await 之后再取版本：/version 与 /router/config 谁先回来都不丢版本号
       this.stat.set({ ...st, routerName: name, routerSub: this.versionLabel() });
       this.cfgErr.set(st.ok ? '' : (st.err ?? '配置解析失败'));
-      this.flow.set(buildFlow(this.lastConns, this.stat()));
+      this.rebuild();
     } catch (e) {
       if (this.destroyed) return;
       const msg = errMsg(e);
       this.stat.set({ ...emptyStatic(name, this.versionLabel()), err: msg });
       this.cfgErr.set(`配置读取失败：${msg}`);
-      this.flow.set(buildFlow(this.lastConns, this.stat()));
+      this.rebuild();
+    }
+  }
+
+  /**
+   * 拉一次局域网名册 `GET /router/clients?host=` → ip→{mac,name}。
+   * 用与 `/router/config` 同一套鉴权头（X-Vault-Key = 该后端的 clash 密钥）。
+   * 失败/后端未更新一律静默：名册为空时 ① 完全回落到按源 IP 的老行为。
+   */
+  private async loadClients(b: Backend): Promise<void> {
+    if (!b?.api) return;
+    try {
+      const resp = await firstValueFrom(
+        this.http.get<RouterClientsResp>('/router/clients', {
+          headers: new HttpHeaders({ 'X-Vault-Key': this.backends.keyFor(b) }),
+          params: { host: this.router.host(b) },
+        }),
+      );
+      if (this.destroyed) return;
+      const map = new Map<string, ClientInfo>();
+      for (const c of resp?.clients ?? []) {
+        const ip = (c?.ip ?? '').trim();
+        // 后端已小写；这里再兜一次，MAC 用作 ① 的分组 key
+        const mac = (c?.mac ?? '').trim().toLowerCase();
+        if (!ip || !mac) continue;
+        map.set(ip, { mac, name: (c?.name ?? '').trim() });
+      }
+      this.clients = map;
+      this.rebuild();
+    } catch {
+      // 接口失败 / 未部署：保留上一次名册（没有就是空表），不报错、不影响其它列
     }
   }
 
@@ -363,7 +435,7 @@ export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
 
   /** 归并布局 + 给「第一次见到」的连接生成粒子 */
   private apply(conns: Connection[]): void {
-    const flow = buildFlow(conns, this.stat());
+    const flow = buildFlow(conns, this.stat(), this.clients);
     this.flow.set(flow);
     const now = Date.now();
     const live = new Set<string>();

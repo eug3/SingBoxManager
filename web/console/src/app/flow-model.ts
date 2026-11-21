@@ -178,6 +178,15 @@ export interface StaticRuleCard {
   match: string;
 }
 
+/** 路由 DHCP/ARP 名册里的一台局域网客户端（只有同二层有 MAC；EasyTier/IPv6 没有） */
+export interface ClientInfo {
+  mac: string;
+  name: string;
+}
+
+/** `GET /router/clients` 的 ip → {mac,name}；由 flow-anim 每 30s 拉一次 */
+export type ClientMap = ReadonlyMap<string, ClientInfo>;
+
 /** 一条横带（band）：一个 ④ 分组 = 一条带；无分组的直连/拦截单独一条置底 */
 export interface FlowBand {
   /** 分组 tag；'-' = 直连 / 拦截（无分组） */
@@ -237,6 +246,8 @@ export interface FlowStats {
 
 export interface FlowLayout {
   stats: FlowStats;
+  /** ① 列的归并口径：mac = 按 MAC 归并（同 MAC 多 IP 合一格），ip = 回落按源 IP */
+  pcMode: 'mac' | 'ip';
   /** 横带顺序（= ④ 分组 config 顺序，直连/拦截带在最后） */
   bands: FlowBand[];
   cols: Record<FlowCol, FlowNode[]>;
@@ -876,7 +887,7 @@ function mergeCol(base: FlowNode[], dyn: Map<string, DynInfo>, max: number, byCo
  * @param conns clash_api /connections 的 connections 数组
  * @param stat  buildStatic 的结果 + ②列名字；配置读不到时传 emptyStatic()
  */
-export function buildFlow(conns: Connection[], stat: FlowStat): FlowLayout {
+export function buildFlow(conns: Connection[], stat: FlowStat, clients?: ClientMap): FlowLayout {
   const routerName = stat.routerName || 'sing-box';
   const routerKey = nodeKey('router', routerName);
   const cloudKey = nodeKey('cloud', '互联网');
@@ -894,7 +905,15 @@ export function buildFlow(conns: Connection[], stat: FlowStat): FlowLayout {
   const rowByTag = new Map<string, StaticNodeRow>();
   for (const r of stat.nodeRows) rowByTag.set(`${r.group}\u0000${r.node}`, r);
 
-  const pcDyn = new Map<string, DynInfo>();
+  /** ① 聚合：key = `pc:<mac>`（有 MAC）或 `pc:<ip>`（无 MAC 回落），同 key 的连接合并成一块 */
+  interface PcAgg {
+    count: number;
+    ips: Set<string>;
+    mac: string;
+    name: string;
+  }
+  const pcAgg = new Map<string, PcAgg>();
+  let pcUsedMac = false;
   const ruleDyn = new Map<string, DynInfo>();
   const groupDyn = new Map<string, DynInfo>();
   const rowDyn = new Map<string, DynInfo>();
@@ -928,8 +947,21 @@ export function buildFlow(conns: Connection[], stat: FlowStat): FlowLayout {
     // 只有「完全没有链路」时才跳过 ④⑤ 直接连云；DIRECT / block 走「直连 / 拦截」带
     const shortCircuit = !chains.length;
 
+    // ① 按 MAC 归并：同 MAC 的多个 IP 合并成一块；名册里没有（EasyTier/IPv6/接口不可用）回落 sourceIP
+    const cli = clients?.get(src);
+    const pcKey = cli?.mac ? nodeKey('pc', cli.mac) : nodeKey('pc', src);
+    if (cli?.mac) pcUsedMac = true;
+    const pcHit = pcAgg.get(pcKey);
+    if (pcHit) {
+      pcHit.count++;
+      if (src) pcHit.ips.add(src);
+      if (!pcHit.name && cli?.name) pcHit.name = cli.name;
+    } else {
+      pcAgg.set(pcKey, { count: 1, ips: new Set(src ? [src] : []), mac: cli?.mac ?? '', name: cli?.name ?? '' });
+    }
+
     const entries: { col: FlowCol; key: string }[] = [
-      { col: 'pc', key: nodeKey('pc', src) },
+      { col: 'pc', key: pcKey },
       { col: 'router', key: routerKey },
       { col: 'rule', key: nodeKey('rule', label) },
     ];
@@ -948,7 +980,6 @@ export function buildFlow(conns: Connection[], stat: FlowStat): FlowLayout {
 
     // 计数
     total++;
-    bumpDyn(pcDyn, entries[0].key, 'proxy');
     bumpDyn(ruleDyn, entries[2].key, ruleKind, kindBadge(ruleKind));
     if (!shortCircuit) {
       if (group) {
@@ -1098,23 +1129,44 @@ export function buildFlow(conns: Connection[], stat: FlowStat): FlowLayout {
     band: bandIdxOf(r.group),
   }));
 
-  // ①列：没有连接时留一个「本机」占位，避免整列塌成空白
-  const pcBase: FlowNode[] =
-    pcDyn.size > 0
-      ? []
-      : [
-          {
-            key: nodeKey('pc', '本机'),
-            name: '本机',
-            badge: '',
-            sub: '',
-            count: 0,
-            kind: 'proxy',
-            stat: true,
-            tip: '还没有活跃连接（采样 1.5s 一次）',
-            order: 0,
-          },
-        ];
+  // ①列：按（MAC 优先）聚合；标签优先主机名，其次 MAC，最后 IP
+  const pcNodes: FlowNode[] = [...pcAgg.entries()]
+    .sort((a, b) => b[1].count - a[1].count || cmpName(a[0], b[0]))
+    .slice(0, FLOW_MAX.pc)
+    .map(([key, a]) => {
+      const ips = [...a.ips].sort(cmpName);
+      const ipText = ips.length ? ips.join('、') : '本机';
+      return {
+        key,
+        name: a.name || a.mac || ips[0] || '本机',
+        badge: '',
+        sub: ipText,
+        count: a.count,
+        kind: 'proxy' as FlowKind,
+        stat: false,
+        order: 0,
+        tip: [
+          `主机名 ${a.name || '—'}`,
+          `MAC ${a.mac || '—'}`,
+          `IP ${ipText}${ips.length > 1 ? `（同 MAC 合并 ${ips.length} 个 IP）` : ''}`,
+          `连接数 ${a.count}`,
+        ].join('\n'),
+      };
+    });
+  // 没有连接时留一个「本机」占位，避免整列塌成空白
+  if (!pcNodes.length) {
+    pcNodes.push({
+      key: nodeKey('pc', '本机'),
+      name: '本机',
+      badge: '',
+      sub: '',
+      count: 0,
+      kind: 'proxy',
+      stat: true,
+      tip: '还没有活跃连接（采样 1.5s 一次）',
+      order: 0,
+    });
+  }
 
   const targets = [...targetDyn.entries()]
     .map(([name, count]) => ({ name, count }))
@@ -1153,7 +1205,7 @@ export function buildFlow(conns: Connection[], stat: FlowStat): FlowLayout {
   };
 
   const cols: Record<FlowCol, FlowNode[]> = {
-    pc: mergeCol(pcBase, pcDyn, FLOW_MAX.pc),
+    pc: pcNodes,
     router: [routerNode],
     rule: mergeCol(ruleBase, ruleDyn, FLOW_MAX.rule),
     group: mergeCol(groupBase, groupDyn, FLOW_MAX.group),
@@ -1221,9 +1273,10 @@ export function buildFlow(conns: Connection[], stat: FlowStat): FlowLayout {
   ];
 
   return {
+    pcMode: pcUsedMac ? 'mac' : 'ip',
     stats: {
       total,
-      pcs: pcDyn.size,
+      pcs: pcNodes.filter((n) => n.stat === false).length,
       rules: stat.rules.length,
       ruleCards: stat.cards.length,
       groups: stat.groups.length,
@@ -1412,7 +1465,8 @@ export const FLOW_GEO = {
 
 /** 列宽规则：⑤ 150–190（每行 5–6 个方格），③④ 吃剩余宽度 */
 const COL_WIDTH: Record<FlowCol, { min: number; max: number; weight: number }> = {
-  pc: { min: 96, max: 124, weight: 0.5 },
+  // ① 要能放下 17 字符的 MAC 标签 → 最小宽度略加
+  pc: { min: 112, max: 138, weight: 0.55 },
   router: { min: 100, max: 132, weight: 0.55 },
   // ③④ 再切掉 2/5（用户要求）：262→158、238→143；标签截断更多但 tooltip 全量
   rule: { min: 120, max: 158, weight: 0.62 },
@@ -1536,11 +1590,6 @@ export function buildLayout(flow: FlowLayout, size: FlowSize): FlowGeom {
   const gapAdd = Math.min(14, slack / (FLOW_COLS.length - 1));
   const gap = round1(gapBase + gapAdd);
   slack -= gapAdd * (FLOW_COLS.length - 1);
-  if (slack > 0) {
-    const toGrid = Math.min(slack, 60);
-    widths.node = round1(widths.node + toGrid);
-    slack -= toGrid;
-  }
   // 还很宽（超宽屏）：不再拉宽列，改成把整块图形居中——③④ 保持收窄，左右留白
   usedW = FLOW_COLS.reduce((n, k) => n + widths[k], 0);
   const cloudGap = round1(Math.max(G.cloudGap, gap + 8));
@@ -1626,7 +1675,7 @@ export function buildLayout(flow: FlowLayout, size: FlowSize): FlowGeom {
       key: col,
       mark: head.mark,
       title: head.title,
-      sub: head.sub,
+      sub: col === 'pc' ? (flow.pcMode === 'mac' ? '按 MAC · 回落 IP' : '按源 IP') : head.sub,
       icon: head.icon,
       total,
       rows: list.length,
