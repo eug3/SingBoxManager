@@ -73,7 +73,7 @@ export class RuleEditor implements OnInit {
   async publish(): Promise<void> {
     const c = this.check();
     if (!c.ok) return alert('校验没通过：' + c.msg);
-    if (!this.key()) return alert('先在右上角填「发布密钥」（= 99 的 VAULT_KEY）');
+    if (!this.key()) return alert('还没有密钥：先到任一后端的「配置」页连接（填 clash 密钥），或在「⚙ 后端配置」里填密钥');
     this.publishing.set(true);
     this.result.set(null);
     try {

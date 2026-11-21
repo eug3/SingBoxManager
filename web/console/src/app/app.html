@@ -1,17 +1,6 @@
 <div class="wrap">
   <header class="top">
-    <h1>规则编辑台 <b>◆ VAULT CONSOLE</b></h1>
-    <span class="dim small">Angular 22 · TypeScript</span>
-    <div class="key">
-      <span>发布密钥</span>
-      <input
-        type="password"
-        [value]="keyDraft()"
-        (input)="onKey($any($event.target).value)"
-        placeholder="X-Vault-Key"
-        autocomplete="off"
-      />
-    </div>
+    <h1>规则编辑台 <b>◆ SBM CONSOLE</b></h1>
   </header>
 
   @if (!originOk) {
@@ -47,7 +36,7 @@
   </div>
 
   <footer class="foot">
-    <span class="fp">VAULT CONSOLE</span>
+    <span class="fp">SBM CONSOLE</span>
     <span>v{{ version }}</span>
     <span class="sep"></span>
     <span>{{ sbVersion() || 'sing-box —' }}</span>

@@ -106,28 +106,6 @@ app-root {
 .top h1 b {
   color: var(--acc);
 }
-.key {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 11px;
-  color: var(--dim);
-}
-.key input {
-  background: #fff;
-  border: 1px solid var(--line);
-  color: var(--acc);
-  font-family: var(--mono);
-  padding: 6px 10px;
-  width: 170px;
-  font-size: 12px;
-}
-.key input:focus {
-  outline: none;
-  border-color: var(--acc);
-}
-
 /* 横幅 */
 .banner {
   border: 1px solid #ecc98a;

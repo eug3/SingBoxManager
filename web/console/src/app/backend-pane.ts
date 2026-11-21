@@ -119,7 +119,7 @@ export class BackendPane implements OnInit, OnDestroy {
   });
 
   constructor() {
-    // 密钥/后端地址变化时自动重新拉取（顶部「发布密钥」晚填也能立刻生效）
+    // 密钥/后端地址变化时自动重新拉取（连接页填入全局密钥后也能立刻生效）
     effect(() => {
       const b = this.backend();
       this.bsvc.globalKey();

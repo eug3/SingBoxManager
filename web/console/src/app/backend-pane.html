@@ -8,7 +8,7 @@
 </div>
 
 @if (unauthorized()) {
-  <div class="banner show">✗ 密钥未填或错误（401）—— 在该后端的「⚙ 后端配置」里填密钥，或填顶部「发布密钥」</div>
+  <div class="banner show">✗ 密钥未填或错误（401）—— 在该后端的「⚙ 后端配置」里填密钥，或到「配置」页连接</div>
 }
 @if (loadErr()) {
   <div class="banner show">
@@ -27,7 +27,7 @@
   <div class="bset">
     <input class="nm" [value]="cfgName()" (input)="cfgName.set($any($event.target).value)" placeholder="名称" />
     <input class="url" [value]="cfgApi()" (input)="cfgApi.set($any($event.target).value)" placeholder="http://主机:9090" />
-    <input class="kk" [value]="cfgKey()" (input)="cfgKey.set($any($event.target).value)" placeholder="密钥（留空=发布密钥）" />
+    <input class="kk" [value]="cfgKey()" (input)="cfgKey.set($any($event.target).value)" placeholder="密钥（留空=用全局密钥）" />
     <button class="acc" (click)="saveCfg()">保存</button>
     <button class="danger" (click)="delCfg()">删除</button>
     <div class="hint">

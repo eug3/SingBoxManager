@@ -71,8 +71,8 @@ export interface PublishResp {
   error?: string;
 }
 
-/** 管理台版本号（页脚展示；发版时手工更新） */
-export const CONSOLE_VERSION = '2026.11.21';
+/** 管理台版本号（页脚展示；语义化版本，发版时手工更新） */
+export const CONSOLE_VERSION = '0.1.0';
 
 /** 桶清单（与 NAS rule-set 目录一致；第二个数字是历史快照的规则条数，仅作展示参考） */
 

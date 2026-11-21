@@ -12,7 +12,8 @@ import { Backend, CONSOLE_VERSION, PAGE_ORIGINS } from './models';
   templateUrl: './app.html',
 })
 /**
- * 根组件 — 顶栏（标题 + 发布密钥）+ 主 tab（各后端面板 / 规则编辑）+ 底部信息条。
+ * 根组件 — 顶栏（标题）+ 主 tab（各后端面板 / 规则编辑）+ 底部信息条。
+ * 密钥不在顶栏填写：统一走「配置」页的连接门禁或各后端「⚙ 后端配置」。
  * 布局：100dvh 固定壳，滚动只发生在各面板内部（见 styles.css）。
  */
 export class App {
@@ -25,13 +26,8 @@ export class App {
   readonly active = signal<string>(this.backends().length ? 'b0' : 'edit');
   readonly originOk = PAGE_ORIGINS.includes(location.origin);
   readonly origins = PAGE_ORIGINS;
-  readonly keyDraft = signal(this.bsvc.globalKey());
 
   constructor() {
-    // 顶部「发布密钥」框跟随全局密钥（连接页提交后这里也要显示出来）
-    effect(() => {
-      this.keyDraft.set(this.bsvc.globalKey());
-    });
     effect(() => {
       const b = this.backends().find((x) => this.bsvc.valid(x));
       void this.loadVersion(b);
@@ -50,11 +46,6 @@ export class App {
     } catch {
       this.sbVersion.set('');
     }
-  }
-
-  onKey(v: string): void {
-    this.keyDraft.set(v);
-    this.bsvc.setGlobalKey(v);
   }
 
   addBackend(): void {
