@@ -1,0 +1,12 @@
+# GitHub 语言统计（linguist）口径
+# GitHub 的 Languages 条是「按字节占比」，会把大块 HTML/内联脚本算进去，这里显式声明真实口径。
+
+# 退役的上一代单文件管理台：仅作回滚参考，不参与语言统计
+web/edit/index.html            linguist-detectable=false
+
+# 依赖锁文件与工程配置 JSON：生成物/配置，不参与语言统计
+web/console/package-lock.json  linguist-generated
+*.json                         linguist-detectable=false
+
+# 文档按 documentation 处理（GitHub 默认也不算 prose，这里显式声明）
+*.md                           linguist-documentation
