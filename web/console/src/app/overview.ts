@@ -45,6 +45,8 @@ export class OverviewPane implements OnInit, OnDestroy {
   readonly groups = signal<ProxyNode[]>([]);
   readonly windowMin = signal(10);
   readonly windowOptions = WINDOW_OPTIONS;
+  /** 曲线 / 柱形 两种画法（速率图柱形模式以上下镜像呈现：上=下载、下=上传） */
+  readonly chartMode = signal<'line' | 'bar'>('line');
   readonly nodeLat = signal<Record<string, number>>({});
   readonly testing = signal(false);
   readonly testProgress = signal('');

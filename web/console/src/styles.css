@@ -619,3 +619,5 @@ table.kv td:first-child { color: var(--dim); }
 .winsel { margin-left: auto; display: inline-flex; gap: 4px; }
 button.win { padding: 2px 8px; font-size: 10px; color: var(--dim); border-color: var(--line); background: #fff; }
 button.win.on { color: var(--acc); border-color: var(--acc); background: #eefaf4; }
+
+.winsel .wsep { width: 1px; height: 14px; background: var(--line); margin: 0 4px; align-self: center; }

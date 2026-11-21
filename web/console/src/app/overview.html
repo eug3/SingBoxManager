@@ -12,11 +12,19 @@
         <span class="dim small">累计 ↓{{ fmtB(totals().down) }} · ↑{{ fmtB(totals().up) }}</span>
       </span>
     </div>
-    <app-area-chart [series]="rateSeries()" [height]="96" />
+    <app-area-chart [series]="rateSeries()" [height]="96" [mode]="chartMode()" [mirror]="true" />
     <div class="ovleg">
       <span class="lg dl">下载</span><span class="lg ul">上传</span>
-      <span class="dim small">{{ windowLabel() }} · {{ bucketText() }}（已填 {{ sampleCount() }} 格，来自 ws /traffic）</span>
+      <span class="dim small">
+        {{ windowLabel() }} · {{ bucketText() }}（已填 {{ sampleCount() }} 格，来自 ws /traffic）
+        @if (chartMode() === 'bar') {
+          <span class="dim">· 柱形：中线以上下载、以下上传</span>
+        }
+      </span>
       <span class="winsel">
+        <button class="win" [class.on]="chartMode() === 'line'" (click)="chartMode.set('line')">曲线</button>
+        <button class="win" [class.on]="chartMode() === 'bar'" (click)="chartMode.set('bar')">柱形</button>
+        <span class="wsep"></span>
         @for (w of windowOptions; track w) {
           <button class="win" [class.on]="w === windowMin()" (click)="windowMin.set(w)">{{ w }} 分</button>
         }
@@ -26,12 +34,12 @@
 
   <div class="ovcard">
     <div class="ovhd"><span>连接数</span><span class="ovvals"><b>{{ connCount() }}</b><span class="dim small">{{ windowLabel() }}</span></span></div>
-    <app-area-chart [series]="connSeries()" [height]="96" />
+    <app-area-chart [series]="connSeries()" [height]="96" [mode]="chartMode()" />
   </div>
 
   <div class="ovcard">
     <div class="ovhd"><span>内存使用</span><span class="ovvals"><b>{{ memText() }}</b><span class="dim small">{{ windowLabel() }}</span></span></div>
-    <app-area-chart [series]="memSeries()" [height]="96" />
+    <app-area-chart [series]="memSeries()" [height]="96" [mode]="chartMode()" />
   </div>
 
   <div class="ovcard">
