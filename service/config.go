@@ -38,7 +38,4 @@ var (
 
 	// /publish 只接受纯规则桶（这四类键）；完整 route 规则请走「配置」tab 改 config.json
 	ruleKeys = map[string]bool{"domain": true, "domain_suffix": true, "domain_keyword": true, "ip_cidr": true}
-
-	// 规则桶存储（见 share.go）：默认纯 Go SMB2，直连 NAS，不依赖 cifs 挂载
-	shareFS = newShareFS()
 )

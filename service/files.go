@@ -21,7 +21,7 @@ func serveRuleSet(w http.ResponseWriter, r *http.Request) {
 		fail(w, 404, "bad rule-set name")
 		return
 	}
-	data, info, err := shareFS.ReadFile(name)
+	data, info, err := currentShareFS().ReadFile(name)
 	if err != nil {
 		fail(w, 404, "not found: "+err.Error())
 		return

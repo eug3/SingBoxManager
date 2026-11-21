@@ -96,7 +96,7 @@ func handlePublish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// 共享可用性探测（SMB 会真的连一次；local 模式检查目录）
-	if _, err := shareFS.List(); err != nil {
+	if _, err := currentShareFS().List(); err != nil {
 		fail(w, 503, "share 不可用："+err.Error())
 		return
 	}
@@ -128,11 +128,11 @@ func handlePublish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// 成对写回（内部先写临时名再 rename，路由不会拉到半截文件）
-	if err := shareFS.WriteFile(req.Bucket+".json", jtxt); err != nil {
+	if err := currentShareFS().WriteFile(req.Bucket+".json", jtxt); err != nil {
 		fail(w, 500, "write json: "+err.Error())
 		return
 	}
-	if err := shareFS.WriteFile(req.Bucket+".srs", srs); err != nil {
+	if err := currentShareFS().WriteFile(req.Bucket+".srs", srs); err != nil {
 		fail(w, 500, "write srs: "+err.Error())
 		return
 	}

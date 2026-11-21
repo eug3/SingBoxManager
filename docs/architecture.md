@@ -70,6 +70,15 @@ NAS 侧共享是 `sec=none`（guest），所以零凭据即可读写；若以后
 `GET /share/health` 是这套通道的体检接口：文件通道（模式/文件数/样本大小/耗时）
 + 公网 URL（状态码/字节数/耗时），顶栏那个状态点就是它。
 
+**配置不再硬编码**：存在 `/etc/vault-edit/share.json`（0600），管理台顶栏状态点后面的
+⚙ 可以改（存储模式/地址/共享路径/账号/口令/公网入口/只读文件端口），保存即热生效
+（口径见 `sharecfg.go`：`GET/POST /share/config`、`POST /share/probe`（只测不存）、
+`POST /share/import`（把当前共享复制到 99 本机目录））。
+
+**只读文件服务跑独立端口**（`filesListen`，默认 `:9098`，`files_server.go`）：
+它只挂 `/rule-set/*` 与 `/health`，`/edit`、`/router/*`、`/publish` 一律 404。
+所以「文件对外」和「控制台对内」可以分开：对外只反代 9098，9099 继续只在内网。
+
 ### 2.4 凭据与密钥的分层
 
 | 凭据 | 存哪 | 谁能看到 |

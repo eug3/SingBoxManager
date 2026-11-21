@@ -40,31 +40,6 @@ type ShareFS interface {
 	Describe() string
 }
 
-// newShareFS 按 SHARE_MODE 构造具体实现
-func newShareFS() ShareFS {
-	mode := strings.ToLower(env("SHARE_MODE", "smb"))
-	if mode == "local" {
-		return &localShare{dir: shareDir}
-	}
-	if mode == "sftp" {
-		return &sftpShare{
-			addr:    env("SFTP_ADDR", ""),
-			user:    os.Getenv("SFTP_USER"),
-			pass:    os.Getenv("SFTP_PASS"),
-			keyPath: os.Getenv("SFTP_KEY"),
-			dir:     env("SFTP_PATH", "/volume1/WebEdit/rule-set"),
-		}
-	}
-	return &smbShare{
-		addr:   env("SMB_ADDR", "192.168.31.8:445"),
-		share:  env("SMB_SHARE", "HddShare"),
-		subdir: strings.Trim(env("SMB_PATH", "WebEdit/rule-set"), "/"),
-		user:   os.Getenv("SMB_USER"),
-		pass:   os.Getenv("SMB_PASS"),
-		domain: os.Getenv("SMB_DOMAIN"),
-	}
-}
-
 // ---- 本地目录实现（SHARE_MODE=local，等价于旧的 cifs 挂载用法）----
 
 type localShare struct{ dir string }

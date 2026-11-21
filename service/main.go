@@ -34,11 +34,19 @@ func main() {
 	if vaultKey == "" {
 		log.Fatal("VAULT_KEY 未设置（应为两台路由 clash_api secret；systemd 从 /etc/vault-edit.env 注入）")
 	}
+	// 存储配置：读盘（无文件则用 env 默认值），并热装到全局
+	applyShareConfig(loadShareConfig())
+
+	// 只读文件服务跑在独立端口（默认 :9098）：文件可对外，管理台不外露
+	if err := filesSrv.apply(currentShareCfg().FilesListen); err != nil {
+		log.Printf("警告：文件服务未启动：%v", err)
+	}
+
 	// 启动即探一次共享（SMB 首次连接稍慢，但不阻塞服务对外）
-	if files, err := shareFS.List(); err != nil {
-		log.Printf("警告：规则桶共享当前不可用（%s）：发布接口会返回 503；错误：%v", shareFS.Describe(), err)
+	if files, err := currentShareFS().List(); err != nil {
+		log.Printf("警告：规则桶共享当前不可用（%s）：发布接口会返回 503；错误：%v", currentShareFS().Describe(), err)
 	} else {
-		log.Printf("规则桶共享就绪：%s（%d 个文件）", shareFS.Describe(), len(files))
+		log.Printf("规则桶存储就绪：%s（%d 个文件）", currentShareFS().Describe(), len(files))
 	}
 
 	mux := http.NewServeMux()
@@ -46,10 +54,10 @@ func main() {
 	// 健康自检：目录与凭据文件是否就绪（check.sh / 部署脚本断言用）
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		_, rerr := os.Stat(routersFile())
-		shareInfo, shareErr := shareFS.List()
+		shareInfo, shareErr := currentShareFS().List()
 		writeJSON(w, 200, map[string]any{
-			"ok": true, "lang": "go", "share": shareFS.Describe(), "page": pageDir, "static": staticDir,
-			"routers": routersFile(), "routersReady": rerr == nil,
+			"ok": true, "lang": "go", "share": currentShareFS().Describe(), "shareMode": currentShareCfg().Mode, "page": pageDir, "static": staticDir,
+			"files": filesSrv.current(), "routers": routersFile(), "routersReady": rerr == nil,
 			"shareReady": shareErr == nil, "shareFiles": len(shareInfo), "shareError": errText(shareErr),
 		})
 	})
@@ -65,8 +73,12 @@ func main() {
 	mux.HandleFunc("GET /static/", serveStatic)
 	mux.HandleFunc("GET /rule-set/", serveRuleSet)
 
-	// 存储（SMB/SFTP/本地）与公网读取通道体检：顶栏状态点用
+	// 存储（SMB/SFTP/本机目录）与公网读取通道体检：顶栏状态点用
 	mux.HandleFunc("GET /share/health", handleShareHealth)
+	mux.HandleFunc("GET /share/config", handleShareConfigGet)
+	mux.HandleFunc("POST /share/config", handleShareConfigSet)
+	mux.HandleFunc("POST /share/probe", handleShareProbe)
+	mux.HandleFunc("POST /share/import", handleShareImport)
 
 	// 规则桶发布
 	mux.HandleFunc("/publish", handlePublish)

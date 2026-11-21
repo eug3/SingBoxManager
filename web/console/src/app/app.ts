@@ -5,11 +5,12 @@ import { BackendsService } from './backends.service';
 import { ClashService } from './clash.service';
 import { Backend, CONSOLE_VERSION, PAGE_ORIGINS } from './models';
 import { ShareHealthService } from './share-health.service';
+import { ShareConfigDialog } from './share-config';
 
 @Component({
   selector: 'app-root',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [BackendPane, RuleEditor],
+  imports: [BackendPane, RuleEditor, ShareConfigDialog],
   templateUrl: './app.html',
 })
 /**
@@ -31,6 +32,8 @@ export class App {
 
   /** 文件通道 + 公网 URL 体检结果（顶栏右侧那个点） */
   readonly share = this.shareHealth.health;
+  /** 齿轮弹窗开关 */
+  readonly shareCfgOpen = signal(false);
   readonly shareBusy = this.shareHealth.busy;
 
   /** 顶栏状态点文案：SMB/SFTP 文件通道 + 公网 HTTP 读取是否都通 */
@@ -61,6 +64,18 @@ export class App {
   /** 点击状态点：立即重测 */
   probeShare(): void {
     void this.shareHealth.probe();
+  }
+
+  /** 齿轮：打开存储配置弹窗 */
+  openShareConfig(e: Event): void {
+    e.stopPropagation(); // 别触发状态点的重测
+    this.shareCfgOpen.set(true);
+  }
+
+  /** 弹窗关闭：改了配置就立刻重新体检 */
+  onShareCfgClosed(ev: { changed: boolean }): void {
+    this.shareCfgOpen.set(false);
+    if (ev.changed) void this.shareHealth.probe();
   }
 
   constructor() {

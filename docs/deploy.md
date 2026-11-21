@@ -232,6 +232,12 @@ SFTP_PATH=/volume1/WebEdit/rule-set
 PUBLIC_BASE=https://rules.example.com   # 体检时拉取公网 URL 用
 ```
 
+**只读文件端口（与曝光面隔离）**：`filesListen` 默认 `:9098`，只提供 `/rule-set/*` 与
+`/health`；管理台仍在 `:9099`（`/edit`、`/router/*`、`/publish`）。要对外提供规则桶，
+反代 `9098` 即可，**不要把 9099 暴露出去**。端口改完保存即时热重启监听，不用重启服务。
+
+存储配置也可在管理台顶栏状态点后的 ⚙ 里改（保存即热生效），落盘 `/etc/vault-edit/share.json`（0600）。
+
 体检（管理台顶栏状态点也用它）：
 
 ```bash

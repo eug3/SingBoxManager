@@ -1,0 +1,80 @@
+<div class="modal-mask" (click)="close()">
+  <div class="modal" (click)="$event.stopPropagation()">
+    <div class="modal-hd">
+      <b>存储与公网入口配置</b>
+      <span class="dim small">保存后立即生效（服务端热替换，无需重启服务）</span>
+      <button class="x" (click)="close()">✕</button>
+    </div>
+
+    @if (err()) { <div class="banner show">✗ {{ err() }}</div> }
+    @if (note()) { <div class="modal-note">{{ note() }}</div> }
+
+    <div class="modal-body">
+      <label class="row">
+        <span>存储模式</span>
+        <select [value]="form().mode" (change)="patch('mode', $any($event.target).value)">
+          <option value="smb">SMB（99 直连 NAS，纯 Go 客户端）</option>
+          <option value="sftp">SFTP（NAS 只开 SSH 时用）</option>
+          <option value="local">本机目录（文件就在 99，不依赖 SMB/SFTP）</option>
+        </select>
+      </label>
+
+      @if (form().mode === 'smb') {
+        <label class="row"><span>SMB 地址</span><input [value]="form().smb.addr" (input)="patch('smb.addr', $any($event.target).value)" placeholder="192.168.31.8:445" /></label>
+        <label class="row"><span>共享名</span><input [value]="form().smb.share" (input)="patch('smb.share', $any($event.target).value)" placeholder="HddShare" /></label>
+        <label class="row"><span>共享内路径</span><input [value]="form().smb.path" (input)="patch('smb.path', $any($event.target).value)" placeholder="WebEdit/rule-set" /></label>
+        <label class="row"><span>账号（留空=guest）</span><input [value]="form().smb.user" (input)="patch('smb.user', $any($event.target).value)" /></label>
+        <label class="row"><span>口令{{ passSet().smb ? '（已设置，留空=不改）' : '' }}</span><input type="password" [value]="form().smb.pass" (input)="patch('smb.pass', $any($event.target).value)" autocomplete="off" /></label>
+      }
+
+      @if (form().mode === 'sftp') {
+        <label class="row"><span>SFTP 地址</span><input [value]="form().sftp.addr" (input)="patch('sftp.addr', $any($event.target).value)" placeholder="nas.lan:22" /></label>
+        <label class="row"><span>账号</span><input [value]="form().sftp.user" (input)="patch('sftp.user', $any($event.target).value)" /></label>
+        <label class="row"><span>口令{{ passSet().sftp ? '（已设置，留空=不改）' : '' }}</span><input type="password" [value]="form().sftp.pass" (input)="patch('sftp.pass', $any($event.target).value)" autocomplete="off" /></label>
+        <label class="row"><span>私钥路径（可选）</span><input [value]="form().sftp.key" (input)="patch('sftp.key', $any($event.target).value)" placeholder="/etc/vault-edit/id_ed25519" /></label>
+        <label class="row"><span>远端目录</span><input [value]="form().sftp.path" (input)="patch('sftp.path', $any($event.target).value)" /></label>
+      }
+
+      @if (form().mode === 'local') {
+        <label class="row"><span>本机目录</span><input [value]="form().local.dir" (input)="patch('local.dir', $any($event.target).value)" placeholder="/usr/local/share/vault-edit/rule-set" /></label>
+        <div class="row">
+          <span></span>
+          <button (click)="importLocal()" [disabled]="busy()">把当前共享的文件复制到本机</button>
+        </div>
+        <div class="dim small">
+          切到本机目录后，规则桶只存在 99；对外请反代上面的「只读文件端口」到公网，再把公网入口填成那个域名，
+          控制台（9099）保持只在内网可达。
+        </div>
+      }
+
+      <label class="row">
+        <span>只读文件端口</span>
+        <input [value]="form().filesListen" (input)="patch('filesListen', $any($event.target).value)" placeholder=":9098" />
+      </label>
+      <div class="dim small" style="margin-left: 160px">
+        独立端口只提供 <code>/rule-set/*</code> 与 <code>/health</code>，<b>不暴露管理台</b>（/edit、/router、/publish 一律 404）。
+        对外只要反代这个端口即可，控制台继续只在内网。
+      </div>
+
+      <label class="row">
+        <span>公网只读入口</span>
+        <input [value]="form().publicBase" (input)="patch('publicBase', $any($event.target).value)" placeholder="https://rules.example.com" />
+      </label>
+      <label class="row"><span>体检样本</span><input [value]="form().sample" (input)="patch('sample', $any($event.target).value)" placeholder="rs-tg.srs" /></label>
+
+      @if (probeResult(); as p) {
+        <div class="probe">
+          <div>文件通道 {{ p.file.ok ? '✓' : '✗' }} <span class="dim">{{ p.file.mode }}</span> · {{ p.file.detail || p.file.error }}（{{ p.file.ms }}ms）</div>
+          <div>公网 {{ p.http.ok ? '✓' : '✗' }} <span class="dim">{{ p.http.url }}</span> · {{ p.http.status }} {{ p.http.size }}B（{{ p.http.ms }}ms）</div>
+        </div>
+      }
+    </div>
+
+    <div class="modal-ft">
+      <button (click)="probe()" [disabled]="busy()">测试</button>
+      <button class="acc" (click)="save()" [disabled]="busy()">保存并启用</button>
+      <button (click)="close()" [disabled]="busy()">关闭</button>
+      <span class="dim small">配置文件：99 的 /etc/vault-edit/share.json（0600）</span>
+    </div>
+  </div>
+</div>

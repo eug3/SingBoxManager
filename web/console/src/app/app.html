@@ -1,10 +1,16 @@
 <div class="wrap">
   <header class="top">
     <h1>规则编辑台 <b>◆ SBM CONSOLE</b></h1>
-    <button class="hstat" [class.ok]="share()?.ok" [class.bad]="share()?.ok === false"
-            [title]="statusTitle()" (click)="probeShare()">
-      <span class="dot"></span>{{ statusText() }}
-    </button>
+    <span class="hgroup">
+      <button class="hstat" [class.ok]="share()?.ok" [class.bad]="share()?.ok === false"
+              [title]="statusTitle()" (click)="probeShare()">
+        <span class="dot"></span>{{ statusText() }}
+      </button>
+      <button class="hgear" title="修改存储与公网入口配置" (click)="openShareConfig($event)">⚙</button>
+    </span>
+    @if (shareCfgOpen()) {
+      <app-share-config (closed)="onShareCfgClosed($event)" />
+    }
   </header>
 
   @if (!originOk) {
