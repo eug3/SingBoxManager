@@ -1414,11 +1414,11 @@ export const FLOW_GEO = {
 const COL_WIDTH: Record<FlowCol, { min: number; max: number; weight: number }> = {
   pc: { min: 96, max: 124, weight: 0.5 },
   router: { min: 100, max: 132, weight: 0.55 },
-  // ③④ 合并后标签变短：明显收窄（原来是 422 / 333）
-  rule: { min: 200, max: 262, weight: 1.05 },
-  group: { min: 176, max: 238, weight: 0.92 },
+  // ③④ 再切掉 2/5（用户要求）：262→158、238→143；标签截断更多但 tooltip 全量
+  rule: { min: 120, max: 158, weight: 0.62 },
+  group: { min: 106, max: 143, weight: 0.55 },
   // 省下来的宽度给 ⑤：每行能放更多方格
-  node: { min: 168, max: 272, weight: 1.18 },
+  node: { min: 168, max: 420, weight: 1.6 },
   cloud: { min: 112, max: 150, weight: 0.6 },
 };
 
