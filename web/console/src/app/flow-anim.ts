@@ -4,6 +4,7 @@ import {
   Component,
   ElementRef,
   OnDestroy,
+  OnInit,
   computed,
   effect,
   inject,
@@ -14,66 +15,37 @@ import {
 } from '@angular/core';
 import type { Backend, Connection } from './models';
 import { ClashService } from './clash.service';
-import { FLOW_COLS, buildFlow, colOfKey, flowKind, pathKind } from './flow-model';
-import type { FlowCol, FlowKind, FlowLayout } from './flow-model';
+import { RouterService } from './router.service';
+import { errMsg } from './util';
+import { buildFlow, buildLayout, buildStatic, emptyStatic, pointOnPath } from './flow-model';
+import type { FlowEdgeGeom, FlowKind, FlowLayout, FlowNodeGeom, FlowSize, FlowStat } from './flow-model';
 
-/** 采样间隔（clash_api /connections） */
+/** 连接采样间隔（clash_api /connections） */
 const SAMPLE_MS = 1500;
+/** 静态拓扑（config.json）刷新间隔：结构变化不频繁，30s 足够 */
+const CFG_MS = 30_000;
 /** 粒子走完全程的时长 */
-const PARTICLE_MS = 1600;
+const PARTICLE_MS = 1800;
 /** 同时存在的粒子上限（超出丢最旧的） */
-const MAX_PARTICLES = 150;
+const MAX_PARTICLES = 180;
+/** 已见过连接 id 的保留时长（超过就忘掉，避免 Map 无限增长） */
+const SEEN_TTL_MS = 120_000;
 /** 初始化尺寸（ResizeObserver 量到真实尺寸前用） */
-const FALLBACK_W = 960;
-const FALLBACK_H = 460;
-/** 列头文案（与五列一一对应） */
-const TITLES = ['我的电脑', '分流节点', '节点组', '节点', '互联网'];
-const SUBS = ['本机', 'rule → outbound', 'Selector / URLTest', '实际出站', '目标域名 / IP'];
-const MARKS = ['①', '②', '③', '④', '⑤'];
+const FALLBACK_W = 1080;
+const FALLBACK_H = 520;
 
-const r1 = (n: number): number => Math.round(n * 10) / 10;
+const round1 = (n: number): number => Math.round(n * 10) / 10;
 
-interface Size {
-  w: number;
-  h: number;
+/** 模板里用的节点块（几何 + hover 派生状态） */
+interface NodeView extends FlowNodeGeom {
+  hi: boolean;
+  dim: boolean;
 }
 
-/** 列里一个节点锚点：左沿 / 右沿 / 垂直中心（连线与粒子都挂在这上面） */
-interface Anchor {
-  x0: number;
-  x1: number;
-  cy: number;
-}
-
-interface ColGeom {
-  key: FlowCol;
-  mark: string;
-  title: string;
-  sub: string;
-  total: number;
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-}
-
-interface NodeGeom {
-  key: string;
-  name: string;
-  label: string;
-  badge: string;
-  count: number;
-  kind: FlowKind;
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-}
-
-interface EdgeGeom {
-  d: string;
-  opacity: number;
-  width: number;
+/** 模板里用的连线（几何 + hover 派生状态） */
+interface EdgeView extends FlowEdgeGeom {
+  hi: boolean;
+  dim: boolean;
 }
 
 /** 一帧里的一个粒子（模板用） */
@@ -95,53 +67,18 @@ interface Particle {
 }
 
 /**
- * 文本按「半角宽度单位」截断（CJK 算 2 个单位），保证节点名不压到右侧次数。
- */
-function fitText(s: string, units: number): string {
-  let used = 0;
-  let out = '';
-  for (const ch of s) {
-    const w = /[\u2e80-\u9fff\uf900-\ufaff\uff00-\uffef]/.test(ch) ? 2 : 1;
-    if (used + w > units) return out ? out + '…' : s.slice(0, 1);
-    used += w;
-    out += ch;
-  }
-  return out;
-}
-
-/** 两点之间的横向三次贝塞尔（起点右沿 → 终点左沿），控制点水平外推 */
-function curvePath(a: Anchor, b: Anchor): string {
-  const dx = Math.max(10, (b.x0 - a.x1) * 0.5);
-  const c1x = a.x1 + dx;
-  const c2x = Math.max(a.x1 + 6, b.x0 - dx);
-  return `M${r1(a.x1)} ${r1(a.cy)} C${r1(c1x)} ${r1(a.cy)},${r1(c2x)} ${r1(b.cy)},${r1(b.x0)} ${r1(b.cy)}`;
-}
-
-/** 同一条贝塞尔在 t∈[0,1] 处的点（粒子沿真实连线走，不另算路径） */
-function bezierAt(a: Anchor, b: Anchor, t: number): { x: number; y: number } {
-  const dx = Math.max(10, (b.x0 - a.x1) * 0.5);
-  const x0 = a.x1;
-  const x1 = a.x1 + dx;
-  const x2 = Math.max(a.x1 + 6, b.x0 - dx);
-  const x3 = b.x0;
-  const mt = 1 - t;
-  const w0 = mt * mt * mt;
-  const w1 = 3 * mt * mt * t;
-  const w2 = 3 * mt * t * t;
-  const w3 = t * t * t;
-  return {
-    x: w0 * x0 + w1 * x1 + w2 * x2 + w3 * x3,
-    y: w0 * a.cy + w1 * a.cy + w2 * b.cy + w3 * b.cy,
-  };
-}
-
-/**
- * 流向动画 — 五列（我的电脑 → 分流节点 → 节点组 → 节点 → 互联网）。
+ * 流向动画 v2 — 六列（电脑 → 路由器 → 规则集 → 分组 → 节点 → 互联网）。
  *
- * - 每 1.5s 采样一次 `/connections`，`buildFlow` 归并成五列布局（flow-model 纯函数）
- * - 每条**新出现**的连接生成一个粒子，沿自己的列 key 路径走完 1.6s 后消失（上限 150）
- * - 粒子推进只走 requestAnimationFrame；布局随 ResizeObserver 重算；销毁时全部清掉
- * - 采样失败只更新顶部错误提示，保留上一帧布局（不会闪成空画布）
+ * 数据两路并行（口径见 docs/plan-flow-v2.md）：
+ *  · 静态拓扑：`RouterService.config()` 读 config.json → `buildStatic()`，每 30s 刷新一次；
+ *  · 实时流量：`ClashService.connections()` 每 1.5s 采样 → `buildFlow(conns, stat)` 合流成六列。
+ *
+ * 交互与性能：
+ *  · 每条**新出现**的连接生成一个粒子，沿自己的列 key 路径走 1.8s 后淡出（上限 180）；
+ *  · hover 节点 → 高亮它所有连线（其它连线 opacity 降到 0.08）+ 自绘 tooltip；
+ *  · rAF 只推进粒子；几何随 ResizeObserver 重算；OnDestroy 清掉 interval/rAF/RO。
+ *
+ * 几何与列头文案都在 flow-model（纯函数，可在 node 里直接预览渲染）。
  */
 @Component({
   selector: 'app-flow-anim',
@@ -155,49 +92,106 @@ function bezierAt(a: Anchor, b: Anchor, t: number): { x: number; y: number } {
     }
   `,
 })
-export class FlowAnim implements AfterViewInit, OnDestroy {
+export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
   readonly backend = input.required<Backend>();
 
   private readonly clash = inject(ClashService);
+  private readonly router = inject(RouterService);
   private readonly canvas = viewChild<ElementRef<HTMLDivElement>>('canvas');
 
-  /** 当前五列布局（首帧空布局，采样后填充） */
-  readonly flow = signal<FlowLayout>(buildFlow([]));
-  /** 顶部统计：本次采样新增的连接数 */
-  readonly added = signal(0);
-  /** 采样错误（401 / CORS / 地址没填） */
+  /** 静态结构（config 解析结果 + ②列名字） */
+  readonly stat = signal<FlowStat>(emptyStatic());
+  /** 六列布局（首帧空布局，采样后填充） */
+  readonly flow = signal<FlowLayout>(buildFlow([], emptyStatic()));
+  /** 连接采样错误（401 / CORS / 地址没填） */
   readonly err = signal('');
+  /** config 通道错误（99 侧 /router/config 失败、或 JSON 坏掉）→ 降级成「仅实时」 */
+  readonly cfgErr = signal('');
   /** 粒子渲染层（每帧重算，t 到 1 的粒子已被移除） */
   private readonly dotsSig = signal<Dot[]>([]);
   readonly dots = this.dotsSig.asReadonly();
-
-  private readonly size = signal<Size>({ w: FALLBACK_W, h: FALLBACK_H });
+  /** 当前 hover 的节点 key（空 = 没有） */
+  readonly hover = signal<string | null>(null);
+  private readonly pointer = signal<{ x: number; y: number }>({ x: 0, y: 0 });
+  private readonly size = signal<FlowSize>({ w: FALLBACK_W, h: FALLBACK_H });
 
   /** 粒子内部状态（原生数组，不进 signal：每帧只把投影结果写 dots） */
   private particles: Particle[] = [];
   /** 已见过的连接 id → 最近出现的时刻（毫秒），用于「新连接才生成粒子」 */
   private readonly seen = new Map<string, number>();
+  /** 最近一次采样到的连接（config 刷新后要用它重建布局） */
+  private lastConns: Connection[] = [];
   private seq = 0;
+  private version = '';
+  private started = false;
+  private destroyed = false;
   private rafId = 0;
-  private timer: ReturnType<typeof setInterval> | null = null;
+  private cfgTimer: ReturnType<typeof setInterval> | null = null;
+  private connTimer: ReturnType<typeof setInterval> | null = null;
   private ro: ResizeObserver | null = null;
   private lastFrame = 0;
-  private destroyed = false;
 
   readonly stats = computed(() => this.flow().stats);
-  /** SVG viewBox 与量到的容器像素尺寸 1:1（文字/圆点不缩放） */
+  /** SVG viewBox 与量到的容器像素 1:1（文字/圆点不缩放） */
   readonly vb = computed(() => {
     const s = this.size();
     return `0 0 ${s.w} ${s.h}`;
   });
-  readonly geom = computed(() => this.buildGeometry());
+  /** 六列几何（列 / 节点块 / 连线 / 粒子锚点） */
+  readonly geom = computed(() => buildLayout(this.flow(), this.size()));
+
+  /** 连线：hover 时只保留与该节点相关的线（其余降到 0.08） */
+  readonly edgesView = computed<EdgeView[]>(() => {
+    const h = this.hover();
+    return this.geom().edges.map((e) => ({
+      ...e,
+      hi: !!h && (e.from === h || e.to === h),
+      dim: !!h && e.from !== h && e.to !== h,
+    }));
+  });
+
+  /** 节点块：hover 的节点与它的邻居高亮，其余变淡 */
+  readonly nodesView = computed<NodeView[]>(() => {
+    const h = this.hover();
+    const near = new Set<string>();
+    if (h) {
+      near.add(h);
+      for (const e of this.geom().edges) {
+        if (e.from === h) near.add(e.to);
+        if (e.to === h) near.add(e.from);
+      }
+    }
+    return this.geom().nodes.map((n) => ({ ...n, hi: n.key === h, dim: !!h && !near.has(n.key) }));
+  });
+
+  /** tooltip（自绘 HTML 层，位置跟随指针，靠近右边/下边时收进来） */
+  readonly tip = computed<{ x: number; y: number; text: string } | null>(() => {
+    const key = this.hover();
+    if (!key) return null;
+    const node = this.geom().nodes.find((n) => n.key === key);
+    if (!node) return null;
+    const p = this.pointer();
+    const s = this.size();
+    return {
+      x: Math.min(p.x + 14, Math.max(6, s.w - 250)),
+      y: Math.min(p.y + 16, Math.max(6, s.h - 70)),
+      text: node.tip || node.label,
+    };
+  });
 
   constructor() {
-    // 后端切换（含首次）→ 清空历史并立刻采样；写信号的动作放进 untracked，避免 effect 自我触发
+    // 后端切换（含首次）：清空历史并重新拉配置/采样；首次由 ngOnInit 触发，避免视图未就绪时白跑
     effect(() => {
       const b = this.backend();
-      untracked(() => this.reset(b));
+      untracked(() => {
+        if (this.started && !this.destroyed) this.reset(b);
+      });
     });
+  }
+
+  ngOnInit(): void {
+    this.started = true;
+    this.reset(this.backend());
   }
 
   ngAfterViewInit(): void {
@@ -210,8 +204,10 @@ export class FlowAnim implements AfterViewInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.destroyed = true;
-    if (this.timer) clearInterval(this.timer);
-    this.timer = null;
+    if (this.cfgTimer) clearInterval(this.cfgTimer);
+    if (this.connTimer) clearInterval(this.connTimer);
+    this.cfgTimer = null;
+    this.connTimer = null;
     if (this.rafId) cancelAnimationFrame(this.rafId);
     this.rafId = 0;
     this.ro?.disconnect();
@@ -220,23 +216,46 @@ export class FlowAnim implements AfterViewInit, OnDestroy {
     this.seen.clear();
   }
 
-  /** 后端切换：状态清零 + 立刻拉一次（定时器与 rAF 由 ngOnInit 之后首帧启动，只起一次） */
+  /* ────────────────────────── 生命周期 / 数据 ────────────────────────── */
+
+  /** 后端切换：状态清零 + 立刻拉一次 config/version/连接（定时器与 rAF 只起一次） */
   private reset(b: Backend): void {
     this.seen.clear();
     this.particles = [];
     this.dotsSig.set([]);
-    this.added.set(0);
     this.err.set('');
-    this.flow.set(buildFlow([]));
-    this.ensureLoops();
+    this.cfgErr.set('');
+    this.hover.set(null);
+    this.lastConns = [];
+    this.version = '';
+    this.stat.set(emptyStatic(this.hostOf(b)));
+    this.flow.set(buildFlow([], this.stat()));
+    this.startLoops();
+    void this.loadVersion(b);
+    void this.loadConfig(b);
     void this.sample(b);
   }
 
-  /** 定时采样与 rAF 循环都只启动一次（reset 可能被多次调用） */
-  private ensureLoops(): void {
-    if (!this.timer) {
-      this.timer = setInterval(() => {
-        if (document.hidden) return;
+  /** ②列名字：后端的 host（例如 192.168.31.32）；解析不出来退回后端名 */
+  private hostOf(b: Backend): string {
+    try {
+      return this.router.host(b) || b.name || 'sing-box';
+    } catch {
+      return b.name || 'sing-box';
+    }
+  }
+
+  /** 定时器与 rAF 循环都只启动一次（reset 可能被多次调用） */
+  private startLoops(): void {
+    if (!this.cfgTimer) {
+      this.cfgTimer = setInterval(() => {
+        if (document.hidden || this.destroyed) return;
+        void this.loadConfig(this.backend());
+      }, CFG_MS);
+    }
+    if (!this.connTimer) {
+      this.connTimer = setInterval(() => {
+        if (document.hidden || this.destroyed) return;
         void this.sample(this.backend());
       }, SAMPLE_MS);
     }
@@ -253,6 +272,45 @@ export class FlowAnim implements AfterViewInit, OnDestroy {
     }
   }
 
+  /** 引擎版本（②列次行）；失败静默（不影响主功能） */
+  private async loadVersion(b: Backend): Promise<void> {
+    try {
+      const v = await this.clash.version(b);
+      if (this.destroyed) return;
+      this.version = (v?.version ?? '').trim();
+      if (!this.version) return;
+      this.stat.set({ ...this.stat(), routerSub: this.versionLabel() });
+      this.flow.set(buildFlow(this.lastConns, this.stat()));
+    } catch {
+      /* 版本拿不到就不显示，不打扰用户 */
+    }
+  }
+
+  /** 拉一次 config.json → 静态结构（③④⑤ 的骨架）。失败降级成「仅实时」 */
+  private async loadConfig(b: Backend): Promise<void> {
+    const name = this.hostOf(b);
+    try {
+      const resp = await this.router.config(b);
+      if (this.destroyed) return;
+      const st = buildStatic(resp?.config ?? '');
+      // 次行在 await 之后再取版本：/version 与 /router/config 谁先回来都不丢版本号
+      this.stat.set({ ...st, routerName: name, routerSub: this.versionLabel() });
+      this.cfgErr.set(st.ok ? '' : (st.err ?? '配置解析失败'));
+      this.flow.set(buildFlow(this.lastConns, this.stat()));
+    } catch (e) {
+      if (this.destroyed) return;
+      const msg = errMsg(e);
+      this.stat.set({ ...emptyStatic(name, this.versionLabel()), err: msg });
+      this.cfgErr.set(`配置读取失败：${msg}`);
+      this.flow.set(buildFlow(this.lastConns, this.stat()));
+    }
+  }
+
+  /** ②列次行文案：sing-box + 引擎版本（版本没拿到就只写 sing-box） */
+  private versionLabel(): string {
+    return this.version ? `sing-box ${this.version}` : 'sing-box';
+  }
+
   /** 采样一次连接列表并刷新布局/粒子 */
   private async sample(b: Backend): Promise<void> {
     if (!b?.api) {
@@ -263,42 +321,40 @@ export class FlowAnim implements AfterViewInit, OnDestroy {
       const resp = await this.clash.connections(b);
       if (this.destroyed) return;
       this.err.set('');
-      this.apply(resp?.connections ?? []);
+      const conns = resp?.connections ?? [];
+      this.lastConns = conns;
+      this.apply(conns);
     } catch (e) {
       if (this.destroyed) return;
-      const err = e as { status?: number; message?: string };
-      this.err.set(err?.status === 401 ? '密钥未填或错误（401）' : (err?.message ?? String(e)));
+      const x = e as { status?: number };
+      this.err.set(x?.status === 401 ? '密钥未填或错误（401）' : errMsg(e));
     }
   }
 
   /** 归并布局 + 给「第一次见到」的连接生成粒子 */
   private apply(conns: Connection[]): void {
-    const flow = buildFlow(conns);
+    const flow = buildFlow(conns, this.stat());
     this.flow.set(flow);
     const now = Date.now();
     const live = new Set<string>();
-    let added = 0;
     for (const s of flow.sample) {
       live.add(s.id);
-      if (!this.seen.has(s.id)) {
-        added++;
-        this.spawn(s.path);
-      }
+      if (!this.seen.has(s.id)) this.spawn(s.path, s.kind);
       this.seen.set(s.id, now);
     }
-    // 已经断开的连接：超过 2 分钟没再出现就忘掉 id（防止 Map 无限增长）
+    // 已经断开的连接：超过 SEEN_TTL_MS 没再出现就忘掉 id（防止 Map 无限增长）
     for (const [id, at] of [...this.seen]) {
-      if (!live.has(id) && now - at > 120_000) this.seen.delete(id);
+      if (!live.has(id) && now - at > SEEN_TTL_MS) this.seen.delete(id);
     }
-    this.added.set(added);
   }
 
-  private spawn(keys: readonly string[]): void {
+  private spawn(keys: readonly string[], kind: FlowKind): void {
     if (keys.length < 2) return;
-    this.particles.push({ n: ++this.seq, keys: [...keys], t: 0, kind: pathKind(keys) });
-    if (this.particles.length > MAX_PARTICLES)
-      this.particles.splice(0, this.particles.length - MAX_PARTICLES);
+    this.particles.push({ n: ++this.seq, keys: [...keys], t: 0, kind });
+    if (this.particles.length > MAX_PARTICLES) this.particles.splice(0, this.particles.length - MAX_PARTICLES);
   }
+
+  /* ────────────────────────── 粒子推进 ────────────────────────── */
 
   /** 每帧推进：t 按 deltaTime 前进，走完即移除；再把投影写进 dots */
   private advance(dt: number): void {
@@ -315,127 +371,46 @@ export class FlowAnim implements AfterViewInit, OnDestroy {
     const g = this.geom();
     const out: Dot[] = [];
     for (const p of keep) {
-      const at = this.pointAt(p, g.anchors, g.fallback);
+      const at = pointOnPath(p.keys, p.t, g);
       if (!at) continue;
       const t = p.t;
       const opacity = t < 0.08 ? t / 0.08 : t > 0.86 ? Math.max(0, (1 - t) / 0.14) : 1;
-      out.push({ n: p.n, cx: r1(at.x), cy: r1(at.y), r: 2.6, opacity: r1(opacity), kind: p.kind });
+      out.push({ n: p.n, cx: round1(at.x), cy: round1(at.y), r: 2.6, opacity: round1(opacity), kind: p.kind });
     }
     this.dotsSig.set(out);
   }
 
-  /** 粒子当前点：按路径分段线性分配时间，段内走真实贝塞尔 */
-  private pointAt(
-    p: Particle,
-    anchors: Map<string, Anchor>,
-    fallback: (k: string) => Anchor,
-  ): { x: number; y: number } | null {
-    const keys = p.keys;
-    const segs = keys.length - 1;
-    if (segs < 1) return null;
-    const u = Math.min(1, Math.max(0, p.t)) * segs;
-    const idx = Math.min(segs - 1, Math.floor(u));
-    const a = anchors.get(keys[idx]) ?? fallback(keys[idx]);
-    const b = anchors.get(keys[idx + 1]) ?? fallback(keys[idx + 1]);
-    if (!a || !b) return null;
-    return bezierAt(a, b, u - idx);
+  /* ────────────────────────── 交互 ────────────────────────── */
+
+  /** 进入节点块：记下 hover + 指针位置（tooltip 立刻有位置，不用等 mousemove） */
+  onEnter(key: string, ev: MouseEvent): void {
+    this.hover.set(key);
+    this.trackPointer(ev);
   }
+
+  onMove(ev: MouseEvent): void {
+    if (!this.hover()) return; // 没有 hover 节点时不必每帧写指针
+    this.trackPointer(ev);
+  }
+
+  clearHover(): void {
+    if (this.hover()) this.hover.set(null);
+  }
+
+  private trackPointer(ev: MouseEvent): void {
+    const el = this.canvas()?.nativeElement;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    this.pointer.set({ x: Math.round(ev.clientX - r.left), y: Math.round(ev.clientY - r.top) });
+  }
+
+  /* ────────────────────────── 尺寸 ────────────────────────── */
 
   /** 容器尺寸（ResizeObserver 回调里调用；变化超过 1px 才写 signal，避免抖动重排） */
   private measure(el: HTMLElement): void {
-    const w = Math.max(320, Math.round(el.clientWidth));
+    const w = Math.max(360, Math.round(el.clientWidth));
     const h = Math.max(240, Math.round(el.clientHeight));
     const prev = this.size();
     if (Math.abs(prev.w - w) > 1 || Math.abs(prev.h - h) > 1) this.size.set({ w, h });
-  }
-
-  /** 五列几何：列背景/列头、节点块、列间连线，以及按 key 查锚点的索引 */
-  private buildGeometry(): {
-    cols: ColGeom[];
-    nodes: NodeGeom[];
-    edges: EdgeGeom[];
-    anchors: Map<string, Anchor>;
-    fallback: (key: string) => Anchor;
-  } {
-    const { w, h } = this.size();
-    const flow = this.flow();
-    const padX = 14;
-    const slotW = Math.max(80, (w - padX * 2) / FLOW_COLS.length);
-    const gap = Math.min(20, Math.max(10, slotW * 0.1));
-    const colW = Math.max(60, slotW - gap);
-    const headerH = 44;
-    const top = headerH + 6;
-    const bottom = Math.max(top + 60, h - 12);
-    const avail = bottom - top;
-
-    const cols: ColGeom[] = [];
-    const nodes: NodeGeom[] = [];
-    const anchors = new Map<string, Anchor>();
-    const slotAnchors: Anchor[] = [];
-    const units = Math.max(4, Math.floor((colW - 46) / 6.4));
-    const badgeUnits = Math.max(4, Math.floor((colW - 18) / 5.1));
-
-    FLOW_COLS.forEach((col, i) => {
-      const x = r1(padX + slotW * i + (slotW - colW) / 2);
-      const list = flow.cols[col];
-      const total = list.reduce((n, it) => n + it.count, 0);
-      cols.push({
-        key: col,
-        mark: MARKS[i],
-        title: TITLES[i],
-        sub: SUBS[i],
-        total,
-        x,
-        y: 6,
-        w: r1(colW),
-        h: Math.max(140, h - 12),
-      });
-
-      // 纵向铺开（类桑基图）：节点少就拉开、多就压紧，整列居中；最多 84px 一档
-      const n = list.length;
-      const blockH = n > 7 ? 26 : 30;
-      const rowGap = n > 7 ? 5 : 8;
-      let spread = blockH + rowGap;
-      if (n > 1) {
-        spread = Math.min(84, Math.max(blockH + rowGap, avail / n));
-        if (spread * (n - 1) + blockH > avail)
-          spread = Math.max(blockH + 2, (avail - blockH) / (n - 1));
-      }
-      const totalH = n > 1 ? spread * (n - 1) + blockH : blockH;
-      const startY = top + Math.max(0, (avail - totalH) / 2);
-      list.forEach((it, j) => {
-        const y = r1(startY + (n > 1 ? j * spread : 0));
-        nodes.push({
-          key: it.key,
-          name: it.name,
-          label: fitText(it.name, units),
-          badge: it.badge ? fitText(it.badge, badgeUnits) : '',
-          count: it.count,
-          kind: flowKind(it.name),
-          x,
-          y,
-          w: r1(colW),
-          h: blockH,
-        });
-        anchors.set(it.key, { x0: x, x1: r1(x + colW), cy: r1(y + blockH / 2) });
-      });
-      slotAnchors.push({ x0: x, x1: r1(x + colW), cy: r1(top + avail / 2) });
-    });
-
-    // 超出一列 10 个上限的节点在 sample 路径里仍存在：按列中心兜底定位，粒子不会凭空消失
-    const fallback = (key: string): Anchor =>
-      slotAnchors[FLOW_COLS.indexOf(colOfKey(key))] ?? slotAnchors[0];
-
-    const edges: EdgeGeom[] = flow.edges.map((e) => {
-      const a = anchors.get(e.from) ?? fallback(e.from);
-      const b = anchors.get(e.to) ?? fallback(e.to);
-      return {
-        d: curvePath(a, b),
-        opacity: r1(Math.min(0.6, 0.16 + Math.log2(1 + e.count) * 0.12)),
-        width: r1(Math.min(3, 1 + Math.log2(e.count) * 0.55)),
-      };
-    });
-
-    return { cols, nodes, edges, anchors, fallback };
   }
 }

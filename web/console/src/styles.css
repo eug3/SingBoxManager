@@ -827,12 +827,13 @@ tr.oldconn td { background: #fffaf0; }
 .gbempty { padding: 8px 6px; font-size: 10px; color: var(--dim); border: 1px dashed var(--line); text-align: center; }
 
 /* ==========================================================================
-   流向动画（后端「流向」子页）：五列 SVG 画布 + 顶层粒子
+   流向动画 v2（后端「流向」子页）：六列 SVG 画布 + 顶层粒子 + 自绘 tooltip
+   六列＝①电脑 ②路由器 ③规则集 ④分组 ⑤节点 ⑥互联网（口径见 docs/plan-flow-v2.md）
    列宽随容器宽度自适应（ResizeObserver 量像素 → viewBox 1:1），高度撑满 tab 内容区
    ========================================================================== */
 .flow {
   /* 撑满 .bp-body 的可视高度（百分比高度在 flex 容器里可解析）；
-     min-height 只兜底极端小窗（300 = 画布 274，列头 + 一列 10 个节点仍放得下），正常窗口不触发滚动 */
+     min-height 只兜底极端小窗（300 = 画布 274，列头 + 一列 12 个规则仍放得下），正常窗口不触发滚动 */
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -871,18 +872,47 @@ tr.oldconn td { background: #fffaf0; }
   pointer-events: none;
 }
 
-/* 列背景与列头（列头右上角是该列累计连接数） */
+/* 内联 SVG 图标（<use> 引用 <defs><symbol>）：描边走 currentColor，
+   颜色只在 <use> 上给（fill/stroke 是继承属性，会渗进 symbol 内部） */
+.ficon {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+/* 六列配色：电脑灰蓝 / 路由器绿 / 规则集靛 / 分组橙 / 节点蓝 / 云青 */
+.ficon.col-pc { color: #5b7fa6; }
+.ficon.col-router { color: var(--acc); }
+.ficon.col-rule { color: #4b5aa8; }
+.ficon.col-group { color: #b8720f; }
+.ficon.col-node { color: var(--acc2); }
+.ficon.col-cloud { color: #0f8f9a; }
+/* 直连 / 拦截的图标跟语义走色（覆盖列色） */
+.ficon.direct { color: #8a99ab; }
+.ficon.block { color: var(--bad); }
+
+/* 列背景与列头（列头：图标 + 列名 + 右上角累计连接数 + 副标题） */
 .fcol { fill: #f7f9fc; stroke: #e6ecf5; stroke-width: 1; }
 .fcoltitle { fill: #33465c; font-size: 11px; font-family: var(--mono); }
 .fcolcnt { fill: #9aa7b6; font-size: 10px; font-family: var(--mono); }
 .fcolsub { fill: #9aa7b6; font-size: 9px; font-family: var(--mono); }
 
-/* 列间连线：细、淡，浓度与粗细随该方向连接数增长 */
+/* 列间连线：细、淡，浓度与粗细随该方向连接数增长；
+   出口类型上色（代理蓝 / 直连灰 / 拦截红，与粒子同色系），结构边用虚线，
+   hover 命中时统一换成强调色（.hi 写在最后，同优先级后写的赢） */
 .fedge { fill: none; stroke: #b6c5d8; stroke-linecap: round; }
+.fedge.fedge-proxy { stroke: #b6c5d8; }
+.fedge.fedge-direct { stroke: #ccd6e2; }
+.fedge.fedge-block { stroke: #edc3ca; }
+.fedge.stat { stroke: #c9d4e2; stroke-dasharray: 3 3; }
+.fedge.hi { stroke: var(--acc2); stroke-dasharray: none; }
+.fedge.hi.fedge-block { stroke: var(--bad); }
 
 /* 节点块：白底 + 边框；直连灰、代理蓝、拦截红（与粒子同色系） */
-.fn .fnbox { fill: #fff; stroke: var(--line); stroke-width: 1; }
-.fn .fnname { fill: var(--ink); font-size: 10.5px; font-family: var(--mono); }
+.fn .fnbox { fill: #fff; stroke: var(--line); stroke-width: 1; transition: stroke .12s, fill .12s; }
+.fn .fnname { fill: var(--ink); font-size: 9.5px; font-family: var(--mono); }
 .fn .fnbadge { fill: #8a99ab; font-size: 8.5px; font-family: var(--mono); }
 .fn .fncount { fill: #9aa7b6; font-size: 9px; font-family: var(--mono); }
 .fn.direct .fnbox { stroke: #b9c4d2; }
@@ -891,6 +921,30 @@ tr.oldconn td { background: #fffaf0; }
 .fn.proxy .fnname { fill: #14456f; }
 .fn.block .fnbox { stroke: #efc9cf; fill: #fdf5f6; }
 .fn.block .fnname { fill: var(--bad); }
+
+/* hover：该节点描边加粗发亮，其余节点整体变淡（连线由模板把 opacity 降到 0.08） */
+.fn { cursor: default; }
+.fn.hi .fnbox { stroke: var(--acc2); stroke-width: 1.8; fill: #f2f8ff; }
+.fn.hi .fnname { fill: #0c3f6d; }
+.fn.hi .fncount { fill: var(--acc2); }
+.fn.dim { opacity: .3; }
+
+/* 自绘 tooltip：HTML 层叠在 SVG 上，不吃鼠标事件，\n 走 pre-line 换行 */
+.flowtip {
+  position: absolute;
+  z-index: 3;
+  max-width: 250px;
+  padding: 5px 8px;
+  font-size: 10.5px;
+  line-height: 1.55;
+  color: var(--ink);
+  background: rgba(255, 255, 255, .97);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  box-shadow: 0 4px 14px rgba(34, 48, 63, .14);
+  white-space: pre-line;
+  pointer-events: none;
+}
 
 /* 粒子层：不吃鼠标事件（节点 tooltip 才不会被挡住） */
 .fdots { pointer-events: none; }

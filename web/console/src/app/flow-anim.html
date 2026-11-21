@@ -1,26 +1,59 @@
 <div class="flow">
+  <!-- 顶部统计：活跃连接 / 粒子 / 电脑 / 规则 / 分组 / 节点 / 采样节奏 -->
   <div class="flowbar">
-    <span class="fstat"
-      >活跃连接 <b>{{ stats().total }}</b></span
-    >
-    <span class="fstat"
-      >流动粒子 <b>{{ dots().length }}</b></span
-    >
-    <span class="fstat"
-      >命中规则 <b>{{ stats().rules }}</b></span
-    >
-    <span class="fstat"
-      >新增 <b>{{ added() }}</b></span
-    >
-    <span class="fhint">采样 1.5s · 我的电脑 → 分流节点 → 节点组 → 节点 → 互联网</span>
+    <span class="fstat">活跃连接 <b>{{ stats().total }}</b></span>
+    <span class="fstat">流动粒子 <b>{{ dots().length }}</b></span>
+    <span class="fstat">电脑 <b>{{ stats().pcs }}</b> 台</span>
+    <span class="fstat">规则 <b>{{ stats().rules }}</b> 条</span>
+    <span class="fstat">分组 <b>{{ stats().groups }}</b> 个</span>
+    <span class="fstat">节点 <b>{{ stats().nodes }}</b> 个</span>
+    @if (stats().hitRules) {
+      <span class="fstat">命中规则 <b>{{ stats().hitRules }}</b></span>
+    }
+    <span class="fhint">采样 1.5s · 配置 30s · ①电脑 → ②路由器 → ③规则集 → ④分组 → ⑤节点 → ⑥互联网</span>
+    @if (cfgErr()) {
+      <span class="ferr">⚠ {{ cfgErr() }}</span>
+    }
     @if (err()) {
       <span class="ferr">✗ {{ err() }}</span>
     }
   </div>
 
-  <div class="flowcanvas" #canvas>
+  <div class="flowcanvas" #canvas (mousemove)="onMove($event)" (mouseleave)="clearHover()">
     <svg class="flowsvg" [attr.viewBox]="vb()" preserveAspectRatio="xMidYMid meet">
-      <!-- 五列背景 + 列头（列头右侧是该列累计次数） -->
+      <!-- 图标库：六列各一个 symbol，节点块与列头都用 <use> 引用（currentColor 上色） -->
+      <defs>
+        <symbol id="ico-pc" viewBox="0 0 16 16">
+          <rect x="1.5" y="2.5" width="13" height="8.5" rx="1.4" />
+          <path d="M5 14h6M8 11v3" />
+        </symbol>
+        <symbol id="ico-router" viewBox="0 0 16 16">
+          <rect x="1.5" y="8" width="13" height="5.5" rx="1.2" />
+          <path d="M4.5 8V4.2M11.5 8V4.2" />
+          <path d="M3.4 10.8h.01M5.6 10.8h.01M7.8 10.8h.01" />
+        </symbol>
+        <symbol id="ico-rule" viewBox="0 0 16 16">
+          <path d="M3.5 2.5h6l3 3v8a1 1 0 0 1-1 1h-8a1 1 0 0 1-1-1v-10a1 1 0 0 1 1-1Z" />
+          <path d="M9.5 2.5v3h3" />
+          <path d="M5.2 8.6h6M5.2 11h4" />
+        </symbol>
+        <symbol id="ico-group" viewBox="0 0 16 16">
+          <circle cx="3.6" cy="8" r="1.7" />
+          <circle cx="12.4" cy="3.7" r="1.7" />
+          <circle cx="12.4" cy="12.3" r="1.7" />
+          <path d="M5.3 8c2.1 0 2.6-3.2 5.4-3.5M5.3 8c2.1 0 2.6 3.2 5.4 3.5" />
+        </symbol>
+        <symbol id="ico-node" viewBox="0 0 16 16">
+          <rect x="2.5" y="2.5" width="11" height="4.4" rx="1" />
+          <rect x="2.5" y="9.1" width="11" height="4.4" rx="1" />
+          <path d="M5 4.7h.01M5 11.3h.01" />
+        </symbol>
+        <symbol id="ico-cloud" viewBox="0 0 16 16">
+          <path d="M4.7 12.6h6.8a2.7 2.7 0 0 0 .3-5.38A3.7 3.7 0 0 0 5.1 6.2a3.2 3.2 0 0 0-.4 6.4Z" />
+        </symbol>
+      </defs>
+
+      <!-- 六列背景 + 列头（图标 + 列名 + 右上角累计次数 + 副标题） -->
       @for (c of geom().cols; track c.key) {
         <g>
           <rect
@@ -31,30 +64,41 @@
             [attr.height]="c.h"
             rx="8"
           />
-          <text class="fcoltitle" [attr.x]="c.x + 9" [attr.y]="c.y + 18">
+          <use
+            [attr.class]="'ficon col-' + c.key"
+            [attr.href]="c.icon"
+            [attr.x]="c.x + 8"
+            [attr.y]="c.y + 9"
+            width="15"
+            height="15"
+          />
+          <text class="fcoltitle" [attr.x]="c.x + 28" [attr.y]="c.y + 20">
             {{ c.mark }} {{ c.title }}
           </text>
-          <text class="fcolcnt" [attr.x]="c.x + c.w - 9" [attr.y]="c.y + 18" text-anchor="end">
+          <text class="fcolcnt" [attr.x]="c.x + c.w - 9" [attr.y]="c.y + 20" text-anchor="end">
             {{ c.total }}
           </text>
-          <text class="fcolsub" [attr.x]="c.x + 9" [attr.y]="c.y + 32">{{ c.sub }}</text>
+          <text class="fcolsub" [attr.x]="c.x + 8" [attr.y]="c.y + 36">{{ c.sub }}</text>
         </g>
       }
 
-      <!-- 列间连线：细曲线，浓度/粗细随该方向连接数 -->
-      @for (e of geom().edges; track $index) {
+      <!-- 列间连线：结构边虚线浅色，动态边随条数加粗加深；hover 时其余降到 0.08 -->
+      @for (e of edgesView(); track e.key) {
         <path
-          class="fedge"
+          [attr.class]="'fedge fedge-' + e.kind + (e.stat ? ' stat' : '') + (e.hi ? ' hi' : '') + (e.dim ? ' dim' : '')"
           [attr.d]="e.d"
-          [attr.stroke-opacity]="e.opacity"
-          [attr.stroke-width]="e.width"
+          [attr.stroke-opacity]="e.dim ? 0.08 : e.opacity"
+          [attr.stroke-width]="e.hi ? e.width + 0.9 : e.width"
         />
       }
 
-      <!-- 节点块：名称 + 徽章 + 次数（hover 出原生 tooltip） -->
-      @for (n of geom().nodes; track n.key) {
-        <g [attr.class]="'fn ' + n.kind">
-          <title>{{ n.name }} · {{ n.count }} 次</title>
+      <!-- 节点块：左侧图标 + 主标题 + 次行（徽章）+ 右侧次数；hover 高亮相关连线并出 tooltip -->
+      @for (n of nodesView(); track n.key) {
+        <g
+          [attr.class]="'fn ' + n.kind + (n.hi ? ' hi' : n.dim ? ' dim' : '')"
+          (mouseenter)="onEnter(n.key, $event)"
+          (mouseleave)="clearHover()"
+        >
           <rect
             class="fnbox"
             [attr.x]="n.x"
@@ -63,24 +107,27 @@
             [attr.height]="n.h"
             rx="6"
           />
-          <text class="fnname" [attr.x]="n.x + 8" [attr.y]="n.y + (n.badge ? 13 : 19)">
-            {{ n.label }}
-          </text>
-          @if (n.badge) {
-            <text class="fnbadge" [attr.x]="n.x + 8" [attr.y]="n.y + 24">{{ n.badge }}</text>
+          <use
+            [attr.class]="'ficon col-' + n.col + ' ' + n.kind"
+            [attr.href]="n.icon"
+            [attr.x]="n.x + 6"
+            [attr.y]="n.y + (n.h - 13) / 2"
+            width="13"
+            height="13"
+          />
+          <text class="fnname" [attr.x]="n.x + 24" [attr.y]="n.labelY">{{ n.label }}</text>
+          @if (n.badge && n.badgeY) {
+            <text class="fnbadge" [attr.x]="n.x + 24" [attr.y]="n.badgeY">{{ n.badge }}</text>
           }
-          <text
-            class="fncount"
-            [attr.x]="n.x + n.w - 8"
-            [attr.y]="n.y + (n.badge ? 13 : 19)"
-            text-anchor="end"
-          >
-            {{ n.count }}
-          </text>
+          @if (n.count > 0) {
+            <text class="fncount" [attr.x]="n.x + n.w - 7" [attr.y]="n.labelY" text-anchor="end">
+              {{ n.count }}
+            </text>
+          }
         </g>
       }
 
-      <!-- 粒子层：沿列锚点之间的同一段贝塞尔走 -->
+      <!-- 粒子层：沿列锚点之间的同一段贝塞尔走（代理蓝 / 直连灰 / 拦截红） -->
       <g class="fdots">
         @for (d of dots(); track d.n) {
           <circle
@@ -94,8 +141,15 @@
       </g>
     </svg>
 
-    @if (stats().total === 0) {
-      <div class="flowempty">等待连接…（该后端没有活跃连接，或 clash_api 尚未采样到）</div>
+    <!-- 自绘 tooltip（HTML 层，不吃鼠标事件；\n 用 pre-line 换行） -->
+    @if (tip(); as t) {
+      <div class="flowtip" [style.left.px]="t.x" [style.top.px]="t.y">{{ t.text }}</div>
+    }
+
+    @if (!stats().rules && !stats().total) {
+      <div class="flowempty">
+        还没有活跃连接，配置也没读到 → ③④⑤ 为空（检查后端地址与 /router/config 通道）
+      </div>
     }
   </div>
 </div>
