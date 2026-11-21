@@ -171,6 +171,10 @@
     </div>
   }
 
+  @case ('flow') {
+    <app-flow-anim [backend]="backend()" />
+  }
+
   @case ('logs') {
     <div class="bar">
       <select [value]="level()" (change)="setLevel($any($event.target).value)">

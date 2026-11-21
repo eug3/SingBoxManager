@@ -17,11 +17,12 @@ import { Backend, Connection, PAGE_ORIGINS, ProxyNode, RuleEntry } from './model
 import { BackendsService } from './backends.service';
 import { OverviewPane } from './overview';
 import { ConfigPane } from './config-pane';
+import { FlowAnim } from './flow-anim';
 import { ClashService } from './clash.service';
 import { fmtBytes, latClass, latText, runPool } from './util';
 
 /** 后端子页签 */
-type PaneTab = 'overview' | 'groups' | 'connections' | 'logs' | 'rules' | 'config';
+type PaneTab = 'overview' | 'groups' | 'connections' | 'flow' | 'logs' | 'rules' | 'config';
 interface LogLine {
   type: string;
   text: string;
@@ -30,7 +31,7 @@ interface LogLine {
 @Component({
   selector: 'app-backend-pane',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [OverviewPane, ConfigPane],
+  imports: [OverviewPane, ConfigPane, FlowAnim],
   templateUrl: './backend-pane.html',
   styles: `
     :host {
@@ -54,8 +55,8 @@ interface LogLine {
   `,
 })
 /**
- * 后端面板 — 一台路由的六个子页：概览 / 分组与节点 / 连接 / 日志 / 规则 / 配置。
- * 概览与配置是独立组件；本组件持有其余四个子页的状态与 clash_api 交互。
+ * 后端面板 — 一台路由的七个子页：概览 / 分组与节点 / 连接 / 流向 / 日志 / 规则 / 配置。
+ * 概览与配置是独立组件；本组件持有其余五个子页的状态与 clash_api 交互。
  */
 export class BackendPane implements OnInit, OnDestroy {
   readonly backend = input.required<Backend>();
@@ -70,6 +71,7 @@ export class BackendPane implements OnInit, OnDestroy {
     { key: 'overview', label: '概览' },
     { key: 'groups', label: '分组与节点' },
     { key: 'connections', label: '连接' },
+    { key: 'flow', label: '流向' },
     { key: 'logs', label: '日志' },
     { key: 'rules', label: '规则' },
     { key: 'config', label: '配置' },

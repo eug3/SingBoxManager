@@ -1,0 +1,101 @@
+<div class="flow">
+  <div class="flowbar">
+    <span class="fstat"
+      >活跃连接 <b>{{ stats().total }}</b></span
+    >
+    <span class="fstat"
+      >流动粒子 <b>{{ dots().length }}</b></span
+    >
+    <span class="fstat"
+      >命中规则 <b>{{ stats().rules }}</b></span
+    >
+    <span class="fstat"
+      >新增 <b>{{ added() }}</b></span
+    >
+    <span class="fhint">采样 1.5s · 我的电脑 → 分流节点 → 节点组 → 节点 → 互联网</span>
+    @if (err()) {
+      <span class="ferr">✗ {{ err() }}</span>
+    }
+  </div>
+
+  <div class="flowcanvas" #canvas>
+    <svg class="flowsvg" [attr.viewBox]="vb()" preserveAspectRatio="xMidYMid meet">
+      <!-- 五列背景 + 列头（列头右侧是该列累计次数） -->
+      @for (c of geom().cols; track c.key) {
+        <g>
+          <rect
+            class="fcol"
+            [attr.x]="c.x"
+            [attr.y]="c.y"
+            [attr.width]="c.w"
+            [attr.height]="c.h"
+            rx="8"
+          />
+          <text class="fcoltitle" [attr.x]="c.x + 9" [attr.y]="c.y + 18">
+            {{ c.mark }} {{ c.title }}
+          </text>
+          <text class="fcolcnt" [attr.x]="c.x + c.w - 9" [attr.y]="c.y + 18" text-anchor="end">
+            {{ c.total }}
+          </text>
+          <text class="fcolsub" [attr.x]="c.x + 9" [attr.y]="c.y + 32">{{ c.sub }}</text>
+        </g>
+      }
+
+      <!-- 列间连线：细曲线，浓度/粗细随该方向连接数 -->
+      @for (e of geom().edges; track $index) {
+        <path
+          class="fedge"
+          [attr.d]="e.d"
+          [attr.stroke-opacity]="e.opacity"
+          [attr.stroke-width]="e.width"
+        />
+      }
+
+      <!-- 节点块：名称 + 徽章 + 次数（hover 出原生 tooltip） -->
+      @for (n of geom().nodes; track n.key) {
+        <g [attr.class]="'fn ' + n.kind">
+          <title>{{ n.name }} · {{ n.count }} 次</title>
+          <rect
+            class="fnbox"
+            [attr.x]="n.x"
+            [attr.y]="n.y"
+            [attr.width]="n.w"
+            [attr.height]="n.h"
+            rx="6"
+          />
+          <text class="fnname" [attr.x]="n.x + 8" [attr.y]="n.y + (n.badge ? 13 : 19)">
+            {{ n.label }}
+          </text>
+          @if (n.badge) {
+            <text class="fnbadge" [attr.x]="n.x + 8" [attr.y]="n.y + 24">{{ n.badge }}</text>
+          }
+          <text
+            class="fncount"
+            [attr.x]="n.x + n.w - 8"
+            [attr.y]="n.y + (n.badge ? 13 : 19)"
+            text-anchor="end"
+          >
+            {{ n.count }}
+          </text>
+        </g>
+      }
+
+      <!-- 粒子层：沿列锚点之间的同一段贝塞尔走 -->
+      <g class="fdots">
+        @for (d of dots(); track d.n) {
+          <circle
+            [attr.class]="'fd ' + d.kind"
+            [attr.cx]="d.cx"
+            [attr.cy]="d.cy"
+            [attr.r]="d.r"
+            [attr.opacity]="d.opacity"
+          />
+        }
+      </g>
+    </svg>
+
+    @if (stats().total === 0) {
+      <div class="flowempty">等待连接…（该后端没有活跃连接，或 clash_api 尚未采样到）</div>
+    }
+  </div>
+</div>
