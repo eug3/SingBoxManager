@@ -157,6 +157,8 @@ export interface FlowNode {
   lat?: number;
   /** 延时色档（⑤ 成员方格与 ④ 分组卡的聚合点用） */
   latState?: LatState;
+  /** true = 最近有活跃连接经过（绿色描边，闲置后自动消失） */
+  active?: boolean;
 }
 
 /**
@@ -912,6 +914,7 @@ export function buildFlow(
   clients?: ClientMap,
   delays?: DelayMap,
   activeEdges?: ReadonlySet<string>,
+  activeNodes?: ReadonlySet<string>,
 ): FlowLayout {
   const routerName = stat.routerName || 'sing-box';
   const routerKey = nodeKey('router', routerName);
@@ -1285,6 +1288,11 @@ export function buildFlow(
     b.rules = cols.rule.filter((n) => (n.band ?? 0) === k).length;
   });
 
+  // 活跃节点（活跃连接路径上的 ①..⑥）：纯结构节点不在集合里 → 恒为 false
+  for (const col of FLOW_COLS) {
+    cols[col] = cols[col].map((n) => ({ ...n, active: activeNodes?.has(n.key) === true }));
+  }
+
   /* ── 结构边：③→④（规则指向分组/节点）、④→⑤（分组→它的每个成员）；纯静态时再补 ①→②、②→③ ── */
   const visible = new Set<string>();
   for (const col of FLOW_COLS) for (const n of cols[col]) visible.add(n.key);
@@ -1364,13 +1372,18 @@ export interface ActivityState {
   totals: ReadonlyMap<string, number>;
   /** 边 key → 活跃截止时间（ms 时间戳） */
   until: ReadonlyMap<string, number>;
+  /** 节点 key → 活跃截止时间（ms 时间戳）；与边同一套过期口径 */
+  nodeUntil: ReadonlyMap<string, number>;
 }
 
 export interface ActivityStep {
   totals: Map<string, number>;
   until: Map<string, number>;
+  nodeUntil: Map<string, number>;
   /** 本次仍然活跃的边 key 集合 */
   active: Set<string>;
+  /** 本次仍然活跃的节点 key 集合（活跃连接路径上的全部节点） */
+  activeNodes: Set<string>;
 }
 
 /**
@@ -1388,7 +1401,9 @@ export function stepActivity(
 ): ActivityStep {
   const totals = new Map<string, number>();
   const until = new Map<string, number>();
+  const nodeUntil = new Map<string, number>();
   for (const [k, t] of prev?.until ?? []) if (t > now) until.set(k, t);
+  for (const [k, t] of prev?.nodeUntil ?? []) if (t > now) nodeUntil.set(k, t);
   for (const c of conns ?? []) {
     const id = String((c as { id?: unknown } | null | undefined)?.id ?? '');
     if (!id) continue;
@@ -1400,18 +1415,51 @@ export function stepActivity(
     if (!grew) continue;
     const path = pathsById.get(id);
     if (!path || path.length < 2) continue;
-    for (let i = 0; i < path.length - 1; i++) until.set(edgeKeyOf(path[i], path[i + 1]), now + idleMs);
+    const exp = now + idleMs;
+    // 相邻边（绿色点线）+ 路径上全部节点（①..⑥ 绿色描边）一起点亮
+    for (let i = 0; i < path.length - 1; i++) until.set(edgeKeyOf(path[i], path[i + 1]), exp);
+    for (const k of path) nodeUntil.set(k, exp);
   }
-  return { totals, until, active: new Set(until.keys()) };
+  return {
+    totals,
+    until,
+    nodeUntil,
+    active: new Set(until.keys()),
+    activeNodes: new Set(nodeUntil.keys()),
+  };
 }
 
-/** 把活跃边集合贴到 flow 上（只改 edges 的 active 标志，节点/带/样本原样返回） */
-export function markActiveEdges(flow: FlowLayout, active: ReadonlySet<string>): FlowLayout {
+/** 活跃集合：边 + 节点（与 stepActivity 的返回同名，方便直接传） */
+export interface ActiveMarks {
+  edges: ReadonlySet<string>;
+  nodes: ReadonlySet<string>;
+}
+
+/** 把活跃边/节点贴到 flow 上（只改 active 标志，其余原样返回） */
+export function markActive(flow: FlowLayout, marks: ActiveMarks): FlowLayout {
   const edges = flow.edges.map((e) => {
-    const a = !e.stat && active.has(e.key);
+    const a = !e.stat && marks.edges.has(e.key);
     return a === !!e.active ? e : { ...e, active: a };
   });
-  return { ...flow, edges };
+  let changed = false;
+  const cols = {} as Record<FlowCol, FlowNode[]>;
+  for (const col of FLOW_COLS) {
+    let any = false;
+    const mapped = flow.cols[col].map((n) => {
+      const a = marks.nodes.has(n.key);
+      if (a === !!n.active) return n;
+      any = true;
+      return { ...n, active: a };
+    });
+    cols[col] = any ? mapped : flow.cols[col];
+    if (any) changed = true;
+  }
+  return changed ? { ...flow, edges, cols } : { ...flow, edges };
+}
+
+/** 兼容旧调用：只贴活跃边 */
+export function markActiveEdges(flow: FlowLayout, active: ReadonlySet<string>): FlowLayout {
+  return markActive(flow, { edges: active, nodes: new Set<string>() });
 }
 
 /* ────────────────────────── 渲染几何（纯数学，无 DOM） ────────────────────────── */
@@ -1498,6 +1546,8 @@ export interface FlowNodeGeom {
   band?: number;
   /** 延时色档：⑤ 成员方格与 ④ 分组卡右上角的小圆点用它上色；undefined / none = 不画点 */
   latState?: LatState;
+  /** true = 最近有活跃连接经过（绿色描边 + 浅绿底；闲置时 false） */
+  active?: boolean;
 }
 
 /** 列间连线几何 */
@@ -2082,6 +2132,11 @@ export function buildLayout(flow: FlowLayout, size: FlowSize): FlowGeom {
       });
     }
   });
+
+  // 活跃标记（几何层统一打一次，六个列都覆盖）
+  const activeKeys = new Set<string>();
+  for (const col of FLOW_COLS) for (const n of flow.cols[col]) if (n.active) activeKeys.add(n.key);
+  for (const g of nodes) g.active = activeKeys.has(g.key);
 
   // 被截断的节点按列中心兜底（粒子不会凭空消失）
   const fallback = (key: string): FlowAnchor => slotAnchors[FLOW_COLS.indexOf(colOfKey(key))] ?? slotAnchors[0];

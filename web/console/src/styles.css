@@ -1000,6 +1000,13 @@ tr.oldconn td { background: #fffaf0; }
 .fn.m-cloud .fncloudcnt { fill: #0f8f9a; font-size: 12px; font-family: var(--mono); }
 .fn.m-cloud .fnbadge { fill: #7fa9ad; font-size: 8.5px; }
 
+/* 活跃节点（最近有活跃连接经过）：绿色描边 + 极浅绿底；闲置时回到各自原本的样式。
+   注意：不改延时点（.flat.lat-*）与左上流量亮点（.fdot）的颜色，两者照常画。 */
+.fn.active .fnbox { stroke: #2f9e5f; stroke-width: 1.7; fill: #f2fbf5; }
+.fn.active .fnname { fill: #1c6b45; }
+.fn.active.m-cloud .fnbox { stroke: #2f9e5f; stroke-dasharray: none; fill: #f1fbf6; }
+.fn.active.m-cloud .fncloudcnt { fill: #1c6b45; }
+
 /* hover：该节点描边加粗发亮，其余节点整体变淡（连线由模板把 opacity 降到 0.08） */
 .fn { cursor: default; }
 .fn.hi { filter: drop-shadow(0 1px 3px rgba(34, 48, 63, .18)); }

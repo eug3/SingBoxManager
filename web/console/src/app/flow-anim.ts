@@ -26,7 +26,7 @@ import {
   buildLayout,
   buildStatic,
   emptyStatic,
-  markActiveEdges,
+  markActive,
   nameOfKey,
   pointOnPath,
   stepActivity,
@@ -200,8 +200,10 @@ export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
   private clientsTimer: ReturnType<typeof setInterval> | null = null;
   /** 活跃边：上一轮采样算出的「最近有字节增长」的边（绿色点线） */
   private activeEdges: ReadonlySet<string> = new Set<string>();
-  /** 活跃度状态（id → 累计字节、边 → 活跃截止时间） */
-  private actState: ActivityState = { totals: new Map(), until: new Map() };
+  /** 活跃节点：同一条路径上的 ①..⑥ 节点（绿色描边） */
+  private activeNodes: ReadonlySet<string> = new Set<string>();
+  /** 活跃度状态（id → 累计字节；边/节点 → 活跃截止时间） */
+  private actState: ActivityState = { totals: new Map(), until: new Map(), nodeUntil: new Map() };
   /** ⑤ 节点延时：tag → 末次测速 delay（ms）；拿不到就是空表，方格不画点 */
   private delays: DelayMap = new Map<string, number>();
   private delayTimer: ReturnType<typeof setInterval> | null = null;
@@ -326,7 +328,8 @@ export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
     this.clients = new Map<string, ClientInfo>();
     this.delays = new Map<string, number>();
     this.activeEdges = new Set<string>();
-    this.actState = { totals: new Map(), until: new Map() };
+    this.activeNodes = new Set<string>();
+    this.actState = { totals: new Map(), until: new Map(), nodeUntil: new Map() };
     this.rebuild();
     this.startLoops();
     void this.loadVersion(b);
@@ -339,7 +342,14 @@ export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
   /** 用当前连接 + 静态结构 + 名册重建六列（唯一出口，避免各处漏传 clients） */
   private rebuild(): void {
     this.flow.set(
-      buildFlow(this.lastConns, this.stat(), this.clients, this.delays, this.activeEdges),
+      buildFlow(
+        this.lastConns,
+        this.stat(),
+        this.clients,
+        this.delays,
+        this.activeEdges,
+        this.activeNodes,
+      ),
     );
   }
 
@@ -510,9 +520,11 @@ export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
     const base = buildFlow(conns, this.stat(), this.clients, this.delays);
     const paths = new Map(base.sample.map((s) => [s.id, s.path]));
     const step = stepActivity(conns, paths, this.actState, now, IDLE_MS);
-    this.actState = { totals: step.totals, until: step.until };
+    this.actState = { totals: step.totals, until: step.until, nodeUntil: step.nodeUntil };
     this.activeEdges = step.active;
-    const flow = markActiveEdges(base, step.active);
+    this.activeNodes = step.activeNodes;
+    // 活跃边（绿点线）+ 活跃节点（绿描边）一起贴；闲置的节点/边保持原样式
+    const flow = markActive(base, { edges: step.active, nodes: step.activeNodes });
     this.flow.set(flow);
     const live = new Set<string>();
     for (const s of flow.sample) {
