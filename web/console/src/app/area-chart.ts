@@ -1,3 +1,8 @@
+/**
+ * area-chart.ts — 轻量 SVG 图表组件（无第三方库）。
+ * 固定窗口格数、空位 null 靠右推进；line=平滑曲线+淡面积（0.6px non-scaling-stroke），
+ * bar=柱形；mirror=true 以中线为轴上下镜像（速率 ↑↓ 用）。供概览与流向微型图复用。
+ */
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 
 /** 序列点位允许 null：null = 该格还没数据（初始化时空位，靠右对齐、逐格往前推） */

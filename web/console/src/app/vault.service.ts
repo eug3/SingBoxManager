@@ -1,15 +1,22 @@
+/**
+ * vault.service.ts — 规则桶读写客户端（同源 99 Go 服务）。
+ * 拉 /rule-set/<桶>.json、HEAD .srs 看大小/时间、POST /publish 发布（带 X-Vault-Key）。
+ * validate 为前端即时预校验（服务端仍会再校验），ALLOWED 为桶规则合法键白名单。
+ */
 import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { BUCKETS, PublishResp } from './models';
 import { fmtBytes } from './util';
 
+/** 预校验结果：ok + 概要 msg + 明细 detail */
 export interface RuleCheck {
   ok: boolean;
   msg: string;
   detail: string;
 }
 
+/** 桶规则允许的匹配键（与服务端 ruleKeys 口径一致；非法键服务端拒收） */
 const ALLOWED = new Set([
   'domain',
   'domain_suffix',
@@ -31,6 +38,7 @@ export class VaultService {
 
   bucketLabels = BUCKETS.map(([name, rules]) => ({ name, rules }));
 
+  /** 拉某桶的 .json 源文本（no-cache） */
   async fetch(bucket: string): Promise<string> {
     const text = await firstValueFrom(
       this.http.get(`/rule-set/${bucket}.json`, {
@@ -56,6 +64,7 @@ export class VaultService {
     }
   }
 
+  /** 发布桶内容：服务端校验→编译 .srs→成对写回存储 */
   async publish(bucket: string, content: string, key: string): Promise<PublishResp> {
     const headers = new HttpHeaders({ 'Content-Type': 'application/json', 'X-Vault-Key': key });
     return firstValueFrom(this.http.post<PublishResp>('/publish', { bucket, content }, { headers }));
@@ -103,6 +112,7 @@ export class VaultService {
     return JSON.stringify(JSON.parse(text), null, 2);
   }
 
+  /** 字节格式化（转发 util.fmtBytes，保持模板口径统一） */
   formatBytes(n: number): string {
     return fmtBytes(n);
   }

@@ -1,4 +1,9 @@
-/** share-link — 订阅/分享链接解析（ss / vmess / vless / trojan / hysteria2 / socks）→ sing-box outbound */
+/**
+ * share-link.ts — 订阅/分享链接解析纯函数。
+ * 支持 ss / vmess / vless / trojan / hysteria2 / socks 单链与批量（多行/逗号/空白分隔），
+ * 产出 sing-box outbound 对象 + 建议 tag；base64 兼容 URL-safe 与缺 padding。
+ * 供「配置」页导入分享链接面板实时预览与落库。
+ */
 
 import { AnyObj } from './config-ops';
 
@@ -19,11 +24,13 @@ function b64decode(s: string): string {
   }
 }
 
+/** 字符串→数字（空/非法→0） */
 function num(v: string | null | undefined): number {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
 }
 
+/** 查询参数布尔（1/true/yes 视为真） */
 function truthy(v: string | null): boolean {
   return v === '1' || v === 'true' || v === 'yes';
 }
@@ -44,6 +51,7 @@ interface VmessJson {
   alpn?: string;
 }
 
+/** 解析结果：outbound 对象 + 建议 tag + 原始协议名 */
 export interface ParsedNode {
   ok: boolean;
   node?: AnyObj;

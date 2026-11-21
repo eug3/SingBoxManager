@@ -20,9 +20,13 @@ import (
 	"time"
 )
 
+// healthClient 公网 URL 体检专用客户端（8s 超时，与 clash 探测客户端分开）
 var healthClient = &http.Client{Timeout: 8 * time.Second}
 
-// probeShare 用给定后端与公网地址做一次体检
+// probeShare 用给定后端与公网地址做一次体检，返回 {ok, file, http, public, page}。
+// ok = 文件通道与公网 URL 两项都通过。sample 缺省 rs-tg.srs；publicBase 为空时
+// http 项记「公网地址未配置」。公网请求带时间戳 query 防缓存，响应体最多读 1MB。
+// 当前配置（/share/health）与候选配置（/share/probe）共用本函数。
 func probeShare(fs ShareFS, publicBase, sample string) map[string]any {
 	if sample == "" {
 		sample = "rs-tg.srs"
@@ -100,7 +104,8 @@ func probeShare(fs ShareFS, publicBase, sample string) map[string]any {
 	}
 }
 
-// handleShareHealth 报告当前生效配置下的文件通道 + 公网 URL 状态
+// handleShareHealth GET /share/health —— 报告当前生效配置下的文件通道 + 公网 URL 状态。
+// 无需鉴权（只读体检，不含口令）；另带 mode/localDir 供顶栏与齿轮展示。
 func handleShareHealth(w http.ResponseWriter, r *http.Request) {
 	if preflight(w, r) {
 		return

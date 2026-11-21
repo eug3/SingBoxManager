@@ -25,18 +25,21 @@ import (
 	"time"
 )
 
+// filesSrv 全局唯一的文件服务监听器（启动与保存配置时经 apply 热重启）
 var filesSrv = &filesListener{}
 
+// filesListener 独立文件端口的监听状态（mu 保护热重启与地址回显的并发）
 type filesListener struct {
 	mu   sync.Mutex
 	addr string
 	srv  *http.Server
-	ln   net.Listener
 }
 
+// defaultFilesListen 文件服务默认监听地址（FILES_LISTEN 可覆盖）
 func defaultFilesListen() string { return env("FILES_LISTEN", ":9098") }
 
-// handleFilesRuleSet 只读桶文件（与主服务同源实现，但只允许 GET/HEAD）
+// handleFilesRuleSet 只读桶文件（与主服务同源实现，但只允许 GET/HEAD）。
+// 与主服务的差别：错误用纯文本 http.Error，且 CORS 放开任意来源（只读规则）。
 func handleFilesRuleSet(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
@@ -53,22 +56,8 @@ func handleFilesRuleSet(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
-	if strings.HasSuffix(name, ".json") {
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	} else {
-		w.Header().Set("Content-Type", "application/octet-stream")
-	}
 	w.Header().Set("Access-Control-Allow-Origin", "*") // 只读，允许任意来源取规则
-	w.Header().Set("Cache-Control", "no-store")
-	if info != nil && !info.ModTime().IsZero() {
-		w.Header().Set("Last-Modified", info.ModTime().UTC().Format(http.TimeFormat))
-	}
-	w.Header().Set("Content-Length", fmt.Sprint(len(data)))
-	if r.Method == http.MethodHead {
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	_, _ = w.Write(data)
+	writeRuleSetData(w, r, name, data, info)
 }
 
 // filesMux 文件服务专用路由（刻意极简）
@@ -91,7 +80,9 @@ func filesMux() *http.ServeMux {
 	return mux
 }
 
-// apply 启动或热重启文件服务监听（addr 为空则不启）
+// apply 启动或热重启文件服务监听（addr 为空则停用）。
+// 地址未变且已在跑 → 直接返回；否则先 3s 优雅关停旧监听再绑新地址。
+// 绑定失败返回 error（调用方只记日志，不影响主服务）。
 func (f *filesListener) apply(addr string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -104,7 +95,7 @@ func (f *filesListener) apply(addr string) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		_ = f.srv.Shutdown(ctx)
 		cancel()
-		f.srv, f.ln = nil, nil
+		f.srv = nil
 	}
 	f.addr = ""
 	if addr == "" {
@@ -117,7 +108,7 @@ func (f *filesListener) apply(addr string) error {
 		return fmt.Errorf("文件服务监听 %s 失败: %w", addr, err)
 	}
 	srv := &http.Server{Handler: filesMux(), ReadHeaderTimeout: 10 * time.Second}
-	f.srv, f.ln, f.addr = srv, ln, addr
+	f.srv, f.addr = srv, addr
 	go func() {
 		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
 			log.Printf("文件服务退出：%v", err)

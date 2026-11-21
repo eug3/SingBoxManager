@@ -2,9 +2,14 @@ package main
 
 // router_store.go — 路由 SSH 凭据的存储与管理接口。
 //
-// 凭据只落在 99 的 /etc/vault-edit/routers.json（0600 root，原子替换），
-// 浏览器提交一次后即清空，任何接口都不回显口令。
+// 凭据以 SQLite 为准（routers 表，见 db.go）；旧的 routers.json 只在首次启动
+// 且库为空时一次性迁移导入，之后不再读写。任何接口都不回显口令。
 // host 必须命中 ROUTER_HOSTS 白名单（默认两台路由），避免本服务变成任意 SSH 跳板。
+//
+// 接口：
+//   GET    /router/credentials          凭据列表（host/user/port，不含口令）
+//   POST   /router/credentials          新增/更新一台路由的凭据
+//   DELETE /router/credentials?host=    删除一台路由的凭据
 
 import (
 	"encoding/json"
@@ -14,11 +19,10 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 )
 
-// routerCred 一台路由的 SSH 凭据（routers.json 的值）
+// routerCred 一台路由的 SSH 凭据（routers 表的一行；Name 仅用于页面展示）
 type routerCred struct {
 	Name     string `json:"name"`
 	User     string `json:"user"`
@@ -35,7 +39,8 @@ type routerCredReq struct {
 	Name     string `json:"name"`
 }
 
-// routersFile 凭据文件路径（可用 ROUTERS_FILE 覆盖）
+// routersFile 旧凭据文件路径（可用 ROUTERS_FILE 覆盖）。
+// 现在只有两处用途：首次迁移的导入源（loadRoutersFile）、/health 与列表接口的路径回显。
 func routersFile() string {
 	return env("ROUTERS_FILE", "/etc/vault-edit/routers.json")
 }
@@ -51,7 +56,8 @@ func routerHosts() map[string]bool {
 	return out
 }
 
-// loadRouters 读凭据表（SQLite 为准）；user/port 缺省补 root/22
+// loadRouters 读凭据表（SQLite 为准，user/port 缺省补 root/22）。
+// 库不可用返回底层 error；表为空返回「凭据库为空」提示（前端据此引导先填凭据）。
 func loadRouters() (map[string]routerCred, error) {
 	m, err := routersFromDB()
 	if err != nil {
@@ -63,7 +69,7 @@ func loadRouters() (map[string]routerCred, error) {
 	return m, nil
 }
 
-// loadRoutersFile 读旧的 routers.json（仅首次迁移用）
+// loadRoutersFile 读旧的 routers.json（仅首次迁移用）；user/port 缺省补 root/22
 func loadRoutersFile() (map[string]routerCred, error) {
 	b, err := os.ReadFile(routersFile())
 	if err != nil {
@@ -85,30 +91,9 @@ func loadRoutersFile() (map[string]routerCred, error) {
 	return m, nil
 }
 
-// saveRouters 写凭据表（SQLite）
+// saveRouters 写凭据表（SQLite，事务内整表 upsert）
 func saveRouters(m map[string]routerCred) error {
 	return routersToDB(m)
-}
-
-// saveRoutersLegacyFile 旧实现（保留给需要导出 JSON 的场景，当前未用）
-func saveRoutersLegacyFile(m map[string]routerCred) error {
-	b, err := json.MarshalIndent(m, "", "  ")
-	if err != nil {
-		return err
-	}
-	b = append(b, '\n')
-	dir := filepath.Dir(routersFile())
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	tmp := routersFile() + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
-		return err
-	}
-	if err := os.Chmod(tmp, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, routersFile())
 }
 
 // pickRouter 取一台路由的凭据；host 允许带端口（取主机名部分）。
@@ -157,6 +142,7 @@ func handleRouterCredentialsList(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleRouterCredentialsSet POST /router/credentials {host,user,password,port?,name?}
+// host 必须命中白名单；port 缺省 22，name 缺省 host。成功只回 host/user，不回口令。
 func handleRouterCredentialsSet(w http.ResponseWriter, r *http.Request) {
 	if preflight(w, r) {
 		return
@@ -199,6 +185,7 @@ func handleRouterCredentialsSet(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleRouterCredentialsDelete DELETE /router/credentials?host=
+// 凭据库为空或该 host 未配置 → 404；删除成功回 {ok, host}。
 func handleRouterCredentialsDelete(w http.ResponseWriter, r *http.Request) {
 	if preflight(w, r) {
 		return

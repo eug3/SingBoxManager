@@ -1,9 +1,18 @@
+/**
+ * backends.service.ts — 后端（路由）列表与密钥管理。
+ *
+ * 持久化口径：后端列表与全局密钥存 localStorage；「草稿后端」只在内存，
+ * 保存前刷新即消失。每台路由的 clash 密钥优先用自己的，空则回落全局密钥
+ * （keyFor），供 ClashService / RouterService 统一取用。
+ */
 import { Injectable, computed, signal } from '@angular/core';
 import { Backend } from './models';
 
+/** localStorage 键：全局密钥 / 后端列表 */
 const STORE_KEY = 'vaultKey';
 const STORE_BACKENDS = 'clashBackends';
 
+/** 默认两台路由（甲=OpenWrt 主干、乙=GL 侧翼）；密钥留空待用户填 */
 const DEFAULT_BACKENDS: Backend[] = [
   { name: '甲 · 主干', api: 'http://192.168.31.32:9090', key: '' },
   { name: '乙 · 侧翼', api: 'http://172.16.8.1:9090', key: '' },
@@ -63,6 +72,7 @@ export class BackendsService {
     return (b.key || '').trim() || this.globalKey();
   }
 
+  /** api 是否为合法 http(s) 地址（保存/连接前的基本校验） */
   valid(b: Backend): boolean {
     return /^https?:\/\/.+/.test(b.api || '');
   }

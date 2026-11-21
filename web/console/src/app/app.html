@@ -1,4 +1,6 @@
+<!-- app 根壳：顶栏 → 受信横幅 → 主 tab → 内容区 → 页脚（100dvh 固定壳，面板内部滚动） -->
 <div class="wrap">
+  <!-- 顶栏：标题 + 存储状态点（点击重测，悬停看体检细节）+ ⚙ 存储配置齿轮 + 配置弹窗 -->
   <header class="top">
     <h1>规则编辑台 <b>◆ SBM CONSOLE</b></h1>
     <span class="hgroup">
@@ -13,12 +15,14 @@
     }
   </header>
 
+  <!-- 来源不受信横幅：提示改从白名单入口访问 -->
   @if (!originOk) {
     <div class="banner show">
       ⚠ 请从 {{ origins.join(' 或 ') }} 访问（当前来源不受信，路由与本页接口将被浏览器拦截）
     </div>
   }
 
+  <!-- 主 tab：各后端（未保存草稿带 ✎ 标记）+ 添加后端 + 规则编辑 -->
   <nav class="tabs">
     @for (b of backends(); track $index) {
       <button class="tab" [class.on]="active() === 'b' + $index" (click)="active.set('b' + $index)">
@@ -32,6 +36,7 @@
     <button class="tab right" [class.on]="active() === 'edit'" (click)="active.set('edit')">🧩 规则编辑</button>
   </nav>
 
+  <!-- 内容区：按当前 tab 只渲染对应后端面板或规则编辑器 -->
   <div class="content">
     @for (b of backends(); track $index) {
       @if (active() === 'b' + $index) {
@@ -45,6 +50,7 @@
 
   </div>
 
+  <!-- 页脚：控制台版本 / sing-box 版本 / 发布链路 / 入口地址 / 公网只读 -->
   <footer class="foot">
     <span class="fp">SBM CONSOLE</span>
     <span>v{{ version }}</span>

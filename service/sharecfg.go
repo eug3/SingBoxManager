@@ -2,7 +2,8 @@ package main
 
 // sharecfg.go — 规则桶存储的**运行时可改配置**（不再硬编码）。
 //
-// 落盘：/etc/vault-edit/share.json（0600）。未落盘时用环境变量/默认值兜底，
+// 落盘：SQLite kv 表（key=shareConfig，见 db.go）。旧的 /etc/vault-edit/share.json
+// 只在首次启动且库为空时一次性迁移导入。库里没有记录时用环境变量/默认值兜底，
 // 所以旧部署（只有 SMB_ADDR 等 env）照常工作。
 //
 // 三种后端：
@@ -29,7 +30,7 @@ import (
 
 // ShareConfig 是存储配置的完整形态（页面齿轮里编辑的就是它）
 type ShareConfig struct {
-	Mode       string      `json:"mode"` // smb | sftp | local
+	Mode       string      `json:"mode"` // 后端模式：smb | sftp | local
 	SMB        SMBConfig   `json:"smb"`
 	SFTP       SFTPConfig  `json:"sftp"`
 	Local      LocalConfig `json:"local"`
@@ -39,6 +40,7 @@ type ShareConfig struct {
 	Sample      string `json:"sample"` // 体检用的样本文档
 }
 
+// SMBConfig SMB2 后端参数（addr=host:445；user/pass 留空即 guest）
 type SMBConfig struct {
 	Addr   string `json:"addr"`
 	Share  string `json:"share"`
@@ -48,6 +50,7 @@ type SMBConfig struct {
 	Domain string `json:"domain"`
 }
 
+// SFTPConfig SFTP 后端参数（pass 与 key 至少配一个；path 是 NAS 上的绝对目录）
 type SFTPConfig struct {
 	Addr string `json:"addr"`
 	User string `json:"user"`
@@ -56,6 +59,7 @@ type SFTPConfig struct {
 	Path string `json:"path"`
 }
 
+// LocalConfig 本机目录后端参数（SHARE_MODE=local 时用）
 type LocalConfig struct {
 	Dir string `json:"dir"`
 }
@@ -67,6 +71,7 @@ var (
 	shareFS    ShareFS
 )
 
+// shareConfigFile 旧配置文件路径（可用 SHARE_CONFIG 覆盖）；现在只作首次迁移的导入源
 func shareConfigFile() string {
 	return env("SHARE_CONFIG", "/etc/vault-edit/share.json")
 }
@@ -182,7 +187,9 @@ func currentShareFS() ShareFS {
 	return shareFS
 }
 
-// applyShareConfig 热替换后端（保存/启动时调用）
+// applyShareConfig 热替换后端（保存/启动时调用）：
+// 先规整并记录配置，再按新配置构造 ShareFS 原子替换全局引用。
+// 旧后端都是惰性连接，丢引用即可，无需显式关闭。
 func applyShareConfig(c ShareConfig) {
 	shareCfgMu.Lock()
 	shareCfg = normalizeShareConfig(c)
@@ -191,12 +198,20 @@ func applyShareConfig(c ShareConfig) {
 
 	fs := shareFSFromConfig(cfg)
 	shareFSMu.Lock()
-	if old := shareFS; old != nil {
-		// 关闭旧会话（实现里都是惰性连接，这里只丢引用即可）
-		_ = old
-	}
 	shareFS = fs
 	shareFSMu.Unlock()
+}
+
+// keepStoredPasswords 口令留空 → 沿用旧值（页面不回显口令，也不该覆盖）。
+// 保存配置与候选试连共用这一口径。
+func keepStoredPasswords(c, old ShareConfig) ShareConfig {
+	if c.SMB.Pass == "" {
+		c.SMB.Pass = old.SMB.Pass
+	}
+	if c.SFTP.Pass == "" {
+		c.SFTP.Pass = old.SFTP.Pass
+	}
+	return c
 }
 
 // publicMasked 返回可回显的配置（口令只给「是否已设置」）
@@ -221,7 +236,7 @@ func publicMasked(c ShareConfig) map[string]any {
 
 // ---- HTTP ----
 
-// GET /share/config
+// handleShareConfigGet GET /share/config —— 读当前生效配置（口令已掩码）
 func handleShareConfigGet(w http.ResponseWriter, r *http.Request) {
 	if preflight(w, r) {
 		return
@@ -230,7 +245,8 @@ func handleShareConfigGet(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"ok": true, "config": publicMasked(currentShareCfg())})
 }
 
-// POST /share/config —— 保存并立即生效；口令字段留空表示「保持原值」
+// handleShareConfigSet POST /share/config —— 保存并立即生效；口令字段留空表示「保持原值」。
+// 成功后附带按新配置探测的文件通道结果（fileOK/files 或 fileError），页面可直接刷新状态点。
 func handleShareConfigSet(w http.ResponseWriter, r *http.Request) {
 	if preflight(w, r) {
 		return
@@ -246,14 +262,7 @@ func handleShareConfigSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	old := currentShareCfg()
-	c := normalizeShareConfig(req.Config)
-	// 口令留空 → 沿用旧值（页面不回显口令，也不该覆盖）
-	if c.SMB.Pass == "" {
-		c.SMB.Pass = old.SMB.Pass
-	}
-	if c.SFTP.Pass == "" {
-		c.SFTP.Pass = old.SFTP.Pass
-	}
+	c := keepStoredPasswords(normalizeShareConfig(req.Config), old)
 	if err := saveShareConfig(c); err != nil {
 		fail(w, 500, "写配置失败: "+err.Error())
 		return
@@ -276,7 +285,8 @@ func handleShareConfigSet(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, resp)
 }
 
-// POST /share/probe —— 用候选配置试连，不落盘
+// handleShareProbe POST /share/probe —— 用候选配置试连，不落盘（页面「测试」按钮）。
+// 返回与 /share/health 同构的体检结果，另带 mode 字段。
 func handleShareProbe(w http.ResponseWriter, r *http.Request) {
 	if preflight(w, r) {
 		return
@@ -292,20 +302,16 @@ func handleShareProbe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	old := currentShareCfg()
-	c := normalizeShareConfig(req.Config)
-	if c.SMB.Pass == "" {
-		c.SMB.Pass = old.SMB.Pass
-	}
-	if c.SFTP.Pass == "" {
-		c.SFTP.Pass = old.SFTP.Pass
-	}
+	c := keepStoredPasswords(normalizeShareConfig(req.Config), old)
 	fs := shareFSFromConfig(c)
 	resp := probeShare(fs, c.PublicBase, c.Sample)
 	resp["mode"] = c.Mode
 	writeJSON(w, 200, resp)
 }
 
-// POST /share/import —— 把当前共享里的桶文件复制到本机 local 目录（切 local 前先跑一次）
+// handleShareImport POST /share/import —— 把当前共享里的桶文件复制到本机 local 目录
+// （切 local 前先跑一次）。只复制命中 rsFileRe 的文件，目录与其它文件计入 skipped；
+// 任一文件读写失败立即 502/500 返回（不做半程回滚，已复制的保留）。
 func handleShareImport(w http.ResponseWriter, r *http.Request) {
 	if preflight(w, r) {
 		return
@@ -347,10 +353,4 @@ func handleShareImport(w http.ResponseWriter, r *http.Request) {
 		"ok": true, "copied": copied, "skipped": skipped, "dir": dir,
 		"hint": "复制完成；把存储模式切到 local 即可只依赖 99 本机文件",
 	})
-}
-
-// shareHealthSnapshot 供 /health 与 /share/health 共用
-func shareHealthSnapshot() (int, error) {
-	files, err := currentShareFS().List()
-	return len(files), err
 }

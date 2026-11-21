@@ -20,15 +20,6 @@ import (
 	"strings"
 )
 
-// ruleSetHost 从 url 里取出 host:port（用于识别哪些 url 属于"公网入口"）
-func urlBase(u string) string {
-	parsed, err := url.Parse(u)
-	if err != nil {
-		return ""
-	}
-	return parsed.Scheme + "://" + parsed.Host
-}
-
 // normalizePublicBase 规整「规则路径」：不带文件名的全路径，结尾带 /。
 // 兼容旧配置只写域名（无路径）的情况，自动补 /rule-set/。
 // 例：https://x.com/rule-set/ → 原样；https://x.com → https://x.com/rule-set/。
@@ -58,6 +49,13 @@ func ruleSetFilename(u, tag string) string {
 
 // rewriteRuleSetURLs 把 config 里 type=remote 的 rule_set url 换成「规则路径 + 文件名」。
 // newBase 为不带文件名的全路径（normalizePublicBase 规整）。返回改写文本/明细/条数。
+//
+// 改写优先级（每条 remote 规则集）：
+//  1. 文件名沿用旧 url 的最后一段（桶文件名不随入口变化）；
+//  2. 旧 url 没有文件名时回退 <tag>.srs；
+//  3. 新旧 url 相同则跳过，不计入变更。
+//
+// local/inline 规则集不动；输出统一 2 空格缩进 + 末尾换行（与 /router/apply 口径一致）。
 func rewriteRuleSetURLs(configText, newBase string) (string, []map[string]string, int, error) {
 	var cfg map[string]any
 	if err := json.Unmarshal([]byte(configText), &cfg); err != nil {
@@ -93,7 +91,33 @@ func rewriteRuleSetURLs(configText, newBase string) (string, []map[string]string
 	return string(out) + "\n", changes, len(changes), nil
 }
 
+// previewPublicBaseOnRouter 预览单台路由：读配置 → 试改写，汇总成一条结果。
+// 读取或解析失败时 ok=false 并带 error 文案，不影响其它路由。
+func previewPublicBaseOnRouter(host string, cred routerCred, base string) map[string]any {
+	item := map[string]any{"host": host, "name": cred.Name, "ok": false}
+	text, rerr := remoteReadConfig(host, cred)
+	if rerr != nil {
+		item["error"] = rerr.Error()
+		return item
+	}
+	_, changes, n, werr := rewriteRuleSetURLs(text, base)
+	if werr != nil {
+		item["error"] = werr.Error()
+		return item
+	}
+	item["ok"] = true
+	item["changes"] = n
+	// 样例最多给 3 条 old→new；无变更时不带 sample 字段
+	if len(changes) > 3 {
+		item["sample"] = changes[:3]
+	} else if changes != nil {
+		item["sample"] = changes
+	}
+	return item
+}
+
 // handlePublicRulesPreview GET /public/rules/preview?base=
+// base 缺省用当前存储配置的 publicBase；逐台路由预览，汇总 {ok, base, hosts}。
 func handlePublicRulesPreview(w http.ResponseWriter, r *http.Request) {
 	if preflight(w, r) {
 		return
@@ -116,32 +140,51 @@ func handlePublicRulesPreview(w http.ResponseWriter, r *http.Request) {
 	}
 	var hosts []map[string]any
 	for host, cred := range all {
-		item := map[string]any{"host": host, "name": cred.Name, "ok": false}
-		text, rerr := remoteReadConfig(host, cred)
-		if rerr != nil {
-			item["error"] = rerr.Error()
-			hosts = append(hosts, item)
-			continue
-		}
-		_, changes, n, werr := rewriteRuleSetURLs(text, base)
-		if werr != nil {
-			item["error"] = werr.Error()
-			hosts = append(hosts, item)
-			continue
-		}
-		item["ok"] = true
-		item["changes"] = n
-		if len(changes) > 3 {
-			item["sample"] = changes[:3]
-		} else if changes != nil {
-			item["sample"] = changes
-		}
-		hosts = append(hosts, item)
+		hosts = append(hosts, previewPublicBaseOnRouter(host, cred, base))
 	}
 	writeJSON(w, 200, map[string]any{"ok": true, "base": normalizePublicBase(base), "hosts": hosts})
 }
 
+// applyPublicBaseToRouter 对单台路由执行改写并走 /router/apply 同款应用通道。
+// 返回一条结果：读取/改写/应用失败 ok=false 带 error；无变更 changed=false；
+// 成功时带 changed/log，并落 apply_log 留痕。
+func applyPublicBaseToRouter(host string, cred routerCred, base string) map[string]any {
+	res := map[string]any{"host": host, "name": cred.Name}
+	cur, rerr := remoteReadConfig(host, cred)
+	if rerr != nil {
+		res["ok"] = false
+		res["error"] = rerr.Error()
+		return res
+	}
+	newText, _, n, werr := rewriteRuleSetURLs(cur, base)
+	if werr != nil {
+		res["ok"] = false
+		res["error"] = werr.Error()
+		return res
+	}
+	res["changes"] = n
+	if n == 0 {
+		res["ok"] = true
+		res["changed"] = false
+		return res
+	}
+	// 复用配置应用通道：expectSha 用刚读到的内容算（内容一致才允许写）
+	sha := sha256Hex(cur)
+	ar, aerr := remoteApplyConfig(host, cred, newText, sha)
+	if aerr != nil {
+		res["ok"] = false
+		res["error"] = aerr.Error()
+		return res
+	}
+	res["ok"] = true
+	res["changed"] = ar.Changed
+	res["log"] = ar.Log
+	logApply(host, ar.Changed, sha, sha256Hex(newText), "", 0)
+	return res
+}
+
 // handlePublicRulesApply POST /public/rules/apply {base, hosts?, confirm}
+// 必须 confirm=true；hosts 缺省=全部已配置路由。逐台写入，单台失败不阻断其它路由。
 func handlePublicRulesApply(w http.ResponseWriter, r *http.Request) {
 	if preflight(w, r) {
 		return
@@ -184,42 +227,7 @@ func handlePublicRulesApply(w http.ResponseWriter, r *http.Request) {
 		if len(want) > 0 && !want[host] {
 			continue
 		}
-		res := map[string]any{"host": host, "name": cred.Name}
-		cur, rerr := remoteReadConfig(host, cred)
-		if rerr != nil {
-			res["ok"] = false
-			res["error"] = rerr.Error()
-			results = append(results, res)
-			continue
-		}
-		newText, _, n, werr := rewriteRuleSetURLs(cur, base)
-		if werr != nil {
-			res["ok"] = false
-			res["error"] = werr.Error()
-			results = append(results, res)
-			continue
-		}
-		res["changes"] = n
-		if n == 0 {
-			res["ok"] = true
-			res["changed"] = false
-			results = append(results, res)
-			continue
-		}
-		// 复用配置应用通道：expectSha 用刚读到的内容算（内容一致才允许写）
-		sha := sha256Hex(cur)
-		ar, aerr := remoteApplyConfig(host, cred, newText, sha)
-		if aerr != nil {
-			res["ok"] = false
-			res["error"] = aerr.Error()
-			results = append(results, res)
-			continue
-		}
-		res["ok"] = true
-		res["changed"] = ar.Changed
-		res["log"] = ar.Log
-		logApply(host, ar.Changed, sha, sha256Hex(newText), "", 0)
-		results = append(results, res)
+		results = append(results, applyPublicBaseToRouter(host, cred, base))
 	}
 	writeJSON(w, 200, map[string]any{"ok": true, "base": base, "hosts": results})
 }

@@ -1,3 +1,12 @@
+/**
+ * backend-pane —— 单路由面板：每个后端 tab 一个实例，持有该路由的 clash_api 状态与交互。
+ *  - 头部：引擎版本 / 活跃连接 / 流量 / 分组 / 节点统计，401 与连接错误横幅，⚙ 后端配置表单；
+ *  - 子 tab：概览 / 分组与节点 / 连接 / 流向 / 日志 / 规则 / 配置（概览与配置是独立组件）；
+ *  - 全局待保存条：流向图 ③④ 弹窗的改动暂存在 ConfigDraftService，跨子 tab 可见，「保存并重启」才写回路由；
+ *  - 编辑弹窗宿主：③ 规则集 / ④ 分组 / SSH 凭据弹窗以 fixed 遮罩挂在面板根部；
+ *  - 连接子页：年龄过滤（全部 / ≥1分 / ≥5分 / ≥30分）+ 空转过滤（≥60s 零字节增长），
+ *    用于揪出疑似僵死的老连接并批量断开。
+ */
 import {
   ChangeDetectionStrategy,
   Component,
@@ -28,6 +37,7 @@ import { fmtBytes, latClass, latText, runPool } from './util';
 
 /** 后端子页签 */
 type PaneTab = 'overview' | 'groups' | 'connections' | 'flow' | 'logs' | 'rules' | 'config';
+/** 一条日志行：级别 + 文本 */
 interface LogLine {
   type: string;
   text: string;
@@ -59,27 +69,32 @@ interface LogLine {
     }
   `,
 })
-/**
- * 后端面板 — 一台路由的七个子页：概览 / 分组与节点 / 连接 / 流向 / 日志 / 规则 / 配置。
- * 概览与配置是独立组件；本组件持有其余五个子页的状态与 clash_api 交互。
- */
+/** 后端面板组件：其余五个子页（分组/连接/流向/日志/规则）的状态与 clash_api 交互都在本组件 */
 export class BackendPane implements OnInit, OnDestroy {
+  /** 当前后端（名称 / 地址 / 密钥等） */
   readonly backend = input.required<Backend>();
+  /** 该后端在列表中的序号（保存 / 删除配置时用） */
   readonly index = input.required<number>();
+  /** 删除后端后通知根组件切换 tab */
   readonly removed = output<void>();
 
+  /** 后端列表服务：保存 / 删除后端、全局密钥、有效性判断 */
   private readonly bsvc = inject(BackendsService);
+  /** clash_api 客户端：版本 / 分组 / 连接 / 日志 / 规则 / 断开等 */
   private readonly clash = inject(ClashService);
   /** 流向图编辑的全局配置草稿（待保存条 + ③④ 弹窗共用） */
   readonly draft = inject(ConfigDraftService);
 
-  /** 正在编辑的分组 tag（null = 弹窗关闭）：③ 规则集 / ④ 分组 */
+  /** ③ 规则集弹窗正在编辑的分组 tag（null = 弹窗关闭） */
   readonly editRuleTag = signal<string | null>(null);
+  /** ④ 分组弹窗正在编辑的分组 tag（null = 弹窗关闭） */
   readonly editGroupTag = signal<string | null>(null);
   /** SSH 凭据弹窗（save 发现缺凭据时打开；saved 后自动重试保存） */
   readonly credOpen = signal(false);
 
+  /** 当前激活的子 tab */
   readonly tab = signal<PaneTab>('overview');
+  /** 子 tab 定义（数组顺序即渲染顺序） */
   readonly tabs: { key: PaneTab; label: string }[] = [
     { key: 'overview', label: '概览' },
     { key: 'groups', label: '分组与节点' },
@@ -90,13 +105,20 @@ export class BackendPane implements OnInit, OnDestroy {
     { key: 'config', label: '配置' },
   ];
 
+  /** sing-box 引擎版本（头部统计条） */
   readonly version = signal('');
+  /** 全量代理表：名称 → 节点（分组与节点子页的数据源） */
   readonly proxyMap = signal<Record<string, ProxyNode>>({});
+  /** 活跃连接列表（连接子页） */
   readonly conns = signal<Connection[]>([]);
+  /** 实际生效的规则表（规则子页，进入时才拉取） */
   readonly rules = signal<RuleEntry[]>([]);
+  /** 首屏加载错误文案（横幅展示） */
   readonly loadErr = signal('');
+  /** 401：密钥未填或错误（单独横幅提示） */
   readonly unauthorized = signal(false);
 
+  /** 连接关键字过滤（域名 / 链 / 规则等，忽略大小写） */
   readonly filter = signal('');
   /** 连接年龄过滤阈值（秒）：0=全部，其余=只看存活≥该秒数的（用来揪疑似僵死的老连接） */
   readonly ageFilter = signal(0);
@@ -106,31 +128,54 @@ export class BackendPane implements OnInit, OnDestroy {
   readonly idleOnly = signal(false);
   /** 每条连接的「最近一次字节变化时刻」：id → 毫秒。用于区分长连接（仍在跑数据）与空转/僵死 */
   private readonly lastMove = new Map<string, number>();
+  /** 每条连接的字节签名（upload+download）：配合 lastMove 判断是否还在跑数据 */
+  private readonly lastSig = new Map<string, number>();
+  /** 连接子页自动刷新开关（3s 一次） */
   readonly autoRefresh = signal(true);
+  /** 日志暂停开关：暂停时丢弃新日志行 */
   readonly paused = signal(false);
+  /** 日志级别（debug/info/warn/error） */
   readonly level = signal('info');
+  /** 日志行缓冲（最多保留最近 300 行） */
   readonly logLines = signal<LogLine[]>([]);
+  /** 「全部测速」是否进行中 */
   readonly testing = signal(false);
+  /** 测速进度文案（已完成/总数） */
   readonly testProgress = signal('');
+  /** ⚙ 后端配置表单展开开关 */
   readonly cfgOpen = signal(false);
+  /** 配置保存结果提示（成功 2s 后自动清空） */
   readonly cfgMsg = signal('');
+  /** 受信来源清单（CORS 提示文案用） */
   readonly origins = PAGE_ORIGINS;
+  /** 日志级别可选项 */
   readonly levels = ['debug', 'info', 'warn', 'error'];
 
+  /** 配置表单：名称（随后端输入联动，可独立改写） */
   readonly cfgName = linkedSignal(() => this.backend().name);
+  /** 配置表单：clash_api 地址 */
   readonly cfgApi = linkedSignal(() => this.backend().api);
+  /** 配置表单：密钥（留空 = 用全局密钥） */
   readonly cfgKey = linkedSignal(() => this.backend().key);
 
+  /** 日志滚动容器（自动贴底用） */
   private readonly logBox = viewChild<ElementRef<HTMLDivElement>>('logbox');
+  /** 3s 心跳定时器：推进连接年龄 + 连接子页自动刷新 */
   private timer: ReturnType<typeof setInterval> | null = null;
+  /** 日志 WebSocket（仅在日志子页连接） */
   private ws: WebSocket | null = null;
+  /** 日志是否贴底（用户上滚离开底部后停止自动滚动） */
   private stickToBottom = true;
 
+  /** 分组列表：只取 Selector / URLTest（分组与节点子页） */
   readonly groupList = computed(() =>
     Object.values(this.proxyMap()).filter((p) => p.type === 'Selector' || p.type === 'URLTest'),
   );
+  /** 节点总数（头部统计条） */
   readonly nodes = computed(() => Object.keys(this.proxyMap()).length);
+  /** 全部连接的累计下载字节（头部统计条） */
   readonly totalDown = computed(() => this.conns().reduce((n, c) => n + (c.download ?? 0), 0));
+  /** 全部连接的累计上传字节（头部统计条） */
   readonly totalUp = computed(() => this.conns().reduce((n, c) => n + (c.upload ?? 0), 0));
   /** 当前筛选命中的全部连接（不受 120 条显示上限影响，批量断开用） */
   readonly matchedConns = computed(() => {
@@ -181,6 +226,7 @@ export class BackendPane implements OnInit, OnDestroy {
     });
   }
 
+  /** 启动 3s 心跳：页面隐藏时跳过；推进 now 让连接年龄实时走动，连接子页按需自动刷新 */
   ngOnInit(): void {
     this.timer = setInterval(() => {
       if (document.hidden) return;
@@ -189,6 +235,7 @@ export class BackendPane implements OnInit, OnDestroy {
     }, 3000);
   }
 
+  /** 清理：停心跳定时器并断开日志 WebSocket */
   ngOnDestroy(): void {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
@@ -219,6 +266,7 @@ export class BackendPane implements OnInit, OnDestroy {
     }
   }
 
+  /** 只刷新连接列表（自动刷新 / 手动刷新；失败静默不打扰用户） */
   async refreshConns(): Promise<void> {
     try {
       const conns = await this.clash.connections(this.backend());
@@ -236,14 +284,9 @@ export class BackendPane implements OnInit, OnDestroy {
       seen.add(c.id);
       const sig = (c.upload ?? 0) + (c.download ?? 0);
       const prev = this.lastMove.get(c.id);
-      // 用「字节签名 + 首次出现」占位：第一次见到即算活跃；之后签名变化才更新
       const prevSig = this.lastSig.get(c.id);
-      if (prev === undefined || prevSig === undefined) {
-        // 首次见到：记为活跃起点
-        this.lastMove.set(c.id, now);
-        this.lastSig.set(c.id, sig);
-      } else if (prevSig !== sig) {
-        // 字节有增长：刷新活跃时刻
+      // 首次见到记为活跃起点；之后字节签名有增长才刷新活跃时刻
+      if (prev === undefined || prevSig !== sig) {
         this.lastMove.set(c.id, now);
         this.lastSig.set(c.id, sig);
       }
@@ -255,19 +298,19 @@ export class BackendPane implements OnInit, OnDestroy {
     this.conns.set(list);
   }
 
-  /** 字节签名表（配合 lastMove 判断是否还在跑数据） */
-  private readonly lastSig = new Map<string, number>();
-
+  /** 头部「刷新」：整体重拉；停在规则子页时顺带刷新规则表 */
   async refreshAll(): Promise<void> {
     await this.load();
     if (this.tab() === 'rules') await this.loadRules();
   }
 
+  /** 切换日志级别：正停在日志子页时立即按新级别重连 WebSocket */
   setLevel(l: string): void {
     this.level.set(l);
     if (this.tab() === 'logs') this.startLogs();
   }
 
+  /** 切换子 tab：日志按需连/断，规则懒加载，进入连接子页立即刷新一次 */
   setTab(t: PaneTab): void {
     this.tab.set(t);
     if (t === 'logs') this.startLogs();
@@ -284,14 +327,17 @@ export class BackendPane implements OnInit, OnDestroy {
     return h.length ? (h[h.length - 1].delay ?? 0) : null;
   }
 
+  /** 延迟着色 class（模板包装，实现见 util.latClass） */
   latClass(d: number | null): string {
     return latClass(d);
   }
 
+  /** 延迟文案（模板包装，实现见 util.latText） */
   latText(d: number | null): string {
     return latText(d);
   }
 
+  /** 点 Selector 组成员切换当前节点；URLTest 组只读，不响应 */
   async select(group: ProxyNode, member: string): Promise<void> {
     if (group.type !== 'Selector') return;
     try {
@@ -302,6 +348,7 @@ export class BackendPane implements OnInit, OnDestroy {
     }
   }
 
+  /** 全部测速：收集分组引用的全部非分组节点，并发 6 测延迟，结果写回各节点 history */
   async testAll(): Promise<void> {
     if (this.testing()) return;
     this.testing.set(true);
@@ -331,6 +378,7 @@ export class BackendPane implements OnInit, OnDestroy {
     }
   }
 
+  /** 给指定节点的 history 追加一条延迟记录（测速结果写回） */
   private patchLat(name: string, d: number): void {
     this.proxyMap.update((m) => {
       const p = m[name];
@@ -340,6 +388,7 @@ export class BackendPane implements OnInit, OnDestroy {
   }
 
   /* ── 连接 ── */
+  /** 连接的可搜索文本（主机 / 目标 / 规则 / 链，小写拼接），供关键字过滤 */
   private connText(c: Connection): string {
     const m = c.metadata ?? {};
     return [
@@ -356,6 +405,7 @@ export class BackendPane implements OnInit, OnDestroy {
       .toLowerCase();
   }
 
+  /** 连接经过的代理链（缺失按空数组处理） */
   chainOf(c: Connection): string[] {
     return c.chains ?? [];
   }
@@ -372,6 +422,7 @@ export class BackendPane implements OnInit, OnDestroy {
     return t === undefined ? 0 : Math.max(0, (now - t) / 1000);
   }
 
+  /** 年龄文案：<60s 显示秒，<1h 显示分，其余显示 时+分 */
   ageText(sec: number): string {
     if (sec < 60) return Math.round(sec) + 's';
     if (sec < 3600) return Math.floor(sec / 60) + '分';
@@ -385,6 +436,7 @@ export class BackendPane implements OnInit, OnDestroy {
     return '';
   }
 
+  /** 断开单条连接并从列表移除（连接可能已自行关闭，失败静默） */
   async kill(c: Connection): Promise<void> {
     try {
       await this.clash.kill(this.backend(), c.id);
@@ -414,16 +466,18 @@ export class BackendPane implements OnInit, OnDestroy {
     }
   }
 
+  /** 断开全部连接（需确认），成功后刷新连接列表 */
   async killAll(): Promise<void> {
     if (!confirm('断开全部连接？（会立刻断开当前所有代理连接）')) return;
     try {
       await this.clash.killAll(this.backend());
       await this.refreshConns();
     } catch {
-      /* ignore */
+      /* 忽略：断开或刷新失败 */
     }
   }
 
+  /** 字节数格式化（模板包装，实现见 util.fmtBytes） */
   fmtB(n?: number): string {
     return fmtBytes(n ?? 0);
   }
@@ -457,6 +511,7 @@ export class BackendPane implements OnInit, OnDestroy {
     this.ws.onclose = () => this.pushLog('info', '— 连接已关闭 —');
   }
 
+  /** 断开日志 WebSocket 并解绑回调（切走日志子页 / 组件销毁时调用） */
   private stopLogs(): void {
     if (!this.ws) return;
     this.ws.onmessage = null;
@@ -465,7 +520,7 @@ export class BackendPane implements OnInit, OnDestroy {
     try {
       this.ws.close();
     } catch {
-      /* ignore */
+      /* 忽略关闭异常 */
     }
     this.ws = null;
   }
@@ -489,6 +544,7 @@ export class BackendPane implements OnInit, OnDestroy {
   }
 
   /* ── 规则 ── */
+  /** 拉取实际生效的规则表（GET /rules）；失败时清空并弹窗提示 */
   async loadRules(): Promise<void> {
     try {
       const res = await this.clash.rules(this.backend());
@@ -503,16 +559,20 @@ export class BackendPane implements OnInit, OnDestroy {
 
   /** 点 ③ 规则集卡：分组在当前配置里才开弹窗（DIRECT/block 带不弹） */
   openRule(tag: string): void {
-    const doc = this.draft.draft() ?? this.draft.baseDoc();
-    if (!doc || !groups(doc).some((g) => String(g['tag']) === tag)) return;
+    if (!this.hasGroup(tag)) return;
     this.editRuleTag.set(tag);
   }
 
-  /** 点 ④ 分组卡 */
+  /** 点 ④ 分组卡：与 ③ 相同的前置存在性检查 */
   openGroup(tag: string): void {
-    const doc = this.draft.draft() ?? this.draft.baseDoc();
-    if (!doc || !groups(doc).some((g) => String(g['tag']) === tag)) return;
+    if (!this.hasGroup(tag)) return;
     this.editGroupTag.set(tag);
+  }
+
+  /** 当前配置（草稿优先，否则已保存基准）里是否存在该 tag 的分组 */
+  private hasGroup(tag: string): boolean {
+    const doc = this.draft.draft() ?? this.draft.baseDoc();
+    return !!doc && groups(doc).some((g) => String(g['tag']) === tag);
   }
 
   /** 待保存条「保存并重启」：结构预检 + 确认后走草稿服务（内部备份/check/替换/重启/回滚） */
@@ -546,12 +606,14 @@ export class BackendPane implements OnInit, OnDestroy {
   }
 
   /* ── 后端配置 ── */
+  /** 保存后端配置（名称/地址/密钥）；成功提示 2s 后自动清空，失败提示地址格式 */
   saveCfg(): void {
     const ok = this.bsvc.save(this.index(), this.cfgName(), this.cfgApi(), this.cfgKey());
     this.cfgMsg.set(ok ? '已保存' : '地址必须形如 http(s)://主机:端口');
     if (ok) setTimeout(() => this.cfgMsg.set(''), 2000);
   }
 
+  /** 删除本后端：已保存的需确认，草稿直接删；删除后通知根组件切 tab */
   delCfg(): void {
     const b = this.backend();
     if (!b.draft && !confirm(`删除后端「${b.name}」？（只影响本浏览器配置）`)) return;

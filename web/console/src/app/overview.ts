@@ -1,3 +1,14 @@
+/**
+ * overview —— 概览子页：单路由的实时曲线与网络状态（参考 zashboard 概览页）。
+ *  - 三条曲线：速率（↓/↑ 上下镜像）/ 连接数 / 内存使用，clash WebSocket 1s 采样，
+ *    每 2 秒聚成一格，窗口 1/5/10 分钟可选，曲线 / 柱形两种画法；
+ *  - hist 缓存：四条曲线 + 视图偏好每 2s 写入 localStorage（按路由主机隔离），
+ *    切 tab 回来即恢复不空白；超过 10 分钟的陈旧缓存整段丢弃；
+ *  - 带宽可编辑：手填线路带宽（Mib/s）作为速率图固定满量程基准并持久化，
+ *    也可切换为按窗口内峰值自适应；
+ *  - 模式切换：Rule / Global / Direct（PATCH /configs，唯一运行时写操作，需确认）；
+ *  - 分组延时速览：各分组当前节点与延迟，支持全部测速（并发 6）。
+ */
 import {
   ChangeDetectionStrategy,
   Component,
@@ -18,11 +29,12 @@ const MAX_POINTS = 600; // 原始 1s 采样缓冲 = 10 分钟
 const BUCKET_SECONDS = 2; // 图形窗口按 2 秒一格填充（10 分钟 = 300 格）
 /** 速率图默认满量程带宽：1000 Mib/s（千兆，1 Mib = 2^20 bit） */
 const DEFAULT_BANDWIDTH_MIB = 1000;
+/** 手填带宽的 localStorage 持久化键 */
 const BW_STORE_KEY = 'rateBandwidthMib';
 
+/** 可选窗口时长（分钟） */
 const WINDOW_OPTIONS = [1, 5, 10];
 
-/** 概览：速率 / 连接数 / 内存曲线 + 分组延时速览 + 网络信息（参考 zashboard 概览页） */
 @Component({
   selector: 'app-overview',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -30,23 +42,39 @@ const WINDOW_OPTIONS = [1, 5, 10];
   templateUrl: './overview.html',
 })
 export class OverviewPane implements OnInit, OnDestroy {
+  /** 当前后端（曲线数据源，也是 hist 缓存的隔离依据） */
   readonly backend = input.required<Backend>();
 
+  /** clash_api 客户端：WebSocket 采样与 REST 读写 */
   private readonly clash = inject(ClashService);
 
+  /** 下载速率原始采样（1s 一点，环形保留最近 MAX_POINTS 个） */
   readonly downPts = signal<number[]>([]);
+  /** 上传速率原始采样 */
   readonly upPts = signal<number[]>([]);
+  /** 连接数原始采样 */
   readonly connPts = signal<number[]>([]);
+  /** 内存使用原始采样 */
   readonly memPts = signal<number[]>([]);
+  /** 当前下载速率（字节/秒，主读数） */
   readonly rateDown = signal(0);
+  /** 当前上传速率（字节/秒，主读数） */
   readonly rateUp = signal(0);
+  /** 当前活跃连接数（主读数） */
   readonly connCount = signal(0);
+  /** 当前内存占用（字节，主读数） */
   readonly memInuse = signal(0);
+  /** 累计流量 ↓/↑（字节） */
   readonly totals = signal({ down: 0, up: 0 });
+  /** 当前路由模式（Rule/Global/Direct） */
   readonly mode = signal('');
+  /** 可选模式列表（默认三个，后端 mode-list 可覆盖） */
   readonly modeList = signal<string[]>(['Rule', 'Global', 'Direct']);
+  /** 分组列表（Selector/URLTest，延时速览用） */
   readonly groups = signal<ProxyNode[]>([]);
+  /** 当前图形窗口（分钟） */
   readonly windowMin = signal(10);
+  /** 窗口时长选项（1/5/10 分钟） */
   readonly windowOptions = WINDOW_OPTIONS;
   /** 曲线 / 柱形 两种画法（速率图柱形模式以上下镜像呈现：上=下载、下=上传） */
   readonly chartMode = signal<'line' | 'bar'>('line');
@@ -54,17 +82,26 @@ export class OverviewPane implements OnInit, OnDestroy {
   readonly rateScale = signal<'fixed' | 'auto'>('fixed');
   /** 手填带宽，单位 Mib/s（1 Mib = 2^20 bit），持久化在 localStorage */
   readonly bandwidth = signal<number>(this.loadBandwidth());
+  /** 固定满量程上限（字节/秒）：仅固定刻度时生效，自适应时为 undefined 交给图表 */
   readonly rateFixedMax = computed(() =>
     this.rateScale() === 'fixed' ? mibToBytes(Math.max(1, this.bandwidth())) : undefined,
   );
+  /** 节点延迟表：名称 → 毫秒（history 尾部 + 手动测速结果） */
   readonly nodeLat = signal<Record<string, number>>({});
+  /** 「全部测速」是否进行中 */
   readonly testing = signal(false);
+  /** 测速进度文案（已完成/总数） */
   readonly testProgress = signal('');
+  /** 错误横幅文案（WebSocket / REST 失败） */
   readonly err = signal('');
+  /** 当前页面来源（网络信息展示） */
   readonly origin = location.origin;
 
+  /** 已打开的 clash WebSocket（销毁时统一关闭） */
   private readonly sockets: WebSocket[] = [];
+  /** 分组轮询定时器（5s 一次） */
   private timer: ReturnType<typeof setInterval> | null = null;
+  /** hist 落盘定时器（2s 一次） */
   private histTimer: ReturnType<typeof setInterval> | null = null;
 
   /** 速率历史缓存键（按路由主机区分，存 localStorage，切 tab 不丢曲线） */
@@ -98,18 +135,26 @@ export class OverviewPane implements OnInit, OnDestroy {
     return out;
   }
 
+  /** 下载速率曲线（分格聚合后） */
   private readonly downSeries = computed(() => this.bucketize(this.downPts()));
+  /** 上传速率曲线（分格聚合后） */
   private readonly upSeries = computed(() => this.bucketize(this.upPts()));
+  /** 连接数曲线（分格聚合后） */
   private readonly connSeriesPts = computed(() => this.bucketize(this.connPts()));
+  /** 内存曲线（分格聚合后） */
   private readonly memSeriesPts = computed(() => this.bucketize(this.memPts()));
 
+  /** 速率图系列：下载（蓝）/ 上传（绿），柱形模式上下镜像 */
   readonly rateSeries = computed<ChartSeries[]>(() => [
     { points: this.downSeries(), color: '#1f6fd0' },
     { points: this.upSeries(), color: '#0f8f68' },
   ]);
+  /** 连接数图系列（紫） */
   readonly connSeries = computed<ChartSeries[]>(() => [{ points: this.connSeriesPts(), color: '#8a6bd1' }]);
+  /** 内存图系列（棕） */
   readonly memSeries = computed<ChartSeries[]>(() => [{ points: this.memSeriesPts(), color: '#a8690a' }]);
 
+  /** 窗口标签文案：近 N 分钟 */
   windowLabel(): string {
     return '近 ' + this.windowMin() + ' 分钟';
   }
@@ -119,10 +164,12 @@ export class OverviewPane implements OnInit, OnDestroy {
     return this.connSeriesPts().filter((v) => v !== null).length;
   }
 
+  /** 分格说明文案：每 2 秒 1 格 × 格数 */
   bucketText(): string {
     return '每 2 秒 1 格 × ' + this.bucketCount();
   }
 
+  /** 初始化：恢复 hist 缓存 → 拉静态信息 → 开三条采样 WebSocket → 启动分组轮询与 hist 落盘 */
   ngOnInit(): void {
     this.loadHist(); // 先恢复上次的曲线，切 tab 回来不空白
     void this.loadStatic();
@@ -149,6 +196,7 @@ export class OverviewPane implements OnInit, OnDestroy {
     this.histTimer = setInterval(() => this.saveHist(), 2000); // 每 2s 落盘一次历史
   }
 
+  /** 清理：再落盘一次 hist，停两个定时器，关闭全部 WebSocket 并解绑回调 */
   ngOnDestroy(): void {
     this.saveHist(); // 离开前再存一次，保证切 tab 时是最新的
     if (this.timer) clearInterval(this.timer);
@@ -162,7 +210,7 @@ export class OverviewPane implements OnInit, OnDestroy {
       try {
         ws.close();
       } catch {
-        /* ignore */
+        /* 忽略关闭异常 */
       }
     }
   }
@@ -182,7 +230,7 @@ export class OverviewPane implements OnInit, OnDestroy {
       this.upPts.set(cap(h.up));
       this.connPts.set(cap(h.conn));
       this.memPts.set(cap(h.mem));
-      if (h.win === 1 || h.win === 5 || h.win === 10) this.windowMin.set(h.win);
+      if (h.win !== undefined && WINDOW_OPTIONS.includes(h.win)) this.windowMin.set(h.win);
       if (h.mode === 'line' || h.mode === 'bar') this.chartMode.set(h.mode);
     } catch {
       /* 缓存损坏忽略，从空白开始 */
@@ -232,6 +280,7 @@ export class OverviewPane implements OnInit, OnDestroy {
     }
   }
 
+  /** 拉静态信息：当前模式与模式列表（GET /configs），随后拉一次分组 */
   private async loadStatic(): Promise<void> {
     try {
       const cfg = await this.clash.configs(this.backend());
@@ -243,6 +292,7 @@ export class OverviewPane implements OnInit, OnDestroy {
     }
   }
 
+  /** 拉分组与各节点最新延迟（5s 轮询 + 手动刷新）；失败静默，不打断曲线 */
   async loadGroups(): Promise<void> {
     try {
       const res = await this.clash.proxies(this.backend());
@@ -262,6 +312,7 @@ export class OverviewPane implements OnInit, OnDestroy {
     }
   }
 
+  /** 切换路由模式（PATCH /configs）：需确认；失败弹窗提示且保持原模式 */
   async setMode(mode: string): Promise<void> {
     if (mode === this.mode()) return;
     if (!confirm(`把路由模式切到 ${mode}？（影响整台路由的全局分流，可随时切回）`)) return;
@@ -273,6 +324,7 @@ export class OverviewPane implements OnInit, OnDestroy {
     }
   }
 
+  /** 全部测速：收集分组引用的全部非分组节点，并发 6 测延迟，结果存 nodeLat */
   async testAll(): Promise<void> {
     if (this.testing()) return;
     this.testing.set(true);
@@ -289,7 +341,7 @@ export class OverviewPane implements OnInit, OnDestroy {
         try {
           d = await this.clash.delay(this.backend(), name);
         } catch {
-          d = 0;
+          d = 0; // 超时/不可达记 0
         }
         this.nodeLat.update((m) => ({ ...m, [name]: d }));
         done++;
@@ -301,16 +353,19 @@ export class OverviewPane implements OnInit, OnDestroy {
     }
   }
 
+  /** 取指定节点的延迟（未测过为 null） */
   lat(name: string | undefined): number | null {
     if (!name) return null;
     const d = this.nodeLat()[name];
     return d === undefined ? null : d;
   }
 
+  /** 延迟着色 class（模板包装，实现见 util.latClass） */
   latClass(d: number | null): string {
     return latClass(d);
   }
 
+  /** 延迟文案（模板包装，未测显示 —，实现见 util.latText） */
   latText(d: number | null): string {
     return latText(d, '—');
   }
@@ -320,6 +375,7 @@ export class OverviewPane implements OnInit, OnDestroy {
     return fmtMib(n);
   }
 
+  /** 从 localStorage 读手填带宽；缺失 / 非法时回退默认千兆 */
   private loadBandwidth(): number {
     const raw = Number(localStorage.getItem(BW_STORE_KEY));
     return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_BANDWIDTH_MIB;
@@ -343,19 +399,23 @@ export class OverviewPane implements OnInit, OnDestroy {
     return pct < 10 ? pct.toFixed(1) + '%' : Math.round(pct) + '%';
   }
 
+  /** 速率文案（模板包装，实现见 util.fmtRate） */
   rateText(n: number): string {
     return fmtRate(n);
   }
 
+  /** 内存主读数：字节 → MB（一位小数），0 显示 — */
   memText(): string {
     const n = this.memInuse();
     return n ? (n / 1024 / 1024).toFixed(1) + ' MB' : '—';
   }
 
+  /** 字节数格式化（模板包装，实现见 util.fmtBytes） */
   fmtB(n: number): string {
     return fmtBytes(n);
   }
 
+  /** 分组成员数 */
   groupCount(g: ProxyNode): number {
     return g.all?.length ?? 0;
   }

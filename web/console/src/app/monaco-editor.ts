@@ -1,3 +1,11 @@
+/**
+ * monaco-editor.ts — Monaco 编辑器的 Angular 受控封装。
+ *
+ * 走本站 vendored 的 AMD loader（/static/monaco/vs，离线可用），不引 npm monaco。
+ * input value 受控：外部 set 与编辑器内部 change 通过「回环抑制」避免互相触发；
+ * output valueChange 把内容抛给父组件（配置页/规则编辑做即时校验）。
+ * 语言固定 json；销毁时 dispose model/editor 防泄漏。
+ */
 import {
   ChangeDetectionStrategy,
   Component,

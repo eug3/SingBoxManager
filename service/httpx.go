@@ -13,7 +13,9 @@ import (
 	"strings"
 )
 
-// writeJSON 统一 JSON 应答（显式 Content-Length，方便脚本断言）
+// writeJSON 统一 JSON 应答：序列化 v → 设 Content-Type/显式 Content-Length → 写状态码与体。
+// 显式 Content-Length 方便脚本断言。v 必须可 JSON 序列化（本服务只传 map/结构体，
+// 序列化失败按空体处理，与历史行为一致）。
 func writeJSON(w http.ResponseWriter, code int, v any) {
 	b, _ := json.Marshal(v)
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -27,7 +29,8 @@ func fail(w http.ResponseWriter, code int, msg string) {
 	writeJSON(w, code, map[string]any{"error": msg})
 }
 
-// setCors 只对白名单来源回 ACAO；管理台接口一律 no-store
+// setCors 只对白名单来源（allowOrigins）回 ACAO；管理台接口一律 no-store。
+// 非白名单来源不设 ACAO（浏览器侧自然拦截），其余 CORS 头照常给。
 func setCors(h http.Header, origin string) {
 	for _, o := range allowOrigins {
 		if o == origin {
@@ -51,7 +54,10 @@ func preflight(w http.ResponseWriter, r *http.Request) bool {
 	return false
 }
 
-// safeJoin 拼接并防目录穿越（base 之外的路径一律拒绝）
+// safeJoin 拼接并防目录穿越（containment：结果永远不逃出 base）。
+// 机制：先把 rel 规范化为「绝对路径再 Clean」——Clean("/"+rel) 会把一切 ..
+// 收敛到根，因此 ../ 攻击最多落到 base 本身；再做前缀校验兜底，
+// 结果不等于 base 也不在 base/ 之下时返回 path escape 错误。
 func safeJoin(base, rel string) (string, error) {
 	full := filepath.Join(base, filepath.Clean("/"+rel))
 	baseClean := filepath.Clean(base)

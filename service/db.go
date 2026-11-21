@@ -16,8 +16,6 @@ package main
 
 import (
 	"database/sql"
-	"encoding/json"
-	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -34,9 +32,12 @@ var (
 	dbErr  error
 )
 
+// dbFile 数据库文件路径（可用 DB_FILE 覆盖，默认 /etc/vault-edit/sbm.db）
 func dbFile() string { return env("DB_FILE", "/etc/vault-edit/sbm.db") }
 
-// db 惰性打开（进程内单例），并建表 + 迁移
+// db 惰性打开（进程内单例），并建表 + 迁移。
+// 返回 (连接, 错误)：打开失败时连接为 nil，错误只发生一次（sync.Once），
+// 之后所有调用都拿到同一份结果，不会反复重试。
 func db() (*sql.DB, error) {
 	dbOnce.Do(func() {
 		path := dbFile()
@@ -102,10 +103,12 @@ CREATE INDEX IF NOT EXISTS idx_publish_ts ON publish_log(ts);
 CREATE INDEX IF NOT EXISTS idx_apply_ts   ON apply_log(ts);
 `
 
+// nowStr 当前时间的 RFC3339 文本（各表 updated_at/ts 统一用它）
 func nowStr() string { return time.Now().Format(time.RFC3339) }
 
 // ---- kv ----
 
+// kvGet 读键值；键不存在或库不可用都返回 ("", false)，调用方按「未配置」兜底
 func kvGet(key string) (string, bool) {
 	conn, err := db()
 	if err != nil {
@@ -118,6 +121,7 @@ func kvGet(key string) (string, bool) {
 	return v, true
 }
 
+// kvSet 写键值（upsert）；库不可用或写失败返回 error
 func kvSet(key, value string) error {
 	conn, err := db()
 	if err != nil {
@@ -138,6 +142,8 @@ func kvSetRaw(conn *sql.DB, key, value string) error {
 
 // ---- 路由凭据 ----
 
+// routersFromDB 读全部路由凭据（host → 凭据）；user/port 缺省补 root/22。
+// 库不可用或查询失败返回 error；空表返回空 map（不是 error）。
 func routersFromDB() (map[string]routerCred, error) {
 	conn, err := db()
 	if err != nil {
@@ -166,6 +172,7 @@ func routersFromDB() (map[string]routerCred, error) {
 	return out, rows.Err()
 }
 
+// routersToDB 整表 upsert 路由凭据（事务内逐台写入）
 func routersToDB(m map[string]routerCred) error {
 	conn, err := db()
 	if err != nil {
@@ -194,6 +201,7 @@ func routersToDBRaw(conn *sql.DB, m map[string]routerCred) error {
 	return tx.Commit()
 }
 
+// routerDeleteDB 删除一台路由的凭据；host 不存在时不报错（DELETE 幂等）
 func routerDeleteDB(host string) error {
 	conn, err := db()
 	if err != nil {
@@ -205,6 +213,8 @@ func routerDeleteDB(host string) error {
 
 // ---- 日志表 ----
 
+// logPublish 留痕一次发布（桶名/双文件字节数/srs 摘要）。
+// 尽力而为：库不可用或写失败只打日志，绝不影响发布主流程。
 func logPublish(bucket string, jsonBytes, srsBytes int, sha string) {
 	conn, err := db()
 	if err != nil {
@@ -217,6 +227,8 @@ func logPublish(bucket string, jsonBytes, srsBytes int, sha string) {
 	}
 }
 
+// logApply 留痕一次配置应用/重启（是否变更/前后摘要/备份路径/耗时）。
+// 与 logPublish 同样是尽力而为，失败只打日志。
 func logApply(host string, changed bool, shaFrom, shaTo, backup string, ms int64) {
 	conn, err := db()
 	if err != nil {
@@ -241,6 +253,7 @@ func logApplyWrap(host string, changed bool, shaFrom, shaTo, detail string, ms i
 	log.Printf("router op %s changed=%v (%dms) %s", host, changed, ms, cleanLine(detail))
 }
 
+// boolInt bool → 0/1（SQLite 没有布尔列，changed 用整数存）
 func boolInt(b bool) int {
 	if b {
 		return 1
@@ -248,7 +261,8 @@ func boolInt(b bool) int {
 	return 0
 }
 
-// dbStats 给 /db/info 与页面用
+// dbStats 给 /db/info 与页面用：库文件路径、四张表行数、最近发布/应用时间。
+// 库不可用或任一计数查询失败返回 error；最近时间查询失败则留空串。
 func dbStats() (map[string]any, error) {
 	conn, err := db()
 	if err != nil {
@@ -270,7 +284,8 @@ func dbStats() (map[string]any, error) {
 	return out, nil
 }
 
-// recentPublishes / recentApplies 给页面显示最近动作
+// recentPublishes 最近 limit 条发布记录（新→旧），给页面显示最近动作。
+// 库不可用或查询失败返回 nil（页面按空列表渲染）。
 func recentPublishes(limit int) []map[string]any {
 	conn, err := db()
 	if err != nil {
@@ -317,7 +332,8 @@ func migrateFromFiles(conn *sql.DB) error {
 	return nil
 }
 
-// dbHealthy 给 /health 快速判断
+// dbHealthy 给 /health 快速判断：库能打开且 SELECT 1 成功 → (true, "")；
+// 否则 (false, 错误文案)。
 func dbHealthy() (bool, string) {
 	if _, err := db(); err != nil {
 		return false, err.Error()
@@ -328,10 +344,3 @@ func dbHealthy() (bool, string) {
 	}
 	return true, ""
 }
-
-func mustJSON(v any) string {
-	b, _ := json.Marshal(v)
-	return string(b)
-}
-
-var _ = fmt.Sprint

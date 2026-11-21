@@ -23,15 +23,24 @@
 ## 2. Go 服务（service/，单包多文件）
 
 ```
-main.go          入口 + 路由表 + /health（每个接口的实现位置都标在路由表注释里）
-config.go        环境变量与常量（密钥只从 env 读；桶名/来源白名单）
-httpx.go         writeJSON / fail / setCors / preflight / safeJoin / trunc
-files.go         /edit/（SPA 回退） /static/（Monaco） /rule-set/（NAS 只读）
-publish.go       POST /publish：规则校验 → sing-box 编译 .srs → 成对写回 NAS
-router_store.go  SSH 凭据存储（0600 原子写）+ /router/credentials 三接口
-router_ssh.go    SSH 通道（3 次退避重试）+ 远端编排（读/check/apply/restart/健康/回滚）
-router_http.go   /router/* 鉴权（VAULT_KEY 或 clash secret）+ 四个操作接口
-service_test.go  纯函数单测（go test ./...）
+main.go           入口 + 路由表 + /health（每个接口的实现位置都标在路由表注释里）
+config.go         环境变量与常量（密钥只从 env 读；桶名/来源白名单）
+httpx.go          writeJSON / fail / setCors / preflight / safeJoin / trunc / sha256Hex
+files.go          /edit/（SPA 回退） /static/（Monaco） /rule-set/（只读+DELETE）
+files_server.go   独立只读文件端口（默认 :9098）：只挂 /rule-set/+/health，管理台不外露
+publish.go        POST /publish：规则校验 → sing-box 编译 .srs → 成对写回存储
+share.go          ShareFS 抽象：smb(纯Go SMB2)/sftp/local 三实现，会话复用+临时名rename
+sharecfg.go       存储运行时配置（SQLite kv）+ /share/config|probe|import + 热替换
+share_health.go   /share/health：文件通道+公网 URL 体检（顶栏状态点数据源）
+db.go             SQLite（modernc.org/sqlite，无CGO）：kv/routers/publish_log/apply_log + 一次性迁移
+router_store.go   SSH 凭据（SQLite routers 表）+ /router/credentials 三接口
+router_ssh.go     SSH 通道（3 次退避重试、双缓冲）+ 远端编排（读/check/apply/restart/健康/回滚）
+router_http.go    /router/* 鉴权（VAULT_KEY 或 clash secret）+ 配置操作接口
+router_clients.go /router/clients：DHCP 租约+ARP → IP→MAC/主机名（① 电脑按 MAC 归并）
+public_rules.go   规则路径 → 改写 route.rule_set[].url（preview/apply，复用 apply 通道）
+rules_summary.go  /router/rules：config 的 rule_set/route.rules 结构化摘要（纯函数+单测）
+service_test.go   纯函数单测（go test ./...）
+rules_summary_test.go  rules 摘要单测
 ```
 
 ### 2.1 两条写通道，职责不混
@@ -122,28 +131,51 @@ NAS 侧共享是 `sec=none`（guest），所以零凭据即可读写；若以后
 Angular 22，standalone + signals + zoneless，无路由库（主 tab 是信号切换）。
 
 ```
-app.ts / app.html          根壳：顶栏（发布密钥）+ 主 tab + 页脚
-backend-pane.ts / .html    一台路由的面板：概览/分组/连接/日志/规则/配置 六子页
-overview.ts / .html        概览：速率/连接数/内存曲线 + 模式切换 + 网络信息
-config-pane.ts / .html     「配置」子页：门禁→读取→暂存→校验→应用 的状态编排
+app.ts / app.html          根壳：顶栏（存储状态点+齿轮）+ 主 tab（规则编辑顶右）+ 页脚
+backend-pane.ts / .html    一台路由的面板：概览/分组/连接/流向/日志/规则/配置 子页 + 待保存条 + 编辑弹窗宿主
+overview.ts / .html        概览：速率/连接数/内存曲线 + 模式切换 + 网络信息（hist 缓存 localStorage）
+config-pane.ts / .html     「配置」子页：门禁→读取→暂存→校验→应用 + 分流规则/分组看板面板
 rule-editor.ts / .html     「规则编辑」主 tab：规则桶读取/校验/发布
+flow-anim.ts / .html       「流向」子页：六列 band 流向图组件（数据加载/rAF 鱼/交互/全屏/缩放/微型图）
+flow-model.ts              流向纯函数引擎：buildStatic/buildFlow/stepActivity/buildLayout/切线/延时分级
+
+—— 编辑弹窗（点 ③/④ 卡片或保存缺凭据时弹出）——
+rule-set-dialog.ts / .html ③ 规则集：已应用 chips + palette 拖拽/＋ 增删引用
+group-dialog.ts / .html    ④ 分组：成员 checkbox（含嵌套分组）+ selector/urltest/负载均衡预设
+ssh-cred-dialog.ts / .html 保存缺 SSH 凭据：user/password/port → setCredentials → 重试保存
+share-config.ts / .html    顶栏齿轮：存储模式/SMB/SFTP/本机目录/规则路径/只读端口 + 测试/保存
+group-board.ts / .html     分组看板：未分组+各分组列，拖 chip 改成员（=改 config，需重启）
+rule-selector.ts / .html   分流规则选择器：route.rules 启用/停用（=改 config，需重启）
 
 —— 服务层（Injectable，全部 providedIn: 'root'）——
 backends.service.ts        后端列表 + 全局密钥（localStorage；草稿只在内存）
 clash.service.ts           clash_api 客户端（浏览器直连路由；REST + WebSocket）
 vault.service.ts           规则桶读写（同源 /rule-set/ 与 /publish）+ 前端预校验
 router.service.ts          /router/* 客户端（X-Vault-Key = 该后端 clash 密钥）
+config-draft.service.ts    配置草稿：baseDoc/draft/dirty/stage/cancel/save（凭据预检+乐观锁）
+share-health.service.ts    /share/health 周期体检 + /share/config|probe|import 客户端
 
 —— 纯函数模块（不碰组件状态，可单测）——
 config-ops.ts              config.json 结构化增删改 + 引用联动 + 结构校验 + 保风格序列化
+group-board-model.ts       看板纯函数：readBoard / moveMember（clone 不改入参、default 联动）
+rule-model.ts              分流规则纯函数：readRuleModel / filterRouteRules
 node-form.ts               节点表单模型：emptyForm / formFromNode / buildNode（按协议校验组装）
 share-link.ts              分享链接解析：ss/vmess/vless/trojan/hysteria2/socks → outbound
 line-diff.ts               LCS 行级 diff（暂存变更预览）
 util.ts                    字节/速率格式化、延迟分级、错误文案、并发池 runPool
 area-chart.ts              轻量 SVG 图表（曲线/柱形，固定格数窗口，non-scaling-stroke 细线）
 monaco-editor.ts           Monaco 受控封装（本站 AMD loader，离线可用）
-models.ts                  接口类型 + 常量（桶清单/页面来源/延迟阈值）
+models.ts                  接口类型 + 常量（桶清单/页面来源/延迟阈值/版本号）
 ```
+
+### 3.0 「流向」子页（flow-model + flow-anim）
+
+六列 band 模型：①电脑(按 MAC 归并) → ②路由器 → ③规则集(按出站合并·每带1卡) →
+④分组 → ⑤组成员方格(逐行·跨组重复) → ⑥互联网(一朵云)。五个数据源合流：
+静态 config(30s) + 实时 connections(1.5s) + clients 名册(30s) + delays 测速(5s) + activity(字节增长)。
+动态语义：活跃边=绿点虚线、活跃节点=绿描边（停 4s 回落）；小鱼只游活跃链路（切线朝向+摆尾）；
+⑤ 方格右上延时点红黄绿、④ 卡右下平均延时点。交互：点 ③/④ 开编辑弹窗、hover 高亮、
+⛶ 全屏、自适应⇄100%、右下角速率/内存微型图（ws /traffic + /memory）。
 
 ### 3.1 「配置」子页的状态流
 

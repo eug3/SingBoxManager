@@ -29,14 +29,21 @@ const (
 	defaultRouterInit   = "/etc/init.d/sing-box"
 )
 
+// routerConfigPath 路由上 config.json 的路径（ROUTER_CONFIG 可覆盖）
 func routerConfigPath() string { return env("ROUTER_CONFIG", defaultRouterConfig) }
-func routerBin() string        { return env("ROUTER_SINGBOX", defaultRouterBin) }
-func routerInit() string       { return env("ROUTER_INIT", defaultRouterInit) }
+
+// routerBin 路由上 sing-box 二进制路径（ROUTER_SINGBOX 可覆盖）
+func routerBin() string { return env("ROUTER_SINGBOX", defaultRouterBin) }
+
+// routerInit 路由上 sing-box 的 init 脚本路径（ROUTER_INIT 可覆盖）
+func routerInit() string { return env("ROUTER_INIT", defaultRouterInit) }
 
 // ---- SSH 基础 ----
 
-// sshExec 执行一条远端命令（stdin 可选）。
-// dropbear 在连续连接时偶发握手失败（防暴雨机制），做 3 次退避重试；口令错误不重试。
+// sshExec 执行一条远端命令（stdin 可选），返回合并后的 stdout+stderr 文本。
+// 重试口径：dropbear 在连续连接时偶发握手失败（防暴雨机制），做 3 次退避重试
+// （400ms/800ms/1200ms）；「Permission denied」属口令错误，立即返回不重试。
+// 三次都失败返回最后一次的错误。
 func sshExec(host string, cred routerCred, cmd string, stdin []byte, timeout time.Duration) (string, error) {
 	var lastErr error
 	for attempt := 1; attempt <= 3; attempt++ {
@@ -53,7 +60,9 @@ func sshExec(host string, cred routerCred, cmd string, stdin []byte, timeout tim
 	return "", lastErr
 }
 
-// sshExecOnce 单次 SSH 会话：跑命令、收输出、带超时。
+// sshExecOnce 单次 SSH 会话：拨号 → 建会话 → 跑命令 → 收输出，带整体超时。
+// 超时口径：到点向远端发 SIGKILL 并返回「已收到的输出 + 超时错误」；
+// 正常结束时 stderr 非空则追加在 stdout 之后（补换行分隔）。
 func sshExecOnce(host string, cred routerCred, cmd string, stdin []byte, timeout time.Duration) (string, error) {
 	cfg := &ssh.ClientConfig{
 		User:            cred.User,
@@ -74,7 +83,8 @@ func sshExecOnce(host string, cred routerCred, cmd string, stdin []byte, timeout
 	}
 	defer sess.Close()
 
-	// 坑：x/crypto/ssh 不允许 Stdout/Stderr 共用同一个 writer（会静默丢输出），必须分开
+	// 坑：x/crypto/ssh 不允许 Stdout/Stderr 共用同一个 writer（会静默丢输出），
+	// 必须双缓冲分开收，最后再手工合并
 	var outBuf, errBuf bytes.Buffer
 	sess.Stdout = &outBuf
 	sess.Stderr = &errBuf
@@ -82,6 +92,7 @@ func sshExecOnce(host string, cred routerCred, cmd string, stdin []byte, timeout
 		sess.Stdin = bytes.NewReader(stdin)
 	}
 
+	// Run 放 goroutine 里跑，select 挂整体超时；到点发 SIGKILL 尽量收尾
 	done := make(chan error, 1)
 	go func() { done <- sess.Run(cmd) }()
 	select {
@@ -90,6 +101,7 @@ func sshExecOnce(host string, cred routerCred, cmd string, stdin []byte, timeout
 		_ = sess.Signal(ssh.SIGKILL)
 		return outBuf.String() + errBuf.String(), fmt.Errorf("超时（%s）", timeout)
 	}
+	// 合并输出：stdout 在前，stderr 追加在后（补一个换行避免黏行）
 	combined := outBuf.String()
 	if errBuf.Len() > 0 {
 		if combined != "" && !strings.HasSuffix(combined, "\n") {
@@ -102,6 +114,8 @@ func sshExecOnce(host string, cred routerCred, cmd string, stdin []byte, timeout
 
 // healthSnippet 远端健康检查脚本片段：必须「换了新 pid」且 :9090 在监听。
 // 只看端口会被旧进程退出前残留的 socket 骗过（实测踩过），所以两个条件都要。
+// sbg_pid 取当前 sing-box run 进程 pid；health(old) 最多等 60 秒（每秒一轮），
+// 新 pid ≠ old 且 9090 在监听才算健康。apply/restart 脚本都内嵌这一段。
 func healthSnippet() string {
 	return `sbg_pid() { ps w 2>/dev/null | grep '[s]ing-box run' | awk '{print $1}' | head -1; }
 health() {
@@ -140,7 +154,8 @@ func remoteUpload(host string, cred routerCred, path string, content []byte) err
 	return nil
 }
 
-// remoteCheckConfig 在路由上校验候选配置（同版本二进制，比在 99 上模拟可靠）
+// remoteCheckConfig 在路由上校验候选配置（同版本二进制，比在 99 上模拟可靠）。
+// 候选先传 /tmp 临时文件，check 完即删。返回 (是否通过, check 输出摘要)。
 func remoteCheckConfig(host string, cred routerCred, content string) (bool, string) {
 	tmp := fmt.Sprintf("/tmp/vault-check-%d.json", time.Now().UnixNano())
 	if err := remoteUpload(host, cred, tmp, []byte(content)); err != nil {
@@ -156,34 +171,15 @@ type applyResult struct {
 	Log     string `json:"log"`
 }
 
-// remoteApplyConfig 应用候选配置：
-//  1. 比对 expectSha（被他人改过 → STALE，HTTP 层转 409）
-//  2. 内容相同 → NO_CHANGE，不重启
-//  3. 上传候选 → 远端 check → 备份 → 原子替换 → 重启 → 健康检查
-//  4. 不健康 → 自动还原备份并重启（ROLLBACK_OK / ROLLBACK_FAILED）
-func remoteApplyConfig(host string, cred routerCred, content, expectSha string) (applyResult, error) {
-	cur, err := remoteConfigSha(host, cred)
-	if err != nil {
-		return applyResult{}, fmt.Errorf("读取当前配置失败: %w", err)
-	}
-	newSum := sha256.Sum256([]byte(content))
-	newSha := hex.EncodeToString(newSum[:])
-	logLine := fmt.Sprintf("current_sha=%s\ncandidate_sha=%s\n", cur, newSha)
-
-	if expectSha != "" && expectSha != cur {
-		return applyResult{}, fmt.Errorf("STALE 配置已被他人修改（expected=%s current=%s），请刷新后重试", expectSha, cur)
-	}
-	if newSha == cur {
-		return applyResult{Changed: false, Log: logLine + "NO_CHANGE"}, nil
-	}
-
-	tmp := fmt.Sprintf("/tmp/vault-apply-%d.json", time.Now().UnixNano())
-	if err := remoteUpload(host, cred, tmp, []byte(content)); err != nil {
-		return applyResult{}, err
-	}
-
-	// 内联脚本：newSha 是纯 hex，直接内插安全；候选配置本体走 /tmp 文件，不塞进脚本
-	script := healthSnippet() + `
+// applyScript 构造「应用候选配置」的内联 shell 脚本（经 sh -s 从 stdin 执行）。
+// 流程：check → 备份 → 原子替换 → 重启 → 健康检查；不健康自动还原备份再重启。
+// 退出码约定：13=check 失败；14=备份失败；15=替换失败；16=不健康（已尝试回滚）；0=成功。
+// 输出标记：CHECK_FAILED / BACKUP_FAILED / INSTALL_FAILED / BACKUP=<路径> /
+// APPLIED / UNHEALTHY_ROLLBACK / ROLLBACK_OK / ROLLBACK_FAILED。
+// 安全口径：tmp/newSha 都是本服务生成的纯 hex/数字串，直接内插安全；
+// 候选配置本体走 /tmp 文件，不塞进脚本文本。
+func applyScript(tmp, newSha string) string {
+	return healthSnippet() + `
 set -u
 TMP="` + tmp + `"
 CFG="` + routerConfigPath() + `"
@@ -216,9 +212,42 @@ OLD=$(sbg_pid)
 if health "$OLD"; then echo "ROLLBACK_OK"; else echo "ROLLBACK_FAILED"; fi
 exit 16
 `
+}
 
-	out, err := sshExec(host, cred, "sh -s", []byte(script), 180*time.Second)
+// remoteApplyConfig 应用候选配置：
+//  1. 比对 expectSha（被他人改过 → STALE，HTTP 层转 409）
+//  2. 内容相同 → NO_CHANGE，不重启
+//  3. 上传候选 → 远端 check → 备份 → 原子替换 → 重启 → 健康检查
+//  4. 不健康 → 自动还原备份并重启（ROLLBACK_OK / ROLLBACK_FAILED）
+//
+// 返回 applyResult（Changed/Log）；失败时 error 文案带标记词
+// （STALE / check 未通过 / 已自动回滚），HTTP 层据此映射 409/422/502。
+func remoteApplyConfig(host string, cred routerCred, content, expectSha string) (applyResult, error) {
+	cur, err := remoteConfigSha(host, cred)
+	if err != nil {
+		return applyResult{}, fmt.Errorf("读取当前配置失败: %w", err)
+	}
+	newSum := sha256.Sum256([]byte(content))
+	newSha := hex.EncodeToString(newSum[:])
+	logLine := fmt.Sprintf("current_sha=%s\ncandidate_sha=%s\n", cur, newSha)
+
+	// 乐观锁：调用方声明的基准摘要与路由现状不一致 → 拒绝写入
+	if expectSha != "" && expectSha != cur {
+		return applyResult{}, fmt.Errorf("STALE 配置已被他人修改（expected=%s current=%s），请刷新后重试", expectSha, cur)
+	}
+	if newSha == cur {
+		return applyResult{Changed: false, Log: logLine + "NO_CHANGE"}, nil
+	}
+
+	tmp := fmt.Sprintf("/tmp/vault-apply-%d.json", time.Now().UnixNano())
+	if err := remoteUpload(host, cred, tmp, []byte(content)); err != nil {
+		return applyResult{}, err
+	}
+
+	out, err := sshExec(host, cred, "sh -s", []byte(applyScript(tmp, newSha)), 180*time.Second)
 	full := logLine + out
+	// 结果判定按输出标记词优先（脚本退出码只作兜底），顺序不可乱：
+	// CHECK_FAILED/ROLLBACK_OK 都属失败，必须先于 APPLIED 判断
 	switch {
 	case strings.Contains(out, "CHECK_FAILED"):
 		return applyResult{}, fmt.Errorf("sing-box check 未通过：%s", cleanLine(out))
@@ -233,9 +262,10 @@ exit 16
 	}
 }
 
-// remoteRestart 仅重启 sing-box 并等健康（不改配置）
-func remoteRestart(host string, cred routerCred) (string, error) {
-	script := healthSnippet() + `
+// restartScript 构造「仅重启」的内联 shell 脚本：重启 → 健康检查。
+// 输出 RESTARTED + downtime_s；不健康输出 RESTART_UNHEALTHY 并退出 17。
+func restartScript() string {
+	return healthSnippet() + `
 set -u
 INIT="` + routerInit() + `"
 OLD=$(sbg_pid)
@@ -249,7 +279,12 @@ fi
 echo "RESTART_UNHEALTHY"
 exit 17
 `
-	out, err := sshExec(host, cred, "sh -s", []byte(script), 120*time.Second)
+}
+
+// remoteRestart 仅重启 sing-box 并等健康（不改配置）。
+// 返回远端输出；未见 RESTARTED 标记或 SSH 出错都返回「重启失败」error。
+func remoteRestart(host string, cred routerCred) (string, error) {
+	out, err := sshExec(host, cred, "sh -s", []byte(restartScript()), 120*time.Second)
 	if err != nil || !strings.Contains(out, "RESTARTED") {
 		return out, fmt.Errorf("重启失败: %s", cleanLine(out))
 	}

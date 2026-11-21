@@ -14,26 +14,32 @@ export class ClashService {
   private readonly http = inject(HttpClient);
   private readonly backends = inject(BackendsService);
 
+  /** 去掉 api 末尾斜杠，拼 REST 路径用 */
   private base(b: Backend): string {
     return (b.api || '').replace(/\/+$/, '');
   }
 
+  /** REST 鉴权头：Bearer = 该后端 clash 密钥（空则全局） */
   private headers(b: Backend): HttpHeaders {
     return new HttpHeaders({ Authorization: 'Bearer ' + this.backends.keyFor(b) });
   }
 
+  /** 引擎版本（/version，也用作连通性/密钥探针） */
   version(b: Backend): Promise<{ version: string }> {
     return firstValueFrom(this.http.get<{ version: string }>(`${this.base(b)}/version`, { headers: this.headers(b) }));
   }
 
+  /** 全部出站/分组（含 history 测速记录，供延时点） */
   proxies(b: Backend): Promise<ProxiesResp> {
     return firstValueFrom(this.http.get<ProxiesResp>(`${this.base(b)}/proxies`, { headers: this.headers(b) }));
   }
 
+  /** 活跃连接快照（chains/rule/累计字节，供流向图与活跃度） */
   connections(b: Backend): Promise<ConnectionsResp> {
     return firstValueFrom(this.http.get<ConnectionsResp>(`${this.base(b)}/connections`, { headers: this.headers(b) }));
   }
 
+  /** 路由规则列表（/rules） */
   rules(b: Backend): Promise<RulesResp> {
     return firstValueFrom(this.http.get<RulesResp>(`${this.base(b)}/rules`, { headers: this.headers(b) }));
   }

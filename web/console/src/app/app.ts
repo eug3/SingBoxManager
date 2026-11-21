@@ -1,3 +1,12 @@
+/**
+ * app 根壳 —— 控制台的固定外壳（100dvh，滚动只发生在各面板内部，见 styles.css）。
+ * 结构自上而下：
+ *  - 顶栏：标题 + 存储状态点（SMB/SFTP 文件通道 + 公网 URL 体检，点击重测）+ ⚙ 存储配置齿轮；
+ *  - 来源受信横幅：页面来源不在白名单时提示换入口；
+ *  - 主 tab：各后端面板（草稿带 ✎ 标记）/ ＋添加后端 / 规则编辑；
+ *  - 页脚：控制台版本、当前生效后端的 sing-box 版本、发布链路与入口信息。
+ * 密钥不在顶栏填写：统一走「配置」页的连接门禁或各后端「⚙ 后端配置」。
+ */
 import { ChangeDetectionStrategy, Component, computed, effect, inject, signal } from '@angular/core';
 import { BackendPane } from './backend-pane';
 import { RuleEditor } from './rule-editor';
@@ -13,28 +22,31 @@ import { ShareConfigDialog } from './share-config';
   imports: [BackendPane, RuleEditor, ShareConfigDialog],
   templateUrl: './app.html',
 })
-/**
- * 根组件 — 顶栏（标题）+ 主 tab（各后端面板 / 规则编辑）+ 底部信息条。
- * 密钥不在顶栏填写：统一走「配置」页的连接门禁或各后端「⚙ 后端配置」。
- * 布局：100dvh 固定壳，滚动只发生在各面板内部（见 styles.css）。
- */
+/** 根组件：组装顶栏 / 主 tab / 内容区 / 页脚，并驱动存储体检与 sing-box 版本探测 */
 export class App {
+  /** 后端列表服务：后端增删改、全局密钥与有效性判断 */
   readonly bsvc = inject(BackendsService);
+  /** clash_api 客户端：这里只用于探测 sing-box 版本 */
   private readonly clash = inject(ClashService);
+  /** 存储体检服务：周期性探测文件通道与公网 URL */
   private readonly shareHealth = inject(ShareHealthService);
+  /** 页脚展示的控制台版本号 */
   readonly version = CONSOLE_VERSION;
   /** 底部信息条：当前生效后端的 sing-box 版本 */
   readonly sbVersion = signal('');
+  /** 全部后端（含未保存草稿）：主 tab 与内容区据此渲染 */
   readonly backends = this.bsvc.backends;
+  /** 当前主 tab：'b'+序号 = 第 n 个后端面板，'edit' = 规则编辑；没有后端时落在规则编辑 */
   readonly active = signal<string>(this.backends().length ? 'b0' : 'edit');
+  /** 当前页面来源是否受信（不受信时模板显示横幅提示） */
   readonly originOk = PAGE_ORIGINS.includes(location.origin);
+  /** 受信来源清单（横幅文案用） */
   readonly origins = PAGE_ORIGINS;
 
   /** 文件通道 + 公网 URL 体检结果（顶栏右侧那个点） */
   readonly share = this.shareHealth.health;
   /** 齿轮弹窗开关 */
   readonly shareCfgOpen = signal(false);
-  readonly shareBusy = this.shareHealth.busy;
 
   /** 顶栏状态点文案：SMB/SFTP 文件通道 + 公网 HTTP 读取是否都通 */
   readonly statusText = computed(() => {
@@ -80,6 +92,7 @@ export class App {
 
   constructor() {
     this.shareHealth.start(); // 每 30s 体检一次文件通道 + 公网 URL
+    // 生效后端变化时重新探测 sing-box 版本（供页脚展示）
     effect(() => {
       const b = this.backends().find((x) => this.bsvc.valid(x));
       void this.loadVersion(b);
@@ -100,11 +113,13 @@ export class App {
     }
   }
 
+  /** 「＋ 添加后端」：新建一个草稿后端并立即切到它的 tab */
   addBackend(): void {
     const i = this.bsvc.addDraft();
     this.active.set('b' + i);
   }
 
+  /** 某后端面板被删除后回到第一个后端；没有后端时落在规则编辑 */
   onRemoved(): void {
     this.active.set(this.backends().length ? 'b0' : 'edit');
   }

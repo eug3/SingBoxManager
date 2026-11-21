@@ -6,16 +6,28 @@ package main
 //
 // 路由表（实现分散在同包各文件）：
 //   GET  /health                     健康与配置自检            main.go
+//   GET  /                           302 → /edit/              main.go
 //   GET  /edit/                      Angular 管理台（SPA）     files.go
 //   GET  /static/                    Monaco 等本地静态资源     files.go
 //   GET  /rule-set/<桶>.{json,srs}   NAS 规则桶只读源（SMB/SFTP）files.go
+//   DELETE /rule-set/<桶>.json       删桶（.json+.srs，需密钥）files.go
 //   GET  /share/health               文件通道+公网 URL 体检     share_health.go
+//   GET|POST /share/config           存储配置读/写（热生效）    sharecfg.go
+//   POST /share/probe                候选配置试连（不落盘）     sharecfg.go
+//   POST /share/import               桶文件复制到本机 local     sharecfg.go
+//   GET  /public/rules/preview       公网入口改写预览           public_rules.go
+//   POST /public/rules/apply         公网入口改写写入路由       public_rules.go
+//   GET  /db/info                    SQLite 表行数与最近动作    main.go
 //   POST /publish                    规则桶校验+编译+写回 NAS  publish.go
 //   GET  /router/config              读路由 config.json        router_http.go
+//   GET  /router/rules               路由规则结构摘要          rules_summary.go
+//   GET  /router/clients             LAN 客户端名册(IP→MAC)    router_clients.go
 //   POST /router/check               路由上跑 sing-box check   router_http.go
 //   POST /router/apply               备份→替换→重启→健康→回滚  router_http.go
 //   POST /router/restart             仅重启 sing-box           router_http.go
 //   GET|POST|DELETE /router/credentials  路由 SSH 凭据管理     router_store.go
+//
+// 另有独立只读文件端口（默认 :9098，见 files_server.go）：只挂 /rule-set/ 与 /health。
 //
 // 鉴权：
 //   /publish   只认 X-Vault-Key = VAULT_KEY；
@@ -30,6 +42,9 @@ import (
 	"os"
 )
 
+// main 启动顺序：校验 VAULT_KEY → 打开 SQLite（含旧文件迁移）→ 热装存储配置
+// → 启动独立文件端口 → 预探一次共享 → 挂路由并监听主端口。
+// 除 VAULT_KEY 缺失外，其余初始化失败都只告警不退出（服务带病可用，体检接口暴露问题）。
 func main() {
 	if vaultKey == "" {
 		log.Fatal("VAULT_KEY 未设置（应为两台路由 clash_api secret；systemd 从 /etc/vault-edit.env 注入）")

@@ -39,6 +39,8 @@ func routerKeyFrom(r *http.Request) string {
 var clashProbeClient = &http.Client{Timeout: 5 * time.Second}
 
 // routerKeyValid 密钥要么是 99 的 VAULT_KEY，要么能被指定路由的 clash_api 接受
+// （拿它请求路由 /version，200 即通过）。空密钥、空 host 且非 VAULT_KEY、
+// 请求构造/发送失败都判不通过。
 func routerKeyValid(host, key string) bool {
 	if key == "" {
 		return false
@@ -65,6 +67,7 @@ func routerKeyValid(host, key string) bool {
 
 // routerAuth 只做密钥校验（CORS/OPTIONS 由 preflight 处理）。
 // host 为空表示「任一已配置路由接受该密钥即可」（凭据列表这类不针对单台路由的接口）。
+// 校验失败已写好 401 应答并返回 false，调用方直接 return。
 func routerAuth(w http.ResponseWriter, r *http.Request, host string) bool {
 	key := routerKeyFrom(r)
 	if routerKeyValid(host, key) {
@@ -83,7 +86,8 @@ func routerAuth(w http.ResponseWriter, r *http.Request, host string) bool {
 	return false
 }
 
-// handleRouterConfig GET /router/config?host= —— 读整份 config.json（含 sha256，供乐观锁）
+// handleRouterConfig GET /router/config?host= —— 读整份 config.json（含 sha256，供乐观锁）。
+// 错误语义：400=缺 host/未配置凭据；401=密钥错；502=SSH 读取失败。
 func handleRouterConfig(w http.ResponseWriter, r *http.Request) {
 	if preflight(w, r) {
 		return
@@ -111,7 +115,8 @@ func handleRouterConfig(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleRouterRestart POST /router/restart {"host"} —— 仅重启（断流约 1–2s）
+// handleRouterRestart POST /router/restart {"host"} —— 仅重启（断流约 1–2s）。
+// body 解析失败不报错（缺 host 由 pickRouter 给明确 400）；重启失败 502。
 func handleRouterRestart(w http.ResponseWriter, r *http.Request) {
 	if preflight(w, r) {
 		return
@@ -137,7 +142,8 @@ func handleRouterRestart(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"ok": true, "host": host, "log": out, "ms": time.Since(t0).Milliseconds()})
 }
 
-// handleRouterCheck POST /router/check {"host","config"} —— 路由上跑 sing-box check（不落盘）
+// handleRouterCheck POST /router/check {"host","config"} —— 路由上跑 sing-box check（不落盘）。
+// check 本身通过与否都回 200，结果看 ok/output；400=body 坏/host 缺/config 空。
 func handleRouterCheck(w http.ResponseWriter, r *http.Request) {
 	if preflight(w, r) {
 		return
@@ -164,7 +170,9 @@ func handleRouterCheck(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleRouterApply POST /router/apply {"host","config","expectSha"}
-// 错误码约定：409=STALE（他人已改）；422=check 未通过；502=SSH/重启/回滚类失败。
+// 错误码约定：400=body 坏/config 空/缺凭据；401=密钥错；
+// 409=STALE（他人已改）；422=check 未通过；502=SSH/重启/回滚类失败。
+// 成功回 {ok, changed, host, log, ms}；changed=false 表示内容没变、未重启。
 func handleRouterApply(w http.ResponseWriter, r *http.Request) {
 	if preflight(w, r) {
 		return

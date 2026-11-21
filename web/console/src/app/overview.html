@@ -1,8 +1,11 @@
+<!-- 错误横幅：WebSocket / REST 失败提示 -->
 @if (err()) {
   <div class="banner show">✗ {{ err() }}</div>
 }
 
+<!-- 概览卡片网格：速率（宽）/ 连接数 / 内存 / 网络信息 / 分组延时速览（宽） -->
 <div class="ovgrid">
+  <!-- 速率卡：主读数 + 镜像曲线 + 图例 + 控制条（带宽 / 量程 / 画法 / 窗口） -->
   <div class="ovcard wide">
     <div class="ovhd">
       <span>速率</span>
@@ -14,6 +17,7 @@
         <span class="dim small">{{ rateText(rateDown()) }} / {{ rateText(rateUp()) }} · 累计 ↓{{ fmtB(totals().down) }} · ↑{{ fmtB(totals().up) }}</span>
       </span>
     </div>
+    <!-- 速率曲线：下载/上传上下镜像，固定满量程或按峰值自适应 -->
     <app-area-chart
       [series]="rateSeries()"
       [height]="96"
@@ -21,6 +25,7 @@
       [mirror]="true"
       [fixedMax]="rateFixedMax()"
     />
+    <!-- 图例与窗口说明：格数 / 已填格数 / 数据来源 -->
     <div class="ovleg">
       <span class="lg dl">下载</span>
       <span class="lg ul">上传</span>
@@ -31,6 +36,7 @@
         }
       </span>
     </div>
+    <!-- 控制条：手填带宽（Mib/s）/ 固定满量程 vs 自动 / 曲线 vs 柱形 / 1-5-10 分钟窗口 -->
     <div class="ovctl">
       <label class="bw" title="手填线路带宽（Mib/s，1 Mib = 2²⁰ bit）">
         带宽
@@ -59,16 +65,19 @@
     </div>
   </div>
 
+  <!-- 连接数卡：当前活跃连接主读数 + 窗口曲线 -->
   <div class="ovcard">
     <div class="ovhd"><span>连接数</span><span class="ovvals"><b>{{ connCount() }}</b><span class="dim small">{{ windowLabel() }}</span></span></div>
     <app-area-chart [series]="connSeries()" [height]="96" [mode]="chartMode()" />
   </div>
 
+  <!-- 内存卡：Go 运行时 inuse 口径（详见标题悬停提示）+ 窗口曲线 -->
   <div class="ovcard">
     <div class="ovhd"><span title="sing-box clash_api /memory 口径：StackInuse + HeapInuse + HeapIdle − HeapReleased（Go 运行时占用，不含 mmap/线程栈等，通常明显小于进程 RSS）">内存使用 ⓘ</span><span class="ovvals"><b>{{ memText() }}</b><span class="dim small">{{ windowLabel() }}</span></span></div>
     <app-area-chart [series]="memSeries()" [height]="96" [mode]="chartMode()" />
   </div>
 
+  <!-- 网络信息卡：后端 / 页面来源 / 模式 / 连接 / 累计流量 / 带宽基准 + 模式切换 -->
   <div class="ovcard">
     <div class="ovhd"><span>网络信息</span></div>
     <table class="kv">
@@ -79,6 +88,7 @@
       <tr><td>累计流量</td><td>↓{{ fmtB(totals().down) }} · ↑{{ fmtB(totals().up) }}</td></tr>
       <tr><td>带宽基准</td><td>{{ bandwidth() }} Mib/s（满量程）· 当前下行占 {{ utilization(rateDown()) }}</td></tr>
     </table>
+    <!-- 模式切换按钮：Rule/Global/Direct（PATCH /configs，点击需确认） -->
     <div class="bar" style="margin: 8px 0 0">
       @for (m of modeList(); track m) {
         <button [class.acc]="m === mode()" (click)="setMode(m)">{{ m }}</button>
@@ -87,6 +97,7 @@
     <div class="dim small" style="margin-top:6px">模式切换是 sing-box 唯一开放的运行时写操作（PATCH /configs）</div>
   </div>
 
+  <!-- 分组延时速览卡：各分组当前节点与延迟，全部测速 / 刷新 -->
   <div class="ovcard wide">
     <div class="ovhd">
       <span>分组延时速览</span>
@@ -97,6 +108,7 @@
         <button (click)="loadGroups()">刷新</button>
       </span>
     </div>
+    <!-- 分组行：名称 / 当前节点 / 延迟（着色）/ 成员数与类型 -->
     <div class="latgrid">
       @for (g of groups(); track g.name) {
         <div class="latrow">

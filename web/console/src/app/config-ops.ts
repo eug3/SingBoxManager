@@ -1,11 +1,20 @@
-/** config-ops — 在整份 sing-box 配置上做结构化节点增删改（保持缩进/行尾风格） */
+/**
+ * config-ops.ts — 整份 sing-box config.json 的结构化操作纯函数库。
+ *
+ * 约定：所有函数直接 mutate 传入的 ConfigDoc（调用方负责先 structuredClone），
+ * 不做网络/存储；序列化 serializeConfig 保持原文缩进与 CRLF/LF 风格，避免无谓 diff。
+ * 供 config-pane / group-dialog / group-board-model / flow 等共用，口径单一。
+ */
 
+/** 宽松 JSON 对象（config 节点字段不定型） */
 export type AnyObj = Record<string, unknown>;
 
+/** 解析后的配置文档：root 为整份 config 对象 */
 export interface ConfigDoc {
   root: AnyObj;
 }
 
+/** 节点摘要（只读表/表单/看板用）：tag/协议/服务器/所属分组/被 route 引用数/是否特殊 */
 export interface NodeSummary {
   tag: string;
   type: string;
@@ -15,21 +24,27 @@ export interface NodeSummary {
   special: boolean;
 }
 
+/** 分组类型（selector 手动 / urltest 自动） */
 export const GROUP_TYPES = new Set(['selector', 'urltest']);
+/** 特殊出站（direct/block/dns），不可删、单独着色 */
 export const SPECIAL_TYPES = new Set(['direct', 'block', 'dns']);
+/** 特殊出站（direct/block/dns），不可删、单独着色 */
 
+/** 解析 config 文本；根非对象直接抛错 */
 export function parseConfig(raw: string): ConfigDoc {
   const root = JSON.parse(raw) as unknown;
   if (!root || typeof root !== 'object' || Array.isArray(root)) throw new Error('配置根节点必须是对象');
   return { root: root as AnyObj };
 }
 
+/** 探测原文缩进宽度（取第二行前导空格），默认 2 */
 function detectIndent(raw: string): number {
   const line = raw.split(/\r?\n/)[1] ?? '';
   const m = line.match(/^( +)/);
   return m ? m[1].length : 2;
 }
 
+/** 序列化回文本：沿用 like 的缩进/行尾/末尾换行，保持最小 diff */
 export function serializeConfig(doc: ConfigDoc, like: string): string {
   const crlf = like.includes('\r\n');
   const indent = detectIndent(like);
@@ -38,27 +53,33 @@ export function serializeConfig(doc: ConfigDoc, like: string): string {
   return out + (like.endsWith('\n') ? (crlf ? '\r\n' : '\n') : '');
 }
 
+/** outbounds 数组（缺省空） */
 function outbounds(doc: ConfigDoc): AnyObj[] {
   return Array.isArray(doc.root['outbounds']) ? (doc.root['outbounds'] as AnyObj[]) : [];
 }
 
+/** endpoints 数组（masque 等，缺省空） */
 function endpoints(doc: ConfigDoc): AnyObj[] {
   return Array.isArray(doc.root['endpoints']) ? (doc.root['endpoints'] as AnyObj[]) : [];
 }
 
+/** route.rules 数组（缺省空） */
 function routeRules(doc: ConfigDoc): AnyObj[] {
   const route = doc.root['route'] as AnyObj | undefined;
   return Array.isArray(route?.['rules']) ? (route!['rules'] as AnyObj[]) : [];
 }
 
+/** 是否分组（selector/urltest） */
 export function isGroup(o: AnyObj): boolean {
   return GROUP_TYPES.has(String(o['type']));
 }
 
+/** 全部分组对象 */
 export function groups(doc: ConfigDoc): AnyObj[] {
   return outbounds(doc).filter(isGroup);
 }
 
+/** 全部非分组条目摘要（代理+特殊+endpoints），特殊排最后、其余按 tag 排序 */
 export function nodes(doc: ConfigDoc): NodeSummary[] {
   const all = [...outbounds(doc), ...endpoints(doc)];
   const routeRefs = new Map<string, number>();
@@ -87,6 +108,7 @@ export function nodes(doc: ConfigDoc): NodeSummary[] {
   return list.sort((a, b) => (a.special === b.special ? a.tag.localeCompare(b.tag) : a.special ? 1 : -1));
 }
 
+/** 按 tag 找节点（outbounds+endpoints） */
 export function findNode(doc: ConfigDoc, tag: string): AnyObj | undefined {
   return [...outbounds(doc), ...endpoints(doc)].find((o) => String(o['tag']) === tag);
 }
@@ -101,6 +123,7 @@ export interface DeleteImpact {
   reasons: string[];
 }
 
+/** 删除影响面：所属分组/route 引用/作为 default/是否禁止删（特殊或被 route 引用） */
 export function deleteImpact(doc: ConfigDoc, tag: string): DeleteImpact {
   const groupsHit = groups(doc)
     .filter((g) => Array.isArray(g['outbounds']) && (g['outbounds'] as string[]).includes(tag))
@@ -119,6 +142,7 @@ export function deleteImpact(doc: ConfigDoc, tag: string): DeleteImpact {
   return { tag, groups: groupsHit, routeRefs: refs, isDefault: defaults, blocked: reasons.length > 0, reasons };
 }
 
+/** 生成不重复 tag（base、base-2…base-99、兜底时间戳） */
 function uniqueTag(doc: ConfigDoc, base: string): string {
   const used = new Set([...outbounds(doc), ...endpoints(doc)].map((o) => String(o['tag'] ?? '')));
   if (!used.has(base)) return base;

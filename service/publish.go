@@ -72,7 +72,33 @@ func parseRules(raw json.RawMessage) ([]map[string]any, string) {
 	return out, ""
 }
 
-// handlePublish 发布一个规则桶（.json + .srs 成对写回，编译失败不落盘）
+// compileRuleSet 在临时目录里把规范化桶 JSON 编译成 .srs（本机 sing-box）。
+// 先写临时文件再编译，成功后才返回字节 —— 编译失败不落 NAS，避免半成品桶被路由拉走。
+// 错误文案带阶段前缀（tmp/write tmp/compile failed/read srs），编译报错只留尾部 400 字节。
+func compileRuleSet(jtxt []byte) ([]byte, error) {
+	tmp, err := os.MkdirTemp("", "vault")
+	if err != nil {
+		return nil, fmt.Errorf("tmp: %w", err)
+	}
+	defer os.RemoveAll(tmp)
+	jp, sp := filepath.Join(tmp, "a.json"), filepath.Join(tmp, "a.srs")
+	if err := os.WriteFile(jp, jtxt, 0644); err != nil {
+		return nil, fmt.Errorf("write tmp: %w", err)
+	}
+	cmd := exec.Command(singBox, "rule-set", "compile", jp, "-o", sp)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("compile failed: %s", trunc(out, 400))
+	}
+	srs, err := os.ReadFile(sp)
+	if err != nil {
+		return nil, fmt.Errorf("read srs: %w", err)
+	}
+	return srs, nil
+}
+
+// handlePublish 发布一个规则桶（.json + .srs 成对写回，编译失败不落盘）。
+// 错误语义：401=密钥错；400=body/桶名/规则结构不合法；503=共享不可用；500=编译或写回失败。
 func handlePublish(w http.ResponseWriter, r *http.Request) {
 	if preflight(w, r) {
 		return
@@ -104,27 +130,9 @@ func handlePublish(w http.ResponseWriter, r *http.Request) {
 	jdoc, _ := json.MarshalIndent(map[string]any{"version": 1, "rules": rules}, "", "  ")
 	jtxt := append(jdoc, '\n')
 
-	// 先在临时目录编译 .srs，成功后才写 NAS —— 避免半成品桶被路由拉走
-	tmp, err := os.MkdirTemp("", "vault")
+	srs, err := compileRuleSet(jtxt)
 	if err != nil {
-		fail(w, 500, "tmp: "+err.Error())
-		return
-	}
-	defer os.RemoveAll(tmp)
-	jp, sp := filepath.Join(tmp, "a.json"), filepath.Join(tmp, "a.srs")
-	if err := os.WriteFile(jp, jtxt, 0644); err != nil {
-		fail(w, 500, "write tmp: "+err.Error())
-		return
-	}
-	cmd := exec.Command(singBox, "rule-set", "compile", jp, "-o", sp)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		fail(w, 500, "compile failed: "+string(trunc(out, 400)))
-		return
-	}
-	srs, err := os.ReadFile(sp)
-	if err != nil {
-		fail(w, 500, "read srs: "+err.Error())
+		fail(w, 500, err.Error())
 		return
 	}
 	// 成对写回（内部先写临时名再 rename，路由不会拉到半截文件）

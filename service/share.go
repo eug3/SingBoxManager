@@ -31,7 +31,10 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-// ShareFS 是规则桶存储需要的最小文件接口（路径均相对共享内子目录）
+// ShareFS 是规则桶存储需要的最小文件接口（路径均相对共享内子目录）。
+// 约定：ReadFile 同时回内容与文件信息（供 Last-Modified）；WriteFile 必须原子
+// （先临时名再 rename），路由不会拉到半截文件；List 回子目录内全部条目；
+// Describe 回人类可读的后端描述（体检/日志用）。三种实现：localShare/smbShare/sftpShare。
 type ShareFS interface {
 	ReadFile(name string) (data []byte, info os.FileInfo, err error)
 	WriteFile(name string, data []byte) error
@@ -43,10 +46,13 @@ type ShareFS interface {
 
 // ---- 本地目录实现（SHARE_MODE=local，等价于旧的 cifs 挂载用法）----
 
+// localShare 本机目录后端：直接 os.* 操作，无会话概念
 type localShare struct{ dir string }
 
+// path 桶文件名 → 本机绝对路径
 func (l *localShare) path(name string) string { return path.Join(l.dir, name) }
 
+// ReadFile 读文件内容后再 Stat（信息供 Last-Modified；Stat 失败随错误返回）
 func (l *localShare) ReadFile(name string) ([]byte, os.FileInfo, error) {
 	b, err := os.ReadFile(l.path(name))
 	if err != nil {
@@ -56,12 +62,15 @@ func (l *localShare) ReadFile(name string) ([]byte, os.FileInfo, error) {
 	return b, st, err
 }
 
+// WriteFile 直接覆盖写（本机目录无并发拉取半截文件的风险场景，保持简单）
 func (l *localShare) WriteFile(name string, data []byte) error {
 	return os.WriteFile(l.path(name), data, 0o644)
 }
 
+// Stat 取单个桶文件信息
 func (l *localShare) Stat(name string) (os.FileInfo, error) { return os.Stat(l.path(name)) }
 
+// List 列目录内全部条目（取 Info 失败的条目跳过）
 func (l *localShare) List() ([]os.FileInfo, error) {
 	ents, err := os.ReadDir(l.dir)
 	if err != nil {
@@ -76,12 +85,16 @@ func (l *localShare) List() ([]os.FileInfo, error) {
 	return out, nil
 }
 
+// Remove 删除桶文件
 func (l *localShare) Remove(name string) error { return os.Remove(l.path(name)) }
 
+// Describe 人类可读描述（local:<目录>）
 func (l *localShare) Describe() string { return "local:" + l.dir }
 
 // ---- SMB2 实现（纯 Go，无 cifs 挂载）----
 
+// smbShare SMB2 后端：进程内复用一个 session（mu 串行化），
+// 操作失败即丢弃连接、下次自动重建（with 内重试一次）。
 type smbShare struct {
 	addr, share, subdir, user, pass, domain string
 
@@ -90,10 +103,12 @@ type smbShare struct {
 	fs   *smb2.Share
 }
 
+// Describe 人类可读描述（smb://地址/共享/子目录，含用户名）
 func (s *smbShare) Describe() string {
 	return fmt.Sprintf("smb://%s/%s/%s (user=%s)", s.addr, s.share, s.subdir, orGuest(s.user))
 }
 
+// orGuest 空用户名按 guest 展示（NAS 共享 sec=none 时零凭据即可读写）
 func orGuest(u string) string {
 	if u == "" {
 		return "guest"
@@ -111,7 +126,8 @@ func (s *smbShare) rel(name string) string {
 	return s.subdir + "/" + clean
 }
 
-// ensure 惰性建链：首次调用或上次失败后重建 session
+// ensure 惰性建链：已有会话直接复用；否则拨号 + 挂载共享（15s 超时由调用方给）。
+// 挂载失败会先 Logoff 已建立的 session，避免泄漏。
 func (s *smbShare) ensure(ctx context.Context) (*smb2.Share, error) {
 	if s.fs != nil {
 		return s.fs, nil
@@ -141,7 +157,8 @@ func (s *smbShare) drop() {
 	s.fs, s.sess = nil, nil
 }
 
-// with 执行一次操作；失败时重连重试一次（NAS 重启/会话超时自愈）
+// with 执行一次操作；失败时丢连接并重试一次（共 2 次尝试，NAS 重启/会话超时自愈）。
+// 全程持锁：SMB 会话非并发安全，串行化最省心。每次尝试独立 15s 超时。
 func (s *smbShare) with(fn func(fs *smb2.Share) error) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -165,6 +182,7 @@ func (s *smbShare) with(fn func(fs *smb2.Share) error) error {
 	return lastErr
 }
 
+// ReadFile 读桶文件内容与信息（读后 Stat；Stat 失败也按错误处理触发重连）
 func (s *smbShare) ReadFile(name string) ([]byte, os.FileInfo, error) {
 	var data []byte
 	var info os.FileInfo
@@ -200,10 +218,12 @@ func (s *smbShare) WriteFile(name string, data []byte) error {
 	})
 }
 
+// Remove 删除桶文件（不存在时返回底层错误，由调用方收进 errors 数组）
 func (s *smbShare) Remove(name string) error {
 	return s.with(func(fs *smb2.Share) error { return fs.Remove(s.rel(name)) })
 }
 
+// Stat 取单个桶文件信息
 func (s *smbShare) Stat(name string) (os.FileInfo, error) {
 	var info os.FileInfo
 	err := s.with(func(fs *smb2.Share) error {
@@ -217,6 +237,7 @@ func (s *smbShare) Stat(name string) (os.FileInfo, error) {
 	return info, err
 }
 
+// List 列子目录内全部条目（发布前探测与 /health 计数用）
 func (s *smbShare) List() ([]os.FileInfo, error) {
 	var out []os.FileInfo
 	err := s.with(func(fs *smb2.Share) error {
@@ -236,6 +257,7 @@ func (s *smbShare) List() ([]os.FileInfo, error) {
 // 需要的环境变量：SFTP_ADDR(host:22) SFTP_USER SFTP_PASS(或 SFTP_KEY 私钥路径)
 //   SFTP_PATH（共享内子目录，默认 /volume1/WebEdit/rule-set 这类绝对路径）
 
+// sftpShare SFTP 后端：复用一条 SSH 连接 + sftp 客户端，失败丢弃重建（with 重试一次）
 type sftpShare struct {
 	addr, user, pass, keyPath, dir string
 
@@ -244,10 +266,13 @@ type sftpShare struct {
 	client *sftp.Client
 }
 
+// Describe 人类可读描述（sftp://地址+目录，含用户名）
 func (s *sftpShare) Describe() string {
 	return fmt.Sprintf("sftp://%s%s (user=%s)", s.addr, s.dir, orGuest(s.user))
 }
 
+// ensure 惰性建链：私钥（SFTP_KEY）优先，口令（SFTP_PASS）可叠加；两者皆无报错。
+// sftp 握手失败会关掉已建立的 SSH 连接，避免泄漏。
 func (s *sftpShare) ensure() (*sftp.Client, error) {
 	if s.client != nil {
 		return s.client, nil
@@ -284,6 +309,7 @@ func (s *sftpShare) ensure() (*sftp.Client, error) {
 	return cli, nil
 }
 
+// drop 丢弃当前连接（下次调用自动重连）
 func (s *sftpShare) drop() {
 	if s.client != nil {
 		_ = s.client.Close()
@@ -294,8 +320,10 @@ func (s *sftpShare) drop() {
 	s.client, s.ssh = nil, nil
 }
 
+// rel 桶文件名 → NAS 绝对路径（dir 是配置里的绝对目录）
 func (s *sftpShare) rel(name string) string { return path.Join(s.dir, name) }
 
+// with 执行一次操作；失败时丢连接并重试一次（共 2 次尝试），全程持锁串行化
 func (s *sftpShare) with(fn func(c *sftp.Client) error) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -317,6 +345,7 @@ func (s *sftpShare) with(fn func(c *sftp.Client) error) error {
 	return lastErr
 }
 
+// ReadFile 打开桶文件，先 Stat 再读全量内容
 func (s *sftpShare) ReadFile(name string) ([]byte, os.FileInfo, error) {
 	var data []byte
 	var info os.FileInfo
@@ -341,6 +370,8 @@ func (s *sftpShare) ReadFile(name string) ([]byte, os.FileInfo, error) {
 	return data, info, err
 }
 
+// WriteFile 先写临时名再 rename（SFTP rename 不覆盖，先删旧文件），
+// 避免路由在写到一半时拉走半截文件
 func (s *sftpShare) WriteFile(name string, data []byte) error {
 	return s.with(func(c *sftp.Client) error {
 		p := s.rel(name)
@@ -361,10 +392,12 @@ func (s *sftpShare) WriteFile(name string, data []byte) error {
 	})
 }
 
+// Remove 删除桶文件
 func (s *sftpShare) Remove(name string) error {
 	return s.with(func(c *sftp.Client) error { return c.Remove(s.rel(name)) })
 }
 
+// Stat 取单个桶文件信息
 func (s *sftpShare) Stat(name string) (os.FileInfo, error) {
 	var info os.FileInfo
 	err := s.with(func(c *sftp.Client) error {
@@ -378,6 +411,7 @@ func (s *sftpShare) Stat(name string) (os.FileInfo, error) {
 	return info, err
 }
 
+// List 列目录内全部条目
 func (s *sftpShare) List() ([]os.FileInfo, error) {
 	var out []os.FileInfo
 	err := s.with(func(c *sftp.Client) error {

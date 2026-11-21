@@ -14,9 +14,16 @@ import (
 	"time"
 )
 
-// parseClients 合并 dhcp.leases 与 /proc/net/arp 输出
+// parseClients 合并 dhcp.leases 与 /proc/net/arp 输出，产出 IP→{ip,mac,name} 名册。
+// 合并口径：
+//   - 租约先行：带主机名（hostname 为 * 视为无名），MAC 统一小写；
+//   - ARP 补漏：只补 MAC 不带名字，覆盖同 IP 的 mac 字段但保留已有 name；
+//   - 全零 MAC（00:00:00:00:00:00，ARP 未完成解析）与空 IP/MAC 一律丢弃。
+//
+// 纯函数，无副作用；输出顺序不保证（map 遍历），前端自行排序。
 func parseClients(leases, arp string) []map[string]string {
 	byIP := map[string]map[string]string{}
+	// put 归一化后按 IP 归并：mac 总是覆盖，name 只在非空且非 * 时写入
 	put := func(ip, mac, name string) {
 		ip = strings.TrimSpace(ip)
 		mac = strings.ToLower(strings.TrimSpace(mac))
@@ -33,7 +40,7 @@ func parseClients(leases, arp string) []map[string]string {
 			e["name"] = name
 		}
 	}
-	// dhcp.leases: <expiry> <mac> <ip> <hostname> <clientid>
+	// dhcp.leases: <expiry> <mac> <ip> <hostname> <clientid>（dnsmasq 格式）
 	for _, line := range strings.Split(leases, "\n") {
 		f := strings.Fields(line)
 		if len(f) >= 4 {
@@ -41,6 +48,7 @@ func parseClients(leases, arp string) []map[string]string {
 		}
 	}
 	// /proc/net/arp: IP address / HW type / Flags / HW address / Mask / Device
+	// 首行是表头（IP 不含三个点），靠「IPv4 形状」过滤掉
 	for _, line := range strings.Split(arp, "\n") {
 		f := strings.Fields(line)
 		if len(f) >= 4 && strings.Count(f[0], ".") == 3 {
@@ -54,6 +62,9 @@ func parseClients(leases, arp string) []map[string]string {
 	return out
 }
 
+// handleRouterClients GET /router/clients?host= —— LAN 客户端名册。
+// 两份远端文件各自容忍失败（2>/dev/null）：只要有一份读到就出结果；
+// 两份都失败才 502。先 pickRouter 再鉴权，口径同其它 /router/* 接口。
 func handleRouterClients(w http.ResponseWriter, r *http.Request) {
 	if preflight(w, r) {
 		return

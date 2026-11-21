@@ -4,6 +4,7 @@ import { BackendsService } from './backends.service';
 import { RuleCheck, VaultService } from './vault.service';
 import { PublishResp } from './models';
 
+/** localStorage：上次选的桶 */
 const BUCKET_KEY = 'vaultBucket';
 
 /**
@@ -30,10 +31,12 @@ export class RuleEditor implements OnInit {
   readonly result = signal<PublishResp | null>(null);
   readonly key = computed(() => this.bsvc.globalKey());
 
+  /** 进入即拉当前桶 */
   ngOnInit(): void {
     void this.load();
   }
 
+  /** 拉桶源 + 预校验 + HEAD 线上 .srs 大小/时间 */
   async load(): Promise<void> {
     this.loading.set(true);
     this.result.set(null);
@@ -49,17 +52,20 @@ export class RuleEditor implements OnInit {
     }
   }
 
+  /** 切换桶（记住选择）并重拉 */
   pickBucket(name: string): void {
     this.bucket.set(name);
     localStorage.setItem(BUCKET_KEY, name);
     void this.load();
   }
 
+  /** Monaco 内容变化：即时预校验 */
   onValueChange(v: string): void {
     this.source.set(v);
     this.check.set(this.vault.validate(v));
   }
 
+  /** 格式化（2 空格）；语法错先提示 */
   format(): void {
     try {
       const pretty = this.vault.format(this.source());
@@ -70,6 +76,7 @@ export class RuleEditor implements OnInit {
     }
   }
 
+  /** 发布：校验+密钥前置检查 → /publish → 刷新 HEAD */
   async publish(): Promise<void> {
     const c = this.check();
     if (!c.ok) return alert('校验没通过：' + c.msg);
@@ -91,6 +98,7 @@ export class RuleEditor implements OnInit {
     }
   }
 
+  /** HEAD 的 Content-Length 字符串→人类可读 */
   fmtBytes(size: string | undefined): string {
     const n = Number(size);
     return Number.isFinite(n) ? this.vault.formatBytes(n) : (size ?? '?');
