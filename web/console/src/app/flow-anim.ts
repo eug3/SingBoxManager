@@ -25,6 +25,7 @@ import { buildFlow, buildLayout, buildStatic, emptyStatic, nameOfKey, pointOnPat
 import type {
   ClientInfo,
   ClientMap,
+  DelayMap,
   FlowEdgeGeom,
   FlowKind,
   FlowLayout,
@@ -39,6 +40,8 @@ const SAMPLE_MS = 1500;
 const CFG_MS = 30_000;
 /** 局域网名册（/router/clients → ip→MAC/主机名）刷新间隔：DHCP/ARP 变化慢，30s 足够 */
 const CLIENTS_MS = 30_000;
+/** 节点延时（clash_api /proxies 的 history 末次 delay）刷新间隔：测速本来就慢，5s 足够 */
+const PROXIES_MS = 5000;
 /** 粒子走完全程的时长 */
 const PARTICLE_MS = 1800;
 /** 同时存在的粒子上限（超出丢最旧的） */
@@ -173,6 +176,9 @@ export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
   /** ① 列名册：ip → {mac,name}（拿不到就是空表，① 回落到按源 IP） */
   private clients: ClientMap = new Map<string, ClientInfo>();
   private clientsTimer: ReturnType<typeof setInterval> | null = null;
+  /** ⑤ 节点延时：tag → 末次测速 delay（ms）；拿不到就是空表，方格不画点 */
+  private delays: DelayMap = new Map<string, number>();
+  private delayTimer: ReturnType<typeof setInterval> | null = null;
   private lastFrame = 0;
 
   readonly stats = computed(() => this.flow().stats);
@@ -264,9 +270,11 @@ export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
     if (this.cfgTimer) clearInterval(this.cfgTimer);
     if (this.connTimer) clearInterval(this.connTimer);
     if (this.clientsTimer) clearInterval(this.clientsTimer);
+    if (this.delayTimer) clearInterval(this.delayTimer);
     this.cfgTimer = null;
     this.connTimer = null;
     this.clientsTimer = null;
+    this.delayTimer = null;
     if (this.rafId) cancelAnimationFrame(this.rafId);
     this.rafId = 0;
     this.ro?.disconnect();
@@ -289,17 +297,19 @@ export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
     this.version = '';
     this.stat.set(emptyStatic(this.hostOf(b)));
     this.clients = new Map<string, ClientInfo>();
+    this.delays = new Map<string, number>();
     this.rebuild();
     this.startLoops();
     void this.loadVersion(b);
     void this.loadClients(b);
+    void this.loadDelays(b);
     void this.loadConfig(b);
     void this.sample(b);
   }
 
   /** 用当前连接 + 静态结构 + 名册重建六列（唯一出口，避免各处漏传 clients） */
   private rebuild(): void {
-    this.flow.set(buildFlow(this.lastConns, this.stat(), this.clients));
+    this.flow.set(buildFlow(this.lastConns, this.stat(), this.clients, this.delays));
   }
 
   /** ②列名字：后端的 host（例如 192.168.31.32）；解析不出来退回后端名 */
@@ -324,6 +334,12 @@ export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
         if (document.hidden || this.destroyed) return;
         void this.loadClients(this.backend());
       }, CLIENTS_MS);
+    }
+    if (!this.delayTimer) {
+      this.delayTimer = setInterval(() => {
+        if (document.hidden || this.destroyed) return;
+        void this.loadDelays(this.backend());
+      }, PROXIES_MS);
     }
     if (!this.connTimer) {
       this.connTimer = setInterval(() => {
@@ -408,6 +424,29 @@ export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
+  /**
+   * 拉一次 `clash_api /proxies` → tag→末次 delay（ms）。
+   * 每个出站的 `history` 是测速记录数组，取最后一条的 delay；<=0 或缺 history 视为未测速。
+   * 失败静默：保留上一次的延时（首次为空表 → 方格不画点），不影响其它列。
+   */
+  private async loadDelays(b: Backend): Promise<void> {
+    if (!b?.api) return;
+    try {
+      const resp = await this.clash.proxies(b);
+      if (this.destroyed) return;
+      const map = new Map<string, number>();
+      for (const [tag, p] of Object.entries(resp?.proxies ?? {})) {
+        const h = p?.history;
+        const last = h && h.length ? Number(h[h.length - 1]?.delay) : NaN;
+        if (Number.isFinite(last)) map.set(tag, last as number);
+      }
+      this.delays = map;
+      this.rebuild();
+    } catch {
+      // /proxies 拿不到（旧版引擎 / 网络抖动）：保留旧延时，不报错
+    }
+  }
+
   /** ②列次行文案：sing-box + 引擎版本（版本没拿到就只写 sing-box） */
   private versionLabel(): string {
     return this.version ? `sing-box ${this.version}` : 'sing-box';
@@ -435,7 +474,7 @@ export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
 
   /** 归并布局 + 给「第一次见到」的连接生成粒子 */
   private apply(conns: Connection[]): void {
-    const flow = buildFlow(conns, this.stat(), this.clients);
+    const flow = buildFlow(conns, this.stat(), this.clients, this.delays);
     this.flow.set(flow);
     const now = Date.now();
     const live = new Set<string>();

@@ -973,8 +973,13 @@ tr.oldconn td { background: #fffaf0; }
 .fn.m-tile .ficon { opacity: .95; }
 .fn.m-tile.live .fnbox { fill: #f0f7ff; stroke: #b9d0ee; }
 .fn.m-tile .fncount { fill: #7c8ea3; font-size: 8px; }
-/* ⑤ 有流量的成员方格：右上角小亮点 */
+/* ⑤ 有流量的成员方格：左上角小亮点（流量） */
 .fn .fdot { fill: var(--acc2); stroke: #fff; stroke-width: .8; }
+/* 延时状态点（右上角）：绿 0–400ms / 黄 400–800ms / 红 >800ms；未测速不画 */
+.fn .flat { stroke: #fff; stroke-width: .7; }
+.fn .flat.lat-g { fill: #2f9e5f; }
+.fn .flat.lat-y { fill: #d99313; }
+.fn .flat.lat-r { fill: #dd4356; }
 /* ① 方块下的 IP 标签 */
 .fntilelabel { fill: #7c8ea3; font-size: 7.5px; font-family: var(--mono); }
 

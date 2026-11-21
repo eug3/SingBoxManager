@@ -24,6 +24,7 @@
  */
 import { GROUP_TYPES, SPECIAL_TYPES, parseConfig } from './config-ops';
 import type { AnyObj } from './config-ops';
+import { LAT_LOW, LAT_MID } from './models';
 import type { Connection } from './models';
 
 /** 六列（数组顺序即渲染顺序，粒子也按这个方向走） */
@@ -152,6 +153,10 @@ export interface FlowNode {
   rowIcon?: string;
   /** 所属横带（band）下标：③④⑤ 都按带排；① ② ⑥ 不用 */
   band?: number;
+  /** 末次测速延时（ms）；-1 / undefined = 未测速 */
+  lat?: number;
+  /** 延时色档（⑤ 成员方格与 ④ 分组卡的聚合点用） */
+  latState?: LatState;
 }
 
 /**
@@ -186,6 +191,18 @@ export interface ClientInfo {
 
 /** `GET /router/clients` 的 ip → {mac,name}；由 flow-anim 每 30s 拉一次 */
 export type ClientMap = ReadonlyMap<string, ClientInfo>;
+
+/** clash_api /proxies 的「末次测速延时」（ms，key = 出站 tag）；<=0 或缺失 = 未测速 */
+export type DelayMap = ReadonlyMap<string, number>;
+
+/**
+ * 延时色档（阈值与 util.latClass / models.LAT_LOW=400 / LAT_MID=800 同一套）：
+ *  · g    0 < delay <= 400
+ *  · y    400 < delay <= 800
+ *  · r    delay > 800
+ *  · none delay<=0 / 没有测速记录（direct/block/未知）
+ */
+export type LatState = 'g' | 'y' | 'r' | 'none';
 
 /** 一条横带（band）：一个 ④ 分组 = 一条带；无分组的直连/拦截单独一条置底 */
 export interface FlowBand {
@@ -887,7 +904,12 @@ function mergeCol(base: FlowNode[], dyn: Map<string, DynInfo>, max: number, byCo
  * @param conns clash_api /connections 的 connections 数组
  * @param stat  buildStatic 的结果 + ②列名字；配置读不到时传 emptyStatic()
  */
-export function buildFlow(conns: Connection[], stat: FlowStat, clients?: ClientMap): FlowLayout {
+export function buildFlow(
+  conns: Connection[],
+  stat: FlowStat,
+  clients?: ClientMap,
+  delays?: DelayMap,
+): FlowLayout {
   const routerName = stat.routerName || 'sing-box';
   const routerKey = nodeKey('router', routerName);
   const cloudKey = nodeKey('cloud', '互联网');
@@ -1220,14 +1242,36 @@ export function buildFlow(conns: Connection[], stat: FlowStat, clients?: ClientM
     band: n.band ?? bandIdxOf(groupPartOf2(n.name)),
     tip: `${n.tip}\n命中 ${n.count} 条`,
   }));
-  cols.group = cols.group.map((n) => ({ ...n, band: n.band ?? bandIdxOf(n.name) }));
-  // ⑤ 行 tooltip 在合并之后统一补齐：中间分组（经由）+ 实时条数
+  // ⑤ 行在合并之后统一补齐：所属带 / 中间分组（经由）/ 延时状态 / 实时条数
   cols.node = cols.node.map((n) => {
     const mid = rowDyn.get(n.key)?.mid;
+    const tag = splitRowKey(n.key).node;
+    const delay = delays?.get(tag);
+    const latState = latStateOf(delay);
     return {
       ...n,
       band: n.band ?? bandIdxOf(splitRowKey(n.key).group),
-      tip: `${n.tip}${mid ? `\n经由 ${mid}` : ''}\n实时 ${n.count} 条`,
+      lat: latState === 'none' ? -1 : (delay as number),
+      latState,
+      tip:
+        `${n.tip}${mid ? `\n经由 ${mid}` : ''}` +
+        `\n延时 ${latTextOf(delay, latState)}\n实时 ${n.count} 条`,
+    };
+  });
+  cols.group = cols.group.map((n) => {
+    const band = n.band ?? bandIdxOf(n.name);
+    // 成员延时聚合：只统计有测速的成员（direct/block/未测速不参与平均）
+    const tested = cols.node.filter((m) => (m.band ?? 0) === band && (m.lat ?? 0) > 0);
+    const avg = tested.length
+      ? Math.round(tested.reduce((sum, m) => sum + (m.lat ?? 0), 0) / tested.length)
+      : -1;
+    const latState = latStateOf(avg);
+    return {
+      ...n,
+      band,
+      lat: latState === 'none' ? -1 : avg,
+      latState,
+      tip: latState === 'none' ? n.tip : `${n.tip}\n平均延时 ${avg} ms（${tested.length} 个成员参与）`,
     };
   });
   // 带去重统计：成员方格数 / 规则卡片数 / 带内总流量
@@ -1376,6 +1420,8 @@ export interface FlowNodeGeom {
   tip: string;
   /** 所属横带下标（③④⑤ 有；①②⑥ 无） */
   band?: number;
+  /** 延时色档：⑤ 成员方格与 ④ 分组卡右上角的小圆点用它上色；undefined / none = 不画点 */
+  latState?: LatState;
 }
 
 /** 列间连线几何 */
@@ -1477,6 +1523,23 @@ const COL_WIDTH: Record<FlowCol, { min: number; max: number; weight: number }> =
 };
 
 const round1 = (n: number): number => Math.round(n * 10) / 10;
+
+/** 延时（ms）→ 色档；<=0 / 非数字 = 未测速（不画点） */
+export function latStateOf(delay: number | null | undefined): LatState {
+  // 与 util.latClass 同口径：缺测速=灰(none)；测过但 <=0=红(失败)；<400 绿；<800 黄；其余红
+  if (delay === null || delay === undefined || !Number.isFinite(delay)) return 'none';
+  if (delay <= 0) return 'r';
+  if (delay < LAT_LOW) return 'g';
+  if (delay < LAT_MID) return 'y';
+  return 'r';
+}
+
+/** 色档 → 中文（tooltip 用） */
+function latTextOf(delay: number | null | undefined, st: LatState): string {
+  if (st === 'none' || delay === null || delay === undefined) return '未测速';
+  if (delay <= 0) return '超时/失败';
+  return `${delay} ms`;
+}
 
 /**
  * 按权重 + 上下限分配六列宽度：总宽先扣掉左右留白与列间距，再按权重分，
@@ -1892,6 +1955,7 @@ export function buildLayout(flow: FlowLayout, size: FlowSize): FlowGeom {
           labelAnchor: 'start',
           tip: it.tip || it.name,
           band: k,
+          latState: it.latState,
         });
         pushAnchor(it.key, x, x + colW, y, G.groupH);
         y += G.groupH + 4;
@@ -1934,6 +1998,7 @@ export function buildLayout(flow: FlowLayout, size: FlowSize): FlowGeom {
           labelAnchor: 'start',
           tip: it.tip || it.name,
           band: k,
+          latState: it.latState,
         });
         pushAnchor(it.key, x, x + tile, y, tile);
       });

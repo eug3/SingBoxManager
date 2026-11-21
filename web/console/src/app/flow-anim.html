@@ -168,9 +168,27 @@
               {{ n.badge }}
             </text>
           }
-          <!-- ⑤ 成员方格：有流量的右上角加一个小亮点 -->
+          <!-- ⑤ 成员方格：有流量的左上角一个小亮点，右上角是延时状态点（红/黄/绿） -->
           @if (n.col === 'node' && n.mode === 'tile' && n.count > 0) {
-            <circle class="fdot" [attr.cx]="n.x + n.w - 4" [attr.cy]="n.y + 4" r="1.9" />
+            <circle class="fdot" [attr.cx]="n.x + 4" [attr.cy]="n.y + 4" r="1.8" />
+          }
+          @if (n.latState && n.latState !== 'none') {
+            @if (n.mode === 'tile') {
+              <circle
+                [attr.class]="'flat lat-' + n.latState"
+                [attr.cx]="n.x + n.w - 3.6"
+                [attr.cy]="n.y + 3.6"
+                r="2.4"
+              />
+            } @else if (n.mode === 'card') {
+              <!-- ④ 分组卡：右下角画成员的平均延时点，避开文字与右上角次数 -->
+              <circle
+                [attr.class]="'flat lat-' + n.latState"
+                [attr.cx]="n.x + n.w - 6.5"
+                [attr.cy]="n.y + n.h - 6.5"
+                r="2.6"
+              />
+            }
           }
           @if (n.count > 0 && n.countX) {
             <text
