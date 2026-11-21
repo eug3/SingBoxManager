@@ -52,7 +52,7 @@
 } @else if (loaded()) {
   <div class="cfgnodes">
     <div class="cfgnodeshd">
-      <span>节点 {{ nodes().length }} 个（outbounds 里的代理节点 + endpoints）</span>
+      <span>条目 {{ nodes().length }} 个（代理节点 + endpoints，末尾含 direct/block 等特殊出站）</span>
       <span class="dim small">只读视图；改配置请点「编辑配置」</span>
     </div>
     <div class="tblwrap" style="max-height: 340px; overflow: auto">
