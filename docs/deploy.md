@@ -154,6 +154,32 @@ done
 # 期望：前三个 1，evil 为 0
 ```
 
+### 6.4 启用 API service（可选，需重启）
+
+sing-box 1.15 的 `services[{type:"api"}]` 提供比 Clash API 更全的运行时观测/操作，**但没有 reload 能力**。
+
+```json
+"services": [
+  { "type": "api", "tag": "api", "listen": "0.0.0.0", "listen_port": 9092,
+    "secret": "<与 clash_api 相同>",
+    "access_control_allow_origin": ["http://192.168.31.8:888",
+                                    "http://192.168.31.99:9099",
+                                    "http://10.1.1.99:9099"],
+    "access_control_allow_private_network": true }
+]
+```
+
+- 端口避开占用项（32 的 9091 被容器占用 → 统一 9092）；
+- 追加时保持原缩进与行尾（32：2 空格+LF；GL：1 空格+CRLF）；
+- 生效流程：`sing-box check` → 重启 → 双端口验证（9090 带 secret 返回 200；9092 返回任意非 000 即活）；
+- 协议是 **gRPC over h2c**，浏览器不能直连，用 99 的 `sing-box api ... --url http://<router>:9092 --secret <secret>`；
+- 实测重启断流约 **1 秒**。
+
+```bash
+export BOX_API_URL=http://192.168.31.32:9092 BOX_API_SECRET='<secret>'
+/usr/local/bin/sing-box api status && /usr/local/bin/sing-box api group list | head
+```
+
 ## 7. 验证（发布后必跑）
 
 ```bash

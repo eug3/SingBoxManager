@@ -99,6 +99,42 @@ NAS uc-nas (192.168.31.8)
 - 登录口令：**不写在这里**，见 §6 的权威登记表
 - 本地保留（不在 NAS 桶）：sniff/hijack-dns/clash_mode/port/ip_is_private、cn_ip/hk_ip（本地 srs）、GL 的 43.154.0.0/16、32 的 43.154.68.117/32 + v.shayuqite.xyz + dns-in
 
+## 4.5 API service（2026-11-21 启用，两台路由）
+
+sing-box 1.15 `services[]` 里的 `type: "api"` 服务，与 Clash API 并存、互不影响。
+
+| 项 | 值 |
+|---|---|
+| 端口 | **9092**（9090 仍是 Clash API；32 的 9091 被容器占用，故统一 9092） |
+| 监听 | `0.0.0.0:9092`（仅内网） |
+| 密钥 | 与 clash_api 同一个 secret（轮换时两处一起改） |
+| CORS | 白名单同 clash_api；`access_control_allow_private_network: true` |
+| 协议 | **gRPC over h2c**（`POST /sing_box.api.v1.API/Status` 回 200），不是 REST —— 浏览器不能直连，须经 99 上的 `sing-box api` CLI 或由服务端代理 |
+
+能力（`sing-box api --help`）：`status`（运行时长/内存/连接数/上下行速率）、`version`、`outbounds`、`group list|show|select|urltest`、`connection list|show|close`、`logs`、`mode list|set`、`networkquality`、`stun`、`tailscale`/`usbip`/`openvpn`/`openconnect`。**依然没有 reload / 写配置能力。**
+
+验证（99 上）：
+
+```bash
+export BOX_API_URL=http://192.168.31.32:9092 BOX_API_SECRET='<secret>'
+/usr/local/bin/sing-box api status
+BOX_API_URL=http://172.16.8.1:9092 /usr/local/bin/sing-box api group list | head -4   # 乙
+```
+
+启用/回滚（每台重启一次，实测断流约 1s）：
+
+```sh
+cp -p /etc/sing-box/config.json /etc/sing-box/config.json.bak-$(date +%Y%m%d-%H%M%S)-before-api
+# 末尾追加 services 段（保持原缩进/行尾：32 为 2 空格+LF，GL 为 1 空格+CRLF）
+/opt/sing-box/sing-box check -c /tmp/config.json.new
+cp /tmp/config.json.new /etc/sing-box/config.json && /etc/init.d/sing-box restart
+curl -s -o /dev/null -w '%{http_code}\n' -H 'Authorization: Bearer <secret>' http://127.0.0.1:9090/version  # 200
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:9092/                                          # 404=活
+```
+
+回滚：`cp -p /etc/sing-box/config.json.bak-<ts>-before-api /etc/sing-box/config.json && /etc/init.d/sing-box restart`。
+本轮备份：32 `config.json.bak-20261121-151649-before-api`，GL `config.json.bak-20261121-151719-before-api`。
+
 ## 5. 坑（都是踩过的）
 
 1. **纯 ip_cidr 规则的顺序敏感性**：桶合并时只测域名会漏 IP 语义（曾把 telegram IP 段前移抢了 rs-tg 的活）；改桶结构要跑域名+IP 双维等价验证
