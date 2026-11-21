@@ -1,5 +1,7 @@
 #!/bin/bash
 # CLI 发布: VAULT_KEY=xxx scripts/publish.sh <桶名> <json路径>
+# 本地先验 JSON 语法，再 POST /publish（content 以字符串形态传，服务端兼容）
+# 服务端会做结构校验 + sing-box 编译，失败不会写 NAS
 set -e
 BUCKET="$1"; FILE="$2"
 [ -z "$VAULT_KEY" ] || [ -z "$BUCKET" ] || [ -z "$FILE" ] && { echo "用法: VAULT_KEY=xxx $0 <bucket> <file.json>"; exit 1; }

@@ -34,12 +34,13 @@
 
 | 路径 | 技术栈 | 作用 |
 |---|---|---|
-| `service/` | Go 1.27（单二进制） | `vault-edit`：静态页面 + `/rule-set/*` + `/publish`（校验/编译/写回），systemd 托管 |
+| `service/` | Go 1.27（单二进制，单包多文件） | `vault-edit`：静态页面 + `/rule-set/*` + `/publish` + `/router/*`；模块划分见 [docs/architecture.md](docs/architecture.md) |
 | `web/console/` | Angular 22 + TypeScript 6（signals、zoneless） | 内网管理台：概览曲线、分组/节点、连接、日志、规则、Monaco 规则编辑 |
 | `web/edit/index.html` | 原生 HTML/JS（**已退役**） | 上一代单文件管理台，仅作回滚参考，不参与部署 |
 | `web/index.html` | 原生 HTML/JS | 公网首页（脱敏：只有桶卡片与体积/时间，无 IP/节点/拓扑） |
-| `service/router.go` | Go（在 99 上运行） | 路由操作编排：SSH 读配置/上传候选/远端 `sing-box check`/备份/原子替换/重启/健康检查/失败回滚；**路由上无需预装脚本** |
+| `service/router_*.go` | Go（在管理机上运行） | 路由配置通道：`router_store`（SSH 凭据 0600 存储）/ `router_ssh`（SSH 编排：读/check/备份/替换/重启/健康/回滚，**路由无需预装脚本**）/ `router_http`（鉴权与接口） |
 | `scripts/` | Bash | 部署（`deploy_service.sh` / `deploy_console.sh` / `deploy_web.sh`）、体检（`check.sh`）、CLI 发布（`publish.sh`） |
+| `docs/architecture.md` | 文档 | 代码架构：模块划分、两条写通道、凭据分层、前端状态流 |
 | `docs/runbook.md` | 文档 | 运维手册：桶清单、路由配置口径、坑位、回滚表 |
 | `docs/deploy.md` | 文档 | 从零部署与升级的完整步骤 |
 
@@ -119,17 +120,30 @@ VAULT_KEY="$VAULT_KEY" scripts/check.sh
 ## 目录结构
 
 ```
-service/            Go 服务（main.go / go.mod / vault-edit.service）
-web/console/        Angular 22 管理台（src/app: overview, backend-pane, rule-editor, monaco-editor …）
+service/            Go 服务（单包多文件，go test ./... 有单测）
+  main.go           入口 + 路由表 + /health
+  config.go         环境变量与白名单常量
+  httpx.go          JSON 应答 / CORS / preflight / 路径安全
+  files.go          /edit/ /static/ /rule-set/ 三类静态服务
+  publish.go        /publish：规则校验 → 编译 .srs → 写回 NAS
+  router_store.go   路由 SSH 凭据存储与管理接口
+  router_ssh.go     SSH 通道 + 远端编排（check/apply/restart/健康/回滚）
+  router_http.go    /router/* 鉴权（VAULT_KEY 或 clash secret）与操作接口
+web/console/        Angular 22 管理台
+  src/app/          组件：app / backend-pane / overview / config-pane / rule-editor
+                    服务：backends / clash / vault / router
+                    纯函数：config-ops / node-form / share-link / line-diff / util
+                    基建：area-chart（SVG 图表）/ monaco-editor（离线 Monaco）
 web/edit/           已退役的单文件管理台（回滚参考）
 web/index.html      公网只读首页
 scripts/            deploy_service.sh / deploy_console.sh / deploy_web.sh / check.sh / publish.sh
-docs/               runbook.md（运维手册）· deploy.md（部署手册）
+docs/               architecture.md（代码架构）· runbook.md（运维手册）· deploy.md（部署手册）
 HANDOFF.md          交接摘要
 ```
 
 ## 相关文档
 
+- [docs/architecture.md](docs/architecture.md) —— 代码架构与模块划分
 - [docs/deploy.md](docs/deploy.md) —— 部署/升级手册
 - [docs/runbook.md](docs/runbook.md) —— 桶清单、路由配置口径、坑位、回滚表
 - [HANDOFF.md](HANDOFF.md) —— 当前状态与待办交接
