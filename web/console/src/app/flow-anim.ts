@@ -67,7 +67,10 @@ interface Particle {
 }
 
 /**
- * 流向动画 v2 — 六列（电脑 → 路由器 → 规则集 → 分组 → 节点 → 互联网）。
+ * 流向动画 v3 — 六列（电脑 → 路由器 → 规则集 → 分组 → 节点行 → 互联网）。
+ *
+ * ⑤ 改成「分组成员逐行」：一行 = 一个 (分组, 成员)，同一节点属于多个分组时各占一行；
+ * 行数可能上百，画布按行数撑高，超出容器高度时 .flowcanvas 内部纵向滚动（列头随内容滚动）。
  *
  * 数据两路并行（口径见 docs/plan-flow-v2.md）：
  *  · 静态拓扑：`RouterService.config()` 读 config.json → `buildStatic()`，每 30s 刷新一次；
@@ -132,13 +135,16 @@ export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
   private lastFrame = 0;
 
   readonly stats = computed(() => this.flow().stats);
-  /** SVG viewBox 与量到的容器像素 1:1（文字/圆点不缩放） */
-  readonly vb = computed(() => {
-    const s = this.size();
-    return `0 0 ${s.w} ${s.h}`;
-  });
-  /** 六列几何（列 / 节点块 / 连线 / 粒子锚点） */
+  /**
+   * 六列几何（列 / 节点块 / 连线 / 粒子锚点）。
+   * `h` 是**内容高度**：⑤ 行数可能上百，画布按行数撑高，超出 .flowcanvas 时纵向滚动。
+   */
   readonly geom = computed(() => buildLayout(this.flow(), this.size()));
+  /** SVG viewBox 与内容像素 1:1（文字/圆点不缩放） */
+  readonly vb = computed(() => {
+    const g = this.geom();
+    return `0 0 ${g.w} ${g.h}`;
+  });
 
   /** 连线：hover 时只保留与该节点相关的线（其余降到 0.08） */
   readonly edgesView = computed<EdgeView[]>(() => {
@@ -171,10 +177,10 @@ export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
     const node = this.geom().nodes.find((n) => n.key === key);
     if (!node) return null;
     const p = this.pointer();
-    const s = this.size();
+    const g = this.geom();
     return {
-      x: Math.min(p.x + 14, Math.max(6, s.w - 250)),
-      y: Math.min(p.y + 16, Math.max(6, s.h - 70)),
+      x: Math.min(p.x + 14, Math.max(6, g.w - 250)),
+      y: Math.min(p.y + 16, Math.max(6, g.h - 90)),
       text: node.tip || node.label,
     };
   });
@@ -401,7 +407,11 @@ export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
     const el = this.canvas()?.nativeElement;
     if (!el) return;
     const r = el.getBoundingClientRect();
-    this.pointer.set({ x: Math.round(ev.clientX - r.left), y: Math.round(ev.clientY - r.top) });
+    // canvas 可纵向滚动：换算到内容坐标（tooltip 是 canvas 的绝对定位子元素，会跟着一起滚）
+    this.pointer.set({
+      x: Math.round(ev.clientX - r.left + el.scrollLeft),
+      y: Math.round(ev.clientY - r.top + el.scrollTop),
+    });
   }
 
   /* ────────────────────────── 尺寸 ────────────────────────── */

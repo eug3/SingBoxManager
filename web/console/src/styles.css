@@ -827,13 +827,13 @@ tr.oldconn td { background: #fffaf0; }
 .gbempty { padding: 8px 6px; font-size: 10px; color: var(--dim); border: 1px dashed var(--line); text-align: center; }
 
 /* ==========================================================================
-   流向动画 v2（后端「流向」子页）：六列 SVG 画布 + 顶层粒子 + 自绘 tooltip
-   六列＝①电脑 ②路由器 ③规则集 ④分组 ⑤节点 ⑥互联网（口径见 docs/plan-flow-v2.md）
-   列宽随容器宽度自适应（ResizeObserver 量像素 → viewBox 1:1），高度撑满 tab 内容区
+   流向动画 v3（后端「流向」子页）：六列 SVG 画布 + 顶层粒子 + 自绘 tooltip
+   六列＝①电脑 ②路由器 ③规则集 ④分组 ⑤分组成员（逐行）⑥互联网
+   列宽按权重分配（③④ 吃宽、⑤ 固定 90–108 窄条），行高固定、行数多时画布撑高并内部纵向滚动
    ========================================================================== */
 .flow {
   /* 撑满 .bp-body 的可视高度（百分比高度在 flex 容器里可解析）；
-     min-height 只兜底极端小窗（300 = 画布 274，列头 + 一列 12 个规则仍放得下），正常窗口不触发滚动 */
+     min-height 兜底极端小窗，正常窗口不触发外层滚动 */
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -858,9 +858,13 @@ tr.oldconn td { background: #fffaf0; }
   min-height: 0;
   border: 1px solid var(--line);
   background: #f7f9fc;
-  overflow: hidden;
+  /* ⑤ 行数可能上百：画布按行数撑高，超出容器高度就在画布内部纵向滚动（列头随内容滚动） */
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
-.flowsvg { display: block; width: 100%; height: 100%; }
+.flowsvg { display: block; width: 100%; }
 .flowempty {
   position: absolute;
   inset: 0;
@@ -892,6 +896,27 @@ tr.oldconn td { background: #fffaf0; }
 /* 直连 / 拦截的图标跟语义走色（覆盖列色） */
 .ficon.direct { color: #8a99ab; }
 .ficon.block { color: var(--bad); }
+/* ⑤ 行按「协议」上色（同一形状、不同颜色，一眼区分出口类型） */
+.ficon.p-ss { color: #0f8f9a; }
+.ficon.p-ssr { color: #0f8f9a; }
+.ficon.p-vmess { color: #1f6fd0; }
+.ficon.p-vless { color: #4553c4; }
+.ficon.p-trojan { color: #8a3fa8; }
+.ficon.p-hy { color: #c8387a; }
+.ficon.p-hy2 { color: #d0447f; }
+.ficon.p-tuic { color: #0e7fa8; }
+.ficon.p-anytls { color: #b8720f; }
+.ficon.p-stls { color: #7a6a1f; }
+.ficon.p-masque { color: var(--acc); }
+.ficon.p-wg { color: var(--acc); }
+.ficon.p-socks { color: #6c7d92; }
+.ficon.p-http { color: #5b7fa6; }
+.ficon.p-ssh { color: #4b5aa8; }
+.ficon.p-tor { color: #6a4fa8; }
+.ficon.p-naive { color: #2f8f5b; }
+.ficon.p-juicity { color: #a8562f; }
+.ficon.p-mieru { color: #2f6f8f; }
+.ficon.p-other { color: #5b7fa6; }
 
 /* 列背景与列头（列头：图标 + 列名 + 右上角累计连接数 + 副标题） */
 .fcol { fill: #f7f9fc; stroke: #e6ecf5; stroke-width: 1; }
@@ -912,6 +937,18 @@ tr.oldconn td { background: #fffaf0; }
 
 /* 节点块：白底 + 边框；直连灰、代理蓝、拦截红（与粒子同色系） */
 .fn .fnbox { fill: #fff; stroke: var(--line); stroke-width: 1; transition: stroke .12s, fill .12s; }
+/* ⑤ 行：只有图标的窄条，边框更淡；有实时流量的行描边亮起来 */
+.fn.m-icon .fnbox { fill: #f9fbfe; stroke: #e3eaf4; }
+/* ⑤ 行按所属分组交替底色：54 行同形图标时靠底色就能看出分组边界 */
+.fn.m-icon.band1 .fnbox { fill: #eef3fa; stroke: #dde6f2; }
+.fn.m-icon.live .fnbox { fill: #eef6ff; stroke: #b9d0ee; }
+.fn.m-icon.hi .fnbox { fill: #f2f8ff; stroke: var(--acc2); }
+.fn.m-icon .fncount { fill: #6c7d92; font-size: 8.5px; }
+/* ⑥ 一朵大云：虚线大框，图标居中，次数在下方 */
+.fn.m-cloud .fnbox { fill: #f5fcfd; stroke: #bfe0e4; stroke-dasharray: 4 3; }
+.fn.m-cloud.live .fnbox { fill: #eefafb; stroke: #7fc4cc; stroke-dasharray: none; }
+.fn.m-cloud .fncloudcnt { fill: #0f8f9a; font-size: 11px; font-family: var(--mono); }
+.fn.m-cloud .fncloudsub { fill: #7fa9ad; font-size: 8.5px; font-family: var(--mono); }
 .fn .fnname { fill: var(--ink); font-size: 9.5px; font-family: var(--mono); }
 .fn .fnbadge { fill: #8a99ab; font-size: 8.5px; font-family: var(--mono); }
 .fn .fncount { fill: #9aa7b6; font-size: 9px; font-family: var(--mono); }

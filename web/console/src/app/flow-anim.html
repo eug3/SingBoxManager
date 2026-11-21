@@ -1,16 +1,18 @@
 <div class="flow">
-  <!-- 顶部统计：活跃连接 / 粒子 / 电脑 / 规则 / 分组 / 节点 / 采样节奏 -->
+  <!-- 顶部统计：活跃连接 / 粒子 / 电脑 / 规则 / 分组 / 节点行 / 采样节奏 -->
   <div class="flowbar">
     <span class="fstat">活跃连接 <b>{{ stats().total }}</b></span>
     <span class="fstat">流动粒子 <b>{{ dots().length }}</b></span>
     <span class="fstat">电脑 <b>{{ stats().pcs }}</b> 台</span>
     <span class="fstat">规则 <b>{{ stats().rules }}</b> 条</span>
     <span class="fstat">分组 <b>{{ stats().groups }}</b> 个</span>
-    <span class="fstat">节点 <b>{{ stats().nodes }}</b> 个</span>
+    <span class="fstat">节点行 <b>{{ stats().nodeRows }}</b> 行</span>
     @if (stats().hitRules) {
       <span class="fstat">命中规则 <b>{{ stats().hitRules }}</b></span>
     }
-    <span class="fhint">采样 1.5s · 配置 30s · ①电脑 → ②路由器 → ③规则集 → ④分组 → ⑤节点 → ⑥互联网</span>
+    <span class="fhint">
+      采样 1.5s · 配置 30s · ①电脑 → ②路由器 → ③规则集 → ④分组 → ⑤分组成员（逐行）→ ⑥互联网
+    </span>
     @if (cfgErr()) {
       <span class="ferr">⚠ {{ cfgErr() }}</span>
     }
@@ -20,7 +22,13 @@
   </div>
 
   <div class="flowcanvas" #canvas (mousemove)="onMove($event)" (mouseleave)="clearHover()">
-    <svg class="flowsvg" [attr.viewBox]="vb()" preserveAspectRatio="xMidYMid meet">
+    <!-- 画布高度＝内容高度（⑤ 行多时比容器高，交给 .flowcanvas 纵向滚动） -->
+    <svg
+      class="flowsvg"
+      [attr.viewBox]="vb()"
+      [style.height.px]="geom().h"
+      preserveAspectRatio="xMidYMid meet"
+    >
       <!-- 图标库：六列各一个 symbol，节点块与列头都用 <use> 引用（currentColor 上色） -->
       <defs>
         <symbol id="ico-pc" viewBox="0 0 16 16">
@@ -53,7 +61,7 @@
         </symbol>
       </defs>
 
-      <!-- 六列背景 + 列头（图标 + 列名 + 右上角累计次数 + 副标题） -->
+      <!-- 六列背景 + 列头（图标 + 列名 + 右上角累计次数 + 副标题≡行数） -->
       @for (c of geom().cols; track c.key) {
         <g>
           <rect
@@ -78,7 +86,11 @@
           <text class="fcolcnt" [attr.x]="c.x + c.w - 9" [attr.y]="c.y + 20" text-anchor="end">
             {{ c.total }}
           </text>
-          <text class="fcolsub" [attr.x]="c.x + 8" [attr.y]="c.y + 36">{{ c.sub }}</text>
+          <text class="fcolsub" [attr.x]="c.x + 8" [attr.y]="c.y + 36">
+            {{ c.sub }}@if (c.rows) {
+              <tspan> · {{ c.rows }} 行</tspan>
+            }
+          </text>
         </g>
       }
 
@@ -92,10 +104,10 @@
         />
       }
 
-      <!-- 节点块：左侧图标 + 主标题 + 次行（徽章）+ 右侧次数；hover 高亮相关连线并出 tooltip -->
+      <!-- 节点块：text=图标+标题+次行+次数；icon=只有图标（⑤ 行）；cloud=一朵大云（⑥） -->
       @for (n of nodesView(); track n.key) {
         <g
-          [attr.class]="'fn ' + n.kind + (n.hi ? ' hi' : n.dim ? ' dim' : '')"
+          [attr.class]="'fn ' + n.kind + ' m-' + n.mode + (n.mode === 'icon' && n.band ? ' band1' : '') + (n.count > 0 ? ' live' : '') + (n.hi ? ' hi' : n.dim ? ' dim' : '')"
           (mouseenter)="onEnter(n.key, $event)"
           (mouseleave)="clearHover()"
         >
@@ -105,22 +117,34 @@
             [attr.y]="n.y"
             [attr.width]="n.w"
             [attr.height]="n.h"
-            rx="6"
+            [attr.rx]="n.mode === 'icon' ? 5 : 6"
           />
           <use
-            [attr.class]="'ficon col-' + n.col + ' ' + n.kind"
+            [attr.class]="'ficon ' + n.tint"
             [attr.href]="n.icon"
-            [attr.x]="n.x + 6"
-            [attr.y]="n.y + (n.h - 13) / 2"
-            width="13"
-            height="13"
+            [attr.x]="n.iconX"
+            [attr.y]="n.iconY"
+            [attr.width]="n.iconSize"
+            [attr.height]="n.iconSize"
           />
-          <text class="fnname" [attr.x]="n.x + 24" [attr.y]="n.labelY">{{ n.label }}</text>
-          @if (n.badge && n.badgeY) {
-            <text class="fnbadge" [attr.x]="n.x + 24" [attr.y]="n.badgeY">{{ n.badge }}</text>
+          @if (n.mode === 'text') {
+            <text class="fnname" [attr.x]="n.x + 24" [attr.y]="n.labelY">{{ n.label }}</text>
+            @if (n.badge && n.badgeY) {
+              <text class="fnbadge" [attr.x]="n.x + 24" [attr.y]="n.badgeY">{{ n.badge }}</text>
+            }
           }
-          @if (n.count > 0) {
-            <text class="fncount" [attr.x]="n.x + n.w - 7" [attr.y]="n.labelY" text-anchor="end">
+          @if (n.mode === 'cloud' && n.badge && n.badgeY) {
+            <text class="fncloudsub" [attr.x]="n.x + n.w / 2" [attr.y]="n.badgeY" text-anchor="middle">
+              {{ n.badge }}
+            </text>
+          }
+          @if (n.count > 0 && n.countX) {
+            <text
+              [attr.class]="n.mode === 'cloud' ? 'fncloudcnt' : 'fncount'"
+              [attr.x]="n.countX"
+              [attr.y]="n.countY"
+              [attr.text-anchor]="n.mode === 'cloud' ? 'middle' : 'end'"
+            >
               {{ n.count }}
             </text>
           }
@@ -141,7 +165,7 @@
       </g>
     </svg>
 
-    <!-- 自绘 tooltip（HTML 层，不吃鼠标事件；\n 用 pre-line 换行） -->
+    <!-- 自绘 tooltip（HTML 层，不吃鼠标事件；\n 用 pre-line 换行；随 canvas 一起滚动） -->
     @if (tip(); as t) {
       <div class="flowtip" [style.left.px]="t.x" [style.top.px]="t.y">{{ t.text }}</div>
     }

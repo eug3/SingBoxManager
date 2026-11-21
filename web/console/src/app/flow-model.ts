@@ -2,23 +2,25 @@
  * flow-model.ts — 「流向」六列视图的纯函数层（无 Angular / DOM 依赖）。
  *
  * 静态骨架来自 sing-box config.json（`buildStatic`），实时流量来自 clash_api `/connections`
- * （`buildFlow`），六列口径见 docs/plan-flow-v2.md：
+ * （`buildFlow`），六列口径见 docs/plan-flow-v2.md（⑤ 行口径见 v3 说明）：
  *
  *   ① pc     每台源主机（metadata.sourceIP，缺省「本机」）+ 连接数
  *   ② router sing-box 所在设备（单节点，名字由调用方通过 stat.routerName 传入）
  *   ③ rule   规则集条目，形如 `分组名[规则 tag]`（例 `OpenAi[rs-openai]`）
  *   ④ group  selector / urltest 分组（badge：手动 / 延迟排序 / 负载均衡）
- *   ⑤ node   代理出站节点（badge：协议简写 ss / hy2 / vless …）
- *   ⑥ cloud  实时目标 host / sniffHost / destinationIP（本列只来自实时连接）
+ *   ⑤ node   **分组成员逐行列出**：一行 = 一个 (分组, 成员) 对，key 形如 `node:<分组>/<成员>`；
+ *            同一个节点属于多个分组时不合并（如 lan-fd-sa 在微软服务/节点选择下各占一行）；
+ *            链路里没有分组时落到 `node:-/<节点>` 的「其他」行（排在最后，tooltip 标「无分组」）
+ *   ⑥ cloud  一整朵云（只来自实时连接），tooltip 里放目标明细
  *
  * 关键口径：
  *  · ③ 先用 `conn.rule` + `conn.rulePayload` 反查静态规则（`rule='rule_set'` 时 rulePayload 就是
- *    rule_set 的 tag）；命不中时退化成 `chains[0][rule]`（组名 + 规则类型），再不行用 `?[payload]`。
+ *    rule_set 的 tag）；命不中时退化成 `chains[0][rule]`（组名 + 规则类型），再不行用 `[payload]`。
  *  · DIRECT / block 短路：③ 直接连 ⑥，不再经过 ④⑤；节点按 direct(灰) / block(红) 着色。
- *  · 零流量也输出 ③④⑤ 的静态节点（count=0），并用 config 结构补 ③→④、④→⑤ 的静态边，
- *    这样「还没有连接」时看到的是配置拓扑而不是空画布。
- *  · 静态条目与实时条目用同一套 key（`列:名称`）合流：config 里有、这次没命中的条目 count=0
- *    仍然展示；实时出现、config 里没有的条目（例如配置读不到）追加在后面。
+ *  · ⑤ 的行顺序 = ④ 分组顺序（config `outbounds[]` 顺序）+ 组内成员顺序；
+ *    ④→⑤ 的边就是「分组 → 它的每个成员」。
+ *  · chains 的里外顺序按配置自动判别（首尾谁像节点、谁像分组），两种口径都能落对行。
+ *  · 零流量也输出 ③④⑤ 的静态节点（count=0），并用 config 结构补 ③→④、④→⑤ 的静态边。
  */
 import { GROUP_TYPES, SPECIAL_TYPES, parseConfig } from './config-ops';
 import type { AnyObj } from './config-ops';
@@ -32,13 +34,10 @@ export type FlowCol = (typeof FLOW_COLS)[number];
 export type FlowKind = 'direct' | 'proxy' | 'block';
 
 /**
- * 每列最多展示的节点数（超出的节点仍会出现在 sample 路径里，由渲染层按列中心兜底定位）。
- * 规则/分组/节点三列是「结构」主体，给得宽一些；电脑与目标只是分布概览。
+ * 每列最多展示的条目数。③④⑤ 是结构主体、允许纵向滚动，所以给得很宽；
+ * ① 只是源主机分布概览，⑥ 恒为一个大云。
  */
-/** ⑥ 互联网固定是「一朵云」，所有目标共用这个 key */
-export const CLOUD_KEY = 'cloud:@internet';
-
-export const FLOW_MAX: Record<FlowCol, number> = { pc: 8, router: 1, rule: 14, group: 10, node: 12, cloud: 1 };
+export const FLOW_MAX: Record<FlowCol, number> = { pc: 8, router: 1, rule: 80, group: 48, node: 400, cloud: 1 };
 
 /* ────────────────────────────── 类型 ────────────────────────────── */
 
@@ -71,7 +70,28 @@ export interface StaticGroup {
   members: string[];
 }
 
-/** ⑤ 代理出站节点（含 endpoints 里的 masque / wireguard 等） */
+/** ⑤ 一行 = 一个 (分组, 成员) 对 */
+export interface StaticNodeRow {
+  /** `node:<group>/<node>`；group = '-' 表示「其他（无分组）」 */
+  key: string;
+  /** 所属分组 tag；'-' = 无分组 */
+  group: string;
+  /** 成员 tag（可能是一个嵌套的子分组） */
+  node: string;
+  /** 成员是嵌套分组（图标用 group symbol） */
+  nested: boolean;
+  /** 原始协议（direct / block / shadowsocks …） */
+  type: string;
+  /** 徽章：协议简写（直连/拦截/组 另标） */
+  badge: string;
+  /** server:port（没有则为 '—'） */
+  server: string;
+  kind: FlowKind;
+  /** config 里的展开顺序（④ 分组顺序 + 组内成员顺序） */
+  order: number;
+}
+
+/** 节点登记表（⑤ 行元信息 / 分组 member 查表用） */
 export interface StaticNode {
   tag: string;
   /** 原始协议名（shadowsocks / hysteria2 / vless …） */
@@ -91,6 +111,8 @@ export interface FlowStatic {
   rules: StaticRule[];
   groups: StaticGroup[];
   nodes: StaticNode[];
+  /** ⑤ 的全部行（④ 分组展开成成员行，含「其他」行） */
+  nodeRows: StaticNodeRow[];
 }
 
 /** buildFlow 的静态输入：config 解析结果 + ②列显示信息（由组件补） */
@@ -103,23 +125,29 @@ export interface FlowStat extends FlowStatic {
 
 /** 渲染用的一个节点块 */
 export interface FlowNode {
-  /** `列:名称` */
+  /** 列前缀 + 名称；⑤ 行是 `node:<分组>/<成员>` */
   key: string;
   /** 主标题原文（渲染层按列宽截断） */
   name: string;
   /** 次行徽章（规则：直连/拦截；分组：手动/延迟排序；节点：协议简写 ss/hy2…） */
   badge: string;
-  /** 次行副标题：没有徽章时用它（②列显示引擎版本，分组显示成员数，节点显示 server） */
+  /** 次行副标题：没有徽章时用它（②列显示引擎版本） */
   sub: string;
   /** 经过该节点的连接数（静态节点可能为 0） */
   count: number;
   kind: FlowKind;
   /** true = 来自 config 的静态条目 */
   stat: boolean;
-  /** hover tooltip 的完整描述 */
+  /** hover tooltip 的完整描述（多行用 \n） */
   tip: string;
   /** 列内排序权重：静态条目取 config 顺序，实时新条目排在后面 */
   order: number;
+  /** ⑤ 行专用：协议（决定图标颜色） */
+  proto?: string;
+  /** ⑤ 行专用：所属分组（'-' = 无分组） */
+  group?: string;
+  /** 图标覆盖（⑤ 里嵌套子分组用 group 图标） */
+  rowIcon?: string;
 }
 
 export interface FlowEdge {
@@ -152,6 +180,8 @@ export interface FlowStats {
   groups: number;
   /** config 里的节点个数 */
   nodes: number;
+  /** ⑤ 的行数（Σ 分组成员，含「其他」行） */
+  nodeRows: number;
   /** 本次采样实际命中的规则条目数 */
   hitRules: number;
 }
@@ -163,6 +193,8 @@ export interface FlowLayout {
   sample: FlowSample[];
   /** 静态结构是否可用（false = 仅实时模式） */
   ok: boolean;
+  /** ⑥ 云 tooltip 用的目标明细（按条数降序，前 12） */
+  targets: { name: string; count: number }[];
 }
 
 /* ────────────────────────────── 小工具 ────────────────────────────── */
@@ -202,6 +234,19 @@ export function nameOfKey(key: string): string {
 
 export function nodeKey(col: FlowCol, name: string): string {
   return `${col}:${name}`;
+}
+
+/** ⑤ 行的 key：`node:<分组>/<成员>`（group='-' 表示无分组） */
+export function rowKey(group: string, node: string): string {
+  return nodeKey('node', `${group || '-'}/${node}`);
+}
+
+/** ⑤ 行 key → {group, node}（渲染/测试用） */
+export function splitRowKey(key: string): { group: string; node: string } {
+  const name = nameOfKey(key);
+  const i = name.indexOf('/');
+  if (i < 0) return { group: '-', node: name };
+  return { group: name.slice(0, i), node: name.slice(i + 1) };
 }
 
 /* ─────────────────────── 名称 → 视觉类别 / 协议徽章 ─────────────────────── */
@@ -244,11 +289,20 @@ const PROTO_BADGE: Record<string, string> = {
   mieru: 'mieru',
   masque: 'masque',
   wireguard: 'wg',
+  direct: '直连',
+  block: '拦截',
+  dns: 'dns',
 };
 
 export function protoBadge(type: string): string {
   const t = (type ?? '').trim().toLowerCase();
   return PROTO_BADGE[t] ?? (t || '?');
+}
+
+/** 协议 → 图标配色类（shadowsocks → `p-ss`；未知协议 → `p-other`） */
+export function protoTint(type: string): string {
+  const t = (type ?? '').trim().toLowerCase();
+  return PROTO_BADGE[t] ? `p-${PROTO_BADGE[t]}` : 'p-other';
 }
 
 /** 分组徽章：selector→手动、urltest→延迟排序；tag 含 BALANCE/负载/均衡 → 负载均衡 */
@@ -354,7 +408,7 @@ function matchSummary(r: AnyObj): string {
   return parts.join(' · ');
 }
 
-/* ─────────────────────── ② 节点 server:port ─────────────────────── */
+/* ─────────────────────── 节点 server:port ─────────────────────── */
 
 function serverOf(o: AnyObj): string {
   const host = str(o['server']);
@@ -367,7 +421,7 @@ function serverOf(o: AnyObj): string {
 
 /** 空静态结构（配置还没拉到时用；ok=false 会让界面提示「仅实时」） */
 export function emptyStatic(routerName = 'sing-box', routerSub = ''): FlowStat {
-  return { ok: false, rules: [], groups: [], nodes: [], routerName, routerSub };
+  return { ok: false, rules: [], groups: [], nodes: [], nodeRows: [], routerName, routerSub };
 }
 
 /**
@@ -375,7 +429,7 @@ export function emptyStatic(routerName = 'sing-box', routerSub = ''): FlowStat {
  * 只读，不改任何东西；JSON 坏掉/不是对象时返回 ok=false + 中文 error，不抛。
  */
 export function buildStatic(configText: string): FlowStatic {
-  const empty = (err: string): FlowStatic => ({ ok: false, err, rules: [], groups: [], nodes: [] });
+  const empty = (err: string): FlowStatic => ({ ok: false, err, rules: [], groups: [], nodes: [], nodeRows: [] });
   const text = (configText ?? '').trim();
   if (!text) return empty('配置为空');
 
@@ -392,6 +446,14 @@ export function buildStatic(configText: string): FlowStatic {
   const endpoints = asArray(root['endpoints'])
     .map(asObj)
     .filter((o): o is AnyObj => !!o);
+  const all = [...outbounds, ...endpoints];
+
+  /** 全部 tag → 条目（含分组、direct/block，⑤ 行要查成员元信息） */
+  const byTag = new Map<string, AnyObj>();
+  for (const o of all) {
+    const tag = str(o['tag']);
+    if (tag && !byTag.has(tag)) byTag.set(tag, o);
+  }
 
   // ── ④ 分组：outbounds 里 type ∈ {selector, urltest} ──
   const groups: StaticGroup[] = [];
@@ -410,10 +472,10 @@ export function buildStatic(configText: string): FlowStatic {
     });
   }
 
-  // ── ⑤ 节点：非分组、非 direct/block/dns 的出站（含 endpoints） ──
+  // ── ⑤ 节点登记表（代理出站，含 endpoints）：计数与「是不是节点」的口径 ──
   const nodes: StaticNode[] = [];
   const nodeTags = new Set<string>();
-  for (const o of [...outbounds, ...endpoints]) {
+  for (const o of all) {
     const type = str(o['type']);
     if (GROUP_TYPES.has(type) || SPECIAL_TYPES.has(type)) continue;
     const tag = str(o['tag']) || '?';
@@ -421,6 +483,43 @@ export function buildStatic(configText: string): FlowStatic {
     nodeTags.add(tag);
     nodes.push({ tag, type, kind: 'proxy', badge: protoBadge(type), server: serverOf(o) });
   }
+  const nodeByTag = new Map(nodes.map((n) => [n.tag, n]));
+
+  /** ⑤ 行元信息用「全部出站」名册：direct/block/endpoints 也可能是分组成员，要能列出协议与 server */
+  const rowMeta = (tag: string): { type: string; badge: string; server: string; kind: FlowKind } | null => {
+    const o = byTag.get(tag);
+    if (!o) return null;
+    const type = str(o['type']);
+    const kind = flowKind(tag) !== 'proxy' ? flowKind(tag) : SPECIAL_TYPES.has(type) ? flowKind(tag) : 'proxy';
+    return { type, badge: protoBadge(type), server: serverOf(o), kind };
+  };
+
+  // ── ⑤ 行：④ 分组按 config 顺序展开成成员行（同一节点属于多组 → 多行，不合并） ──
+  const nodeRows: StaticNodeRow[] = [];
+  const rowSeen = new Set<string>();
+  const pushRow = (group: string, node: string): void => {
+    const key = rowKey(group, node);
+    if (rowSeen.has(key)) return; // 同一分组里重复列同一个成员只留一行（config 冗余）
+    rowSeen.add(key);
+    const nested = groupTags.has(node);
+    const meta = rowMeta(node);
+    // 成员一律成行：哪怕 tag 在 config 里查不到（脏引用）也占一行，保证「行数 = 成员数」，
+    // 只是协议/server 显示成 '?' / '—'，一眼能看出配置有问题。
+    const type = nested ? 'group' : (meta?.type ?? '?');
+    const kind: FlowKind = nested ? 'proxy' : (meta?.kind ?? 'proxy');
+    nodeRows.push({
+      key,
+      group,
+      node,
+      nested,
+      type,
+      badge: nested ? '组' : kind === 'direct' ? '直连' : kind === 'block' ? '拦截' : meta ? protoBadge(type) : '?',
+      server: nested ? '—' : (meta?.server ?? '—'),
+      kind,
+      order: nodeRows.length,
+    });
+  };
+  for (const g of groups) for (const m of g.members) pushRow(g.tag, m);
 
   // ── ③ 规则：route.rules[] + route.final ──
   const rules: StaticRule[] = [];
@@ -455,13 +554,15 @@ export function buildStatic(configText: string): FlowStatic {
     const group = outboundOf(r);
     if (!group) return; // sniff / hijack-dns 之类不产生分流走向
     addRule(group, ruleTagOf(r, group), matchSummary(r));
+    // 规则直接指向某个节点（不是分组）时，为它补一条「其他」行，③→⑤ 才有落点
+    if (!groupTags.has(group) && nodeByTag.has(group)) pushRow('-', group);
   });
 
   // final：没有 rule_set，label 形如 `节点选择[final]`
   const finalTag = str(route?.['final']);
   if (finalTag) addRule(finalTag, 'final', '未命中任何规则时的兜底出站');
 
-  return { ok: true, rules, groups, nodes };
+  return { ok: true, rules, groups, nodes, nodeRows };
 }
 
 /* ────────────────────────────── 连接侧辅助 ────────────────────────────── */
@@ -484,7 +585,7 @@ function chainsOf(c: Connection): string[] {
     .filter(Boolean);
 }
 
-/** 连接终点标签（⑥列节点名）：host / sniffHost / destinationIP，最多 40 字 */
+/** 连接终点标签（⑥ 云 tooltip 里的目标名）：host / sniffHost / destinationIP，最多 40 字 */
 export function destLabel(c: Connection): string {
   const m = metaOf(c);
   const raw = (m.host || m.sniffHost || m.destinationIP || '').trim();
@@ -498,6 +599,37 @@ export function sourceLabel(c: Connection): string {
   return ip || '本机';
 }
 
+/**
+ * 一条连接 → {节点, 分组}。
+ *
+ * sing-box 的 `chains` 里外顺序在不同版本/口径下不一致（常见 clash 口径是 `[组..., 节点]`，
+ * 也有 `[节点, 组...]` 由内向外），这里用配置里的 tag 名册给两种口径打分，谁像就按谁解析：
+ *  · 首/尾谁在节点名册里（或 DIRECT/block 这类出站）、谁在分组名册里；
+ *  · 打平（配置读不到）时按由内向外口径取 `chains[0]` 为节点、`chains[last]` 为最外层分组。
+ */
+export function resolveChain(chains: readonly string[], stat: FlowPick): { node: string; group: string } {
+  const t = chains.map((s) => (s ?? '').trim()).filter(Boolean);
+  if (!t.length) return { node: '', group: '' };
+  if (t.length === 1) return { node: t[0], group: '' };
+
+  const groupSet = new Set(stat.groups.map((g) => g.tag));
+  const nodeSet = new Set(stat.nodes.map((n) => n.tag));
+  const isGroup = (s: string): boolean => groupSet.has(s);
+  const isNode = (s: string): boolean => nodeSet.has(s) || flowKind(s) !== 'proxy';
+
+  const first = t[0];
+  const last = t[t.length - 1];
+  // A：clash 常见口径 —— 前面是分组链、末位是真实出站
+  const scoreA = (isGroup(first) ? 2 : 0) + (isNode(last) ? 2 : 0);
+  // B：由内向外口径 —— 首位是真实出站、末位是最外层分组
+  const scoreB = (isNode(first) ? 2 : 0) + (isGroup(last) ? 2 : 0);
+  return scoreA > scoreB ? { node: last, group: first } : { node: first, group: last };
+}
+
+/** resolveChain 只需要 ④⑤ 的名册 */
+type FlowPick = Pick<FlowStatic, 'groups' | 'nodes'>;
+
+/** 一条连接命中的规则标签：静态反查优先，命不中按 `组名[规则类型]` 兜底 */
 /** 从 clash 的 rule 文本里拆出 rule_set 桶名与 route(…) 分组名
  *  例：'rule_set=rs-openai => route(OpenAi)' → { bucket:'rs-openai', group:'OpenAi' }
  *      'final => route(🐟 漏网之鱼)'        → { group:'🐟 漏网之鱼' }
@@ -519,7 +651,6 @@ function parseRuleText(rule: string): { bucket?: string; group?: string; matcher
   return out;
 }
 
-/** 一条连接命中的规则标签：静态反查优先，命不中按 `组名[规则类型]` 兜底 */
 function ruleLabelOf(
   c: Connection,
   chains: string[],
@@ -528,17 +659,18 @@ function ruleLabelOf(
 ): { label: string; kind: FlowKind; hit?: StaticRule } {
   const parsed = parseRuleText(c.rule ?? '');
   const payload = (c.rulePayload ?? '').trim();
-  // 注意：clash 的 chains 是「由内向外」——chains[0]=真实节点，chains[last]=最外层分组
-  const nodeTag = chains.length ? chains[0] : '';
+  // chains 由内向外：chains[0]=出口节点，最外层分组在链尾
   const outerGroup = chains.length >= 2 ? chains[chains.length - 1] : '';
+  const nodeTag = chains.length ? chains[0] : '';
   const kind = flowKind(nodeTag || outerGroup);
 
-  // rule_set 规则：桶名可能来自 rulePayload，也可能埋在 rule 文本里（'rule_set=xxx => route(yyy)'）
+  // rule_set 规则：桶名可能在 rulePayload，也可能埋在 rule 文本里
   const bucket = payload && !payload.includes('=') ? payload : parsed.bucket;
   const hit = bucket ? byRuleTag.get(bucket) : undefined;
+  // 静态命中时直接用 config 口径的 `分组名[桶名]`（如 OpenAi[rs-openai]）
   if (hit) return { label: hit.label, kind: hit.kind === 'proxy' ? kind : hit.kind, hit };
 
-  // 兜底：分组名优先用 route(…) 里的真实出站，其次链路首段
+  // 兜底：分组名优先用 route(…) 里的真实出站，其次链尾分组，再其次节点
   const group = parsed.group || outerGroup || nodeTag || 'DIRECT';
   const tag = bucket || parsed.matcher || (stat.ok ? 'final' : '未知');
   return { label: `${group}[${tag}]`, kind };
@@ -546,13 +678,13 @@ function ruleLabelOf(
 
 /* ────────────────────────────── 合流 ────────────────────────────── */
 
-/** 实时计数条目（徽章/副标题只有 config 基线条目才有；这里补 kind 与 tooltip） */
+/** 实时计数条目 */
 interface DynInfo {
   count: number;
   kind: FlowKind;
   badge?: string;
   tip?: string;
-  /** 中间分组（如 BALANCE），只作提示/次行说明 */
+  /** ⑤ 行专用：链路中间的分组（如 BALANCE），tooltip 里显示成「经由」 */
   mid?: string;
 }
 
@@ -571,9 +703,9 @@ function bumpDyn(map: Map<string, DynInfo>, key: string, kind: FlowKind, badge?:
  * 静态基线 + 实时计数 → 一列节点：
  *  · 静态条目即使 0 流量也保留（order 保持 config 顺序）；
  *  · 实时出现、config 里没有的条目追加在后面（order 从 1000 起）；
- *  · 排序：命中数降序 → 静态顺序升序 → 名称。
+ *  · 排序：`byCount` 时命中数降序 → config 顺序 → 名称；否则纯 config 顺序（⑤ 行必须保持结构顺序）。
  */
-function mergeCol(base: FlowNode[], dyn: Map<string, DynInfo>, max: number): FlowNode[] {
+function mergeCol(base: FlowNode[], dyn: Map<string, DynInfo>, max: number, byCount = true): FlowNode[] {
   const byKey = new Map<string, FlowNode>();
   for (const n of base) byKey.set(n.key, { ...n, count: 0 });
 
@@ -585,11 +717,6 @@ function mergeCol(base: FlowNode[], dyn: Map<string, DynInfo>, max: number): Flo
       if (d.kind !== 'proxy') hit.kind = d.kind;
       // 基线条目的徽章/副标题/tooltip 都以 config 为准（信息更全），实时侧只补计数与 kind
       if (d.badge && !hit.badge) hit.badge = d.badge;
-      // 中间分组（BALANCE 等）补进次行与 tooltip，避免多占一列
-      if (d.mid) {
-        hit.sub = hit.sub ? `${hit.sub} · ${d.mid}` : d.mid;
-        hit.tip = `${hit.tip}\n${d.mid}`;
-      }
       continue;
     }
     const name = nameOfKey(key);
@@ -607,7 +734,7 @@ function mergeCol(base: FlowNode[], dyn: Map<string, DynInfo>, max: number): Flo
   }
 
   const list = [...byKey.values()];
-  list.sort((a, b) => b.count - a.count || a.order - b.order || cmpName(a.name, b.name));
+  list.sort((a, b) => (byCount ? b.count - a.count || a.order - b.order : a.order - b.order) || cmpName(a.name, b.name));
   return list.slice(0, max);
 }
 
@@ -622,91 +749,106 @@ function mergeCol(base: FlowNode[], dyn: Map<string, DynInfo>, max: number): Flo
 export function buildFlow(conns: Connection[], stat: FlowStat): FlowLayout {
   const routerName = stat.routerName || 'sing-box';
   const routerKey = nodeKey('router', routerName);
+  const cloudKey = nodeKey('cloud', '互联网');
 
   // 静态索引（反查 / 补徽章用）
   const byRuleTag = new Map<string, StaticRule>();
   for (const r of stat.rules) if (!byRuleTag.has(r.ruleTag)) byRuleTag.set(r.ruleTag, r);
   const groupByTag = new Map(stat.groups.map((g) => [g.tag, g]));
   const nodeByTag = new Map(stat.nodes.map((n) => [n.tag, n]));
+  const rowByTag = new Map<string, StaticNodeRow>();
+  for (const r of stat.nodeRows) rowByTag.set(`${r.group}\u0000${r.node}`, r);
 
   const pcDyn = new Map<string, DynInfo>();
   const ruleDyn = new Map<string, DynInfo>();
   const groupDyn = new Map<string, DynInfo>();
-  const nodeDyn = new Map<string, DynInfo>();
-  const cloudDyn = new Map<string, DynInfo>();
-  const cloudDest = new Map<string, number>(); // 目标明细：只做 tooltip，不单独成列
+  const rowDyn = new Map<string, DynInfo>();
+  const targetDyn = new Map<string, number>();
   const edges = new Map<string, FlowEdge>();
   const sample: FlowSample[] = [];
   let total = 0;
 
+  /** ⑤ 行 key：优先落到 config 里那行；分组存在但成员没列上 → 动态补一行 */
+  const rowOf = (group: string, node: string): string => rowKey(group || '-', node);
+
+  const addEdge = (from: string, to: string, kind: FlowKind): void => {
+    if (from === to) return;
+    const key = `${from}\u0000${to}`;
+    const e = edges.get(key);
+    if (e) {
+      e.count++;
+      e.stat = false;
+      return;
+    }
+    edges.set(key, { key, from, to, count: 1, kind, stat: false });
+  };
+
   for (const c of conns ?? []) {
     const chains = chainsOf(c);
-    // chains 由内向外：nodeTag 是真实出口节点，outerGroup 是 route 命中的最外层分组
-    const nodeTag = chains.length ? chains[0] : '';
-    const outerGroup = chains.length >= 2 ? chains[chains.length - 1] : '';
-    const midGroups = chains.length >= 3 ? chains.slice(1, chains.length - 1) : [];
+    const hitChain = resolveChain(chains, stat);
     const src = sourceLabel(c);
     const dest = destLabel(c);
     const { label, kind: ruleKind, hit } = ruleLabelOf(c, chains, stat, byRuleTag);
+    const outKind = flowKind(hitChain.node || chains[chains.length - 1] || '');
+    const shortCircuit = !chains.length || outKind !== 'proxy';
 
     const entries: { col: FlowCol; key: string }[] = [
       { col: 'pc', key: nodeKey('pc', src) },
       { col: 'router', key: routerKey },
       { col: 'rule', key: nodeKey('rule', label) },
     ];
-
-    const shortCircuit = chains.length === 0 || flowKind(nodeTag) !== 'proxy';
-    let pathKindFlag: FlowKind = ruleKind;
+    const kind: FlowKind = shortCircuit ? ruleKind : outKind;
+    // 链路中间的分组（node 与最外层分组之间，如 BALANCE）→ 行 tooltip 的「经由」
+    const mids = chains.length > 2 ? chains.slice(1, -1) : [];
+    let group = '';
+    let nodeRow = '';
     if (!shortCircuit) {
-      pathKindFlag = flowKind(nodeTag);
-      // ④ 只放「config 里真的存在的最外层分组」；链路里没有分组时跳过④，③→⑤ 直接连边
-      if (outerGroup && groupByTag.has(outerGroup)) {
-        entries.push({ col: 'group', key: nodeKey('group', outerGroup) });
-      }
-      entries.push({ col: 'node', key: nodeKey('node', nodeTag) });
+      group = hitChain.group;
+      nodeRow = rowOf(group, hitChain.node);
+      if (group && groupByTag.has(group)) entries.push({ col: 'group', key: nodeKey('group', group) });
+      entries.push({ col: 'node', key: nodeRow });
     }
-    entries.push({ col: 'cloud', key: CLOUD_KEY });
+    entries.push({ col: 'cloud', key: cloudKey });
 
     // 计数
     total++;
     bumpDyn(pcDyn, entries[0].key, 'proxy');
     bumpDyn(ruleDyn, entries[2].key, ruleKind, kindBadge(ruleKind));
     if (!shortCircuit) {
-      const groupTag = outerGroup && groupByTag.has(outerGroup) ? outerGroup : '';
-      if (groupTag) {
-        const g = groupByTag.get(groupTag);
-        bumpDyn(groupDyn, nodeKey('group', groupTag), 'proxy', g?.badge ?? guessGroupBadge(groupTag));
+      if (group) {
+        const g = groupByTag.get(group);
+        bumpDyn(groupDyn, nodeKey('group', group), 'proxy', g?.badge ?? guessGroupBadge(group));
       }
-      const n = nodeByTag.get(nodeTag);
-      bumpDyn(nodeDyn, nodeKey('node', nodeTag), 'proxy', n?.badge ?? '');
-      if (midGroups.length) {
-        // 中间分组（如 BALANCE）记在节点行上，作「经由」说明，不额外占列
-        const info = nodeDyn.get(nodeKey('node', nodeTag));
-        if (info) info.mid = `经由 ${midGroups.join(' › ')}`;
+      const info = bumpDyn(rowDyn, nodeRow, 'proxy');
+      if (mids.length && !info.mid) info.mid = mids.join(' › ');
+      if (!info.tip) {
+        const meta = nodeByTag.get(hitChain.node);
+        const row = rowByTag.get(`${group || '-'}\u0000${hitChain.node}`);
+        info.tip = [
+          `节点 ${hitChain.node}`,
+          `协议 ${meta?.type ?? row?.type ?? '—'}`,
+          `服务器 ${meta?.server ?? row?.server ?? '—'}`,
+          `所属分组 ${group || '无分组'}`,
+        ].join('\n');
+      }
+      // 命中规则的匹配条件补进 tooltip（只补一次）
+      if (hit) {
+        const infoRule = ruleDyn.get(entries[2].key);
+        if (infoRule && !infoRule.tip) infoRule.tip = `规则 ${label}${hit.match ? '\n' + hit.match : ''}`;
       }
     }
-    bumpDyn(cloudDyn, CLOUD_KEY, 'proxy');
-    cloudDest.set(dest, (cloudDest.get(dest) ?? 0) + 1);
+    targetDyn.set(dest, (targetDyn.get(dest) ?? 0) + 1);
 
-    // 边（相邻两列）+ 抽样路径
-    for (let i = 0; i < entries.length - 1; i++) {
-      const from = entries[i].key;
-      const to = entries[i + 1].key;
-      const key = `${from}\u0000${to}`;
-      const e = edges.get(key);
-      if (e) e.count++;
-      else edges.set(key, { key, from, to, count: 1, kind: pathKindFlag, stat: false });
-    }
-    sample.push({ id: c.id ?? `${src}>${dest}#${sample.length}`, path: entries.map((e) => e.key), kind: pathKindFlag });
-
-    // 命中规则的 tooltip 用静态匹配条件补全
-    if (hit) {
-      const info = ruleDyn.get(entries[2].key);
-      if (info && !info.tip) info.tip = `规则 ${label}${hit.match ? '\n' + hit.match : ''}`;
-    }
+    // 边（相邻两列）
+    for (let i = 0; i < entries.length - 1; i++) addEdge(entries[i].key, entries[i + 1].key, kind);
+    sample.push({
+      id: c.id ?? `${src}>${dest}#${sample.length}`,
+      path: entries.map((e) => e.key),
+      kind,
+    });
   }
 
-  /* ── 静态基线（三列结构，0 流量也展示） ── */
+  /* ── 静态基线 ── */
   const ruleBase: FlowNode[] = stat.rules.map((r) => ({
     key: r.key,
     name: r.label,
@@ -727,41 +869,29 @@ export function buildFlow(conns: Connection[], stat: FlowStat): FlowLayout {
     count: 0,
     kind: 'proxy',
     stat: true,
-    tip: `分组 ${g.tag} · ${g.type} · ${g.members.length} 个成员${g.members.length ? `\n${g.members.slice(0, 8).join('、')}${g.members.length > 8 ? ' …' : ''}` : ''}`,
+    tip: `分组 ${g.tag} · ${g.type} · ${g.members.length} 个成员${g.members.length ? `\n${g.members.slice(0, 10).join('、')}${g.members.length > 10 ? ' …' : ''}` : ''}`,
     order: i,
   }));
 
-  // ⑤列按「所属分组」聚在一起：先分组的成员（分组顺序 + 成员顺序），再其余节点。
-  // 同一节点可能属于多个分组——不去重、不重复显示，只按第一个包含它的分组归位。
-  const nodeGroupOf = new Map<string, string>();
-  for (const g of stat.groups) {
-    for (const m of g.members) if (!nodeGroupOf.has(m)) nodeGroupOf.set(m, g.tag);
-  }
-  const groupOrder = new Map(stat.groups.map((g, i) => [g.tag, i]));
-  const nodeOrdered = [...stat.nodes].sort((a, b) => {
-    const ga = nodeGroupOf.get(a.tag);
-    const gb = nodeGroupOf.get(b.tag);
-    const ia = ga ? (groupOrder.get(ga) ?? 999) : 999;
-    const ib = gb ? (groupOrder.get(gb) ?? 999) : 999;
-    if (ia !== ib) return ia - ib;
-    if (ga !== gb) return ga === undefined ? 1 : gb === undefined ? -1 : ga.localeCompare(gb);
-    const ma = ga ? stat.groups[ia].members.indexOf(a.tag) : 0;
-    const mb = gb ? stat.groups[ib].members.indexOf(b.tag) : 0;
-    return ma - mb;
-  });
-
-  const nodeBase: FlowNode[] = nodeOrdered.map((n, i) => ({
-    key: nodeKey('node', n.tag),
-    name: n.tag,
-    badge: n.badge,
-    sub: n.server,
+  /** ⑤ 行基线：一行一个 (分组, 成员)，顺序＝config 里 ④ 分组顺序 + 组内成员顺序 */
+  const rowBase: FlowNode[] = stat.nodeRows.map((r) => ({
+    key: r.key,
+    name: r.node,
+    badge: r.badge,
+    sub: r.server,
     count: 0,
-    kind: 'proxy',
+    kind: r.kind,
     stat: true,
-    tip: `节点 ${n.tag} · ${n.type} · ${n.server}${
-      nodeGroupOf.get(n.tag) ? `\n所属分组：${nodeGroupOf.get(n.tag)}` : ''
-    }`,
-    order: i,
+    order: r.order,
+    proto: r.type,
+    group: r.group,
+    rowIcon: r.nested ? '#ico-group' : undefined,
+    tip: [
+      `节点 ${r.node}`,
+      `协议 ${r.type}`,
+      `服务器 ${r.server}`,
+      `所属分组 ${r.group === '-' ? '无分组' : r.group}`,
+    ].join('\n'),
   }));
 
   // ①列：没有连接时留一个「本机」占位，避免整列塌成空白
@@ -782,6 +912,30 @@ export function buildFlow(conns: Connection[], stat: FlowStat): FlowLayout {
           },
         ];
 
+  const targets = [...targetDyn.entries()]
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count || cmpName(a.name, b.name));
+  const cloudTip = [
+    `互联网 · ${total} 条连接 · ${targets.length} 个目标`,
+    ...targets.slice(0, 12).map((t) => `${t.name} ×${t.count}`),
+    targets.length > 12 ? `…另有 ${targets.length - 12} 个目标` : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  const cloudNode: FlowNode = {
+    key: cloudKey,
+    name: '互联网',
+    badge: '',
+    // 云块第二行显示目标数（明细在 tooltip 里）
+    sub: targets.length ? `${targets.length} 个目标` : '云',
+    count: total,
+    kind: 'proxy',
+    stat: true,
+    tip: cloudTip,
+    order: 0,
+  };
+
   const routerNode: FlowNode = {
     key: routerKey,
     name: routerName,
@@ -794,56 +948,46 @@ export function buildFlow(conns: Connection[], stat: FlowStat): FlowLayout {
     order: 0,
   };
 
-  /** ⑥ 互联网：只画一朵大云，目标明细收进 tooltip */
-  const cloudBase = (dests: Map<string, number>, total: number): FlowNode[] => {
-    const top = [...dests.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6);
-    const more = dests.size > top.length ? `\n…另有 ${dests.size - top.length} 个目标` : '';
-    return [
-      {
-        key: CLOUD_KEY,
-        name: '互联网',
-        badge: total ? `${total} 条` : '',
-        sub: dests.size ? `${dests.size} 个目标` : '云',
-        count: total,
-        kind: 'proxy',
-        stat: true,
-        tip: (top.length ? `去往：\n` + top.map(([k, v]) => `  ${k} ×${v}`).join('\n') : '还没有流量') + more,
-        order: 0,
-      },
-    ];
-  };
-
   const cols: Record<FlowCol, FlowNode[]> = {
     pc: mergeCol(pcBase, pcDyn, FLOW_MAX.pc),
     router: [routerNode],
     rule: mergeCol(ruleBase, ruleDyn, FLOW_MAX.rule),
     group: mergeCol(groupBase, groupDyn, FLOW_MAX.group),
-    node: mergeCol(nodeBase, nodeDyn, FLOW_MAX.node),
-    cloud: mergeCol(cloudBase(cloudDest, total), cloudDyn, 1),
+    // ⑤ 行严格按 config 顺序排（不按命中数重排），否则「④ 分组顺序 + 组内成员顺序」会被打乱
+    node: mergeCol(rowBase, rowDyn, FLOW_MAX.node, false),
+    cloud: [cloudNode],
   };
+  // ⑤ 行 tooltip 在合并之后统一补齐：中间分组（经由）+ 实时条数
+  cols.node = cols.node.map((n) => {
+    const mid = rowDyn.get(n.key)?.mid;
+    return { ...n, tip: `${n.tip}${mid ? `\n经由 ${mid}` : ''}\n实时 ${n.count} 条` };
+  });
 
-  /* ── 结构边：③→④（规则指向分组/节点）、④→⑤（分组成员）；纯静态时再补 ①→②、②→③ ── */
+  /* ── 结构边：③→④（规则指向分组/节点）、④→⑤（分组→它的每个成员）；纯静态时再补 ①→②、②→③ ── */
   const visible = new Set<string>();
   for (const col of FLOW_COLS) for (const n of cols[col]) visible.add(n.key);
   const structural: FlowEdge[] = [];
   const addStructural = (from: string, to: string): void => {
     if (from === to || !visible.has(from) || !visible.has(to)) return;
     const key = `${from}\u0000${to}`;
-    if (edges.has(key) || structural.some((e) => e.key === key)) return;
+    const hit = edges.get(key);
+    if (hit) {
+      // 已有（实时边或先加的结构边）：结构边一旦有流量就按动态边画
+      return;
+    }
+    if (structural.some((e) => e.key === key)) return;
     structural.push({ key, from, to, count: 0, kind: 'proxy', stat: true });
   };
 
   for (const r of stat.rules) {
     const from = r.key;
     if (groupByTag.has(r.group)) addStructural(from, nodeKey('group', r.group));
-    else if (nodeByTag.has(r.group)) addStructural(from, nodeKey('node', r.group));
+    else if (nodeByTag.has(r.group)) addStructural(from, rowOf('-', r.group));
   }
-  for (const g of stat.groups) {
-    const from = nodeKey('group', g.tag);
-    for (const mem of g.members) {
-      // 成员是节点才连（嵌套组不画同列连线，避免同列横穿）
-      if (nodeByTag.has(mem)) addStructural(from, nodeKey('node', mem));
-    }
+  // ④→⑤：分组 → 它的每个成员行（这是结构主边，必须一条不少）
+  for (const r of stat.nodeRows) {
+    if (r.group === '-') continue;
+    addStructural(nodeKey('group', r.group), r.key);
   }
   if (total === 0) {
     for (const p of cols.pc) addStructural(p.key, routerKey);
@@ -863,12 +1007,14 @@ export function buildFlow(conns: Connection[], stat: FlowStat): FlowLayout {
       rules: stat.rules.length,
       groups: stat.groups.length,
       nodes: stat.nodes.length,
+      nodeRows: stat.nodeRows.length,
       hitRules: ruleDyn.size,
     },
     cols,
     edges: edgeList,
     sample,
     ok: stat.ok,
+    targets: targets.slice(0, 12),
   };
 }
 
@@ -895,6 +1041,8 @@ export interface FlowColGeom {
   icon: string;
   /** 该列累计连接数（列头右上角） */
   total: number;
+  /** 该列条目数（列头副标题右侧，⑤ 是行数） */
+  rows: number;
   x: number;
   y: number;
   w: number;
@@ -915,11 +1063,23 @@ export interface FlowNodeGeom {
   y: number;
   w: number;
   h: number;
-  /** 主标题基线 */
+  /** 渲染模式：text = 图标+标题+次行+次数；icon = 只有图标（⑤ 行）；cloud = 一朵大云（⑥） */
+  mode: 'text' | 'icon' | 'cloud';
+  /** 图标尺寸 / 位置 */
+  iconSize: number;
+  iconX: number;
+  iconY: number;
+  /** 次数文本位置（0 = 不画次数） */
+  countX: number;
+  countY: number;
+  /** 图标配色类：`p-ss` / `p-hy2` / `direct` / `block` / `col-group` … */
+  tint: string;
+  /** 主标题基线 / 徽章基线（0 = 无徽章） */
   labelY: number;
-  /** 徽章基线；0 = 该块没有徽章，标题垂直居中 */
   badgeY: number;
   tip: string;
+  /** ⑤ 行专用：所属分组的交替色带（0/1），用于底色分组 */
+  band?: number;
 }
 
 /** 列间连线几何 */
@@ -938,6 +1098,10 @@ export interface FlowEdgeGeom {
 }
 
 export interface FlowGeom {
+  /** 画布视口尺寸（容器像素，1:1） */
+  w: number;
+  /** 画布内容高度：行多时大于 h，SVG 按它撑高并交给 .flowcanvas 纵向滚动 */
+  h: number;
   cols: FlowColGeom[];
   nodes: FlowNodeGeom[];
   edges: FlowEdgeGeom[];
@@ -953,8 +1117,8 @@ export const FLOW_HEADERS: { mark: string; title: string; sub: string; icon: str
   { mark: '②', title: '路由器', sub: 'sing-box', icon: '#ico-router' },
   { mark: '③', title: '规则集', sub: '规则集 → 分组', icon: '#ico-rule' },
   { mark: '④', title: '分组', sub: 'Selector / URLTest', icon: '#ico-group' },
-  { mark: '⑤', title: '节点', sub: '出口节点', icon: '#ico-node' },
-  { mark: '⑥', title: '互联网', sub: '目标', icon: '#ico-cloud' },
+  { mark: '⑤', title: '节点', sub: '分组成员逐行', icon: '#ico-node' },
+  { mark: '⑥', title: '互联网', sub: '悬停看目标', icon: '#ico-cloud' },
 ];
 
 /** 每列节点块的图标（<defs> 里的 symbol） */
@@ -971,16 +1135,74 @@ export const FLOW_ICONS: Record<FlowCol, string> = {
 export const FLOW_GEO = {
   padX: 12,
   headerH: 44,
-  minSlotW: 96,
-  minColW: 72,
-  minColH: 150,
-  maxStep: 84,
+  topGap: 4,
+  bottomGap: 18,
+  colGapMin: 10,
+  colGapMax: 18,
+  /** 每列行高（⑤ 最紧，③④ 略大以便两行文字） */
+  row: { pc: 30, router: 36, rule: 30, group: 30, node: 22, cloud: 72 } as Record<FlowCol, number>,
+  nodeIcon: 16,
+  cloudIcon: 34,
+  /** ⑥ 云块高度（图标 + 条数 + 目标数两行小字） */
+  cloudBlock: 86,
   /** 文本容量估算：半角 5.3px、徽章 5.0px */
   namePx: 5.3,
   badgePx: 5.0,
 } as const;
 
+/** 列宽规则：⑤ 固定窄条（90–110），③④ 吃掉剩余宽度 */
+const COL_WIDTH: Record<FlowCol, { min: number; max: number; weight: number }> = {
+  pc: { min: 112, max: 168, weight: 1.0 },
+  router: { min: 104, max: 158, weight: 0.95 },
+  rule: { min: 190, max: 460, weight: 2.3 },
+  group: { min: 172, max: 400, weight: 2.05 },
+  node: { min: 90, max: 108, weight: 0.7 },
+  cloud: { min: 92, max: 132, weight: 0.78 },
+};
+
 const round1 = (n: number): number => Math.round(n * 10) / 10;
+
+/**
+ * 按权重 + 上下限分配六列宽度：总宽先扣掉左右留白与列间距，再按权重分，
+ * 越界就夹到 min/max 并把差额重新分给还自由的列（两轮足够收敛）。
+ */
+function distributeWidths(total: number): Record<FlowCol, number> {
+  const out = {} as Record<FlowCol, number>;
+  let free: FlowCol[] = [...FLOW_COLS];
+  for (let pass = 0; pass < 6 && free.length; pass++) {
+    // 已被夹到 min/max 的列先扣掉，剩下的按权重分给还自由的列
+    const clampedSum = FLOW_COLS.reduce((n, k) => (free.includes(k) ? n : n + (out[k] ?? 0)), 0);
+    const remain = Math.max(0, total - clampedSum);
+    const weightSum = free.reduce((n, k) => n + COL_WIDTH[k].weight, 0);
+    const unit = remain / weightSum;
+    const nextFree: FlowCol[] = [];
+    let clamped = false;
+    for (const k of free) {
+      const want = unit * COL_WIDTH[k].weight;
+      const spec = COL_WIDTH[k];
+      if (want < spec.min) {
+        out[k] = spec.min;
+        clamped = true;
+      } else if (want > spec.max) {
+        out[k] = spec.max;
+        clamped = true;
+      } else {
+        out[k] = round1(want);
+        nextFree.push(k);
+      }
+    }
+    free = nextFree;
+    if (!clamped) break;
+  }
+  // 极端窄窗：总需求超过可用宽度时按比例压缩（最小 72px，仍能看清图标）
+  const sum = FLOW_COLS.reduce((n, k) => n + (out[k] ?? COL_WIDTH[k].min), 0);
+  if (sum > total && sum > 0) {
+    const ratio = total / sum;
+    for (const k of FLOW_COLS) out[k] = Math.max(72, round1((out[k] ?? COL_WIDTH[k].min) * ratio));
+  }
+  for (const k of FLOW_COLS) if (!out[k]) out[k] = COL_WIDTH[k].min;
+  return out;
+}
 
 /** 文本按「半角宽度单位」截断（CJK 算 2 个单位），保证节点名不压到右侧次数 */
 export function fitText(s: string, units: number): string {
@@ -1024,32 +1246,43 @@ export function bezierAt(a: FlowAnchor, b: FlowAnchor, t: number): { x: number; 
 /**
  * 六列几何：列背景/列头、节点块、列间连线，以及按 key 查锚点的索引。
  *
- * 布局口径（v2）：
- *  · 列宽 = 容器宽均分六列，列高撑满；纵向类桑基铺开（节点少就拉开、多就压紧，整列居中）；
- *  · 节点块：左侧图标 + 主标题 + 次行徽章 + 右侧次数；有徽章时两行，无徽章时标题垂直居中；
- *  · 结构边（config 拓扑）走浅色虚线；动态边随连接数加粗加深。
+ * 布局口径（v3）：
+ *  · 列宽按权重分配：③④ 吃宽（显示更多文字），⑤ 固定 90–108px 的窄条；
+ *  · 行高固定（① 30 / ② 36 / ③④ 30 / ⑤ 22 / ⑥ 72），行多的列不再压缩——画布按
+ *    「最大列行数 × 行高」撑高，超出容器高度时由 .flowcanvas 纵向滚动；
+ *  · 所有列都从顶部开始排（列表语义），列头与列背景随内容一起滚动；
+ *  · ⑤ 每行只有一个图标（按协议上色）+ 极小次数角标；⑥ 是一朵大云，明细在 tooltip。
  */
 export function buildLayout(flow: FlowLayout, size: FlowSize): FlowGeom {
-  const { w, h } = size;
   const G = FLOW_GEO;
-  const slotW = Math.max(G.minSlotW, (w - G.padX * 2) / FLOW_COLS.length);
-  const gap = Math.min(18, Math.max(10, slotW * 0.1));
-  const colW = Math.max(G.minColW, slotW - gap);
-  const top = 4 + G.headerH;
-  const bottom = Math.max(top + 64, h - 10);
-  const avail = bottom - top;
+  const w = Math.max(360, Math.round(size.w || 900));
+  const containerH = Math.max(160, Math.round(size.h || 400));
+  const gap = Math.min(G.colGapMax, Math.max(G.colGapMin, Math.round(w * 0.008)));
+  /** ⑤→⑥ 的间隙放宽：上百行汇进一朵云时，间隙太窄会把扇线挤成竖线 */
+  const cloudGap = Math.max(gap, 26);
+  const totalGap = gap * (FLOW_COLS.length - 2) + cloudGap;
+  const widths = distributeWidths(w - G.padX * 2 - totalGap);
+
+  const top = G.topGap + G.headerH;
+  const rowOf = (col: FlowCol): number => G.row[col] ?? 28;
+  // 内容高度＝最高那一列的行数 × 行高（列头 + 上下留白）
+  let tallest = 0;
+  for (const col of FLOW_COLS) {
+    const n = flow.cols[col].length;
+    tallest = Math.max(tallest, col === 'cloud' ? Math.max(G.cloudBlock, n * rowOf(col)) : n * rowOf(col));
+  }
+  const contentH = top + tallest + G.bottomGap;
+  const viewH = Math.max(containerH, contentH);
 
   const cols: FlowColGeom[] = [];
   const nodes: FlowNodeGeom[] = [];
   const anchors = new Map<string, FlowAnchor>();
   const slotAnchors: FlowAnchor[] = [];
-  // 文本容量：扣掉左侧图标（24）与右侧次数（24）后按像素/半角估算
-  const nameUnits = Math.max(5, Math.floor((colW - 48) / G.namePx));
-  const badgeUnits = Math.max(4, Math.floor((colW - 30) / G.badgePx));
+  let x = G.padX;
 
   FLOW_COLS.forEach((col, i) => {
     const head = FLOW_HEADERS[i];
-    const x = round1(G.padX + slotW * i + (slotW - colW) / 2);
+    const colW = Math.max(72, Math.round(widths[col]));
     const list = flow.cols[col];
     const total = list.reduce((n, it) => n + it.count, 0);
     cols.push({
@@ -1059,52 +1292,121 @@ export function buildLayout(flow: FlowLayout, size: FlowSize): FlowGeom {
       sub: head.sub,
       icon: head.icon,
       total,
+      rows: list.length,
       x,
-      y: 4,
-      w: round1(colW),
-      h: Math.max(G.minColH, h - 8),
+      y: G.topGap,
+      w: colW,
+      h: Math.max(150, viewH - G.topGap * 2),
     });
 
-    // 纵向铺开（类桑基图）：节点少就拉开、多就压紧，整列居中；最多 84px 一档
-    const n = list.length;
-    const blockH = n > 8 ? 26 : 30;
-    const rowGap = n > 8 ? 5 : 8;
-    let spread = blockH + rowGap;
-    if (n > 1) {
-      spread = Math.min(G.maxStep, Math.max(blockH + rowGap, avail / n));
-      if (spread * (n - 1) + blockH > avail) spread = Math.max(blockH + 2, (avail - blockH) / (n - 1));
-    }
-    const totalH = n > 1 ? spread * (n - 1) + blockH : blockH;
-    const startY = top + Math.max(0, (avail - totalH) / 2);
+    const rowH = rowOf(col);
+    const isIcon = col === 'node';
+    // ⑤ 行按「所属分组」交替底色：54 行同形图标时，靠底色就能看出分组边界
+    let band = -1;
+    let lastGroup = '';
+    const bandOf = (g?: string): number => {
+      if ((g ?? '') !== lastGroup) {
+        lastGroup = g ?? '';
+        band++;
+      }
+      return band % 2;
+    };
+    const isCloud = col === 'cloud';
+    const blockH = isCloud ? G.cloudBlock : Math.max(16, rowH - 2);
+    const nameUnits = Math.max(4, Math.floor((colW - (isIcon ? 44 : 48)) / G.namePx));
+    const badgeUnits = Math.max(3, Math.floor((colW - 28) / G.badgePx));
 
     list.forEach((it, j) => {
-      const y = round1(startY + (n > 1 ? j * spread : 0));
-      // 次行：徽章优先；没有徽章时用副标题（②列的引擎版本就靠这条显示）；
-      // 两者都有且放得下时合成一行（分组显示成「手动 · 4 成员」）
-      const combined = it.badge && it.sub ? `${it.badge} · ${it.sub}` : '';
-      const line2 =
-        combined && fitText(combined, badgeUnits) === combined ? combined : it.badge || it.sub || '';
-      const badge = line2 ? fitText(line2, badgeUnits) : '';
-      const twoLines = !!badge && blockH >= 26;
-      nodes.push({
-        key: it.key,
-        col,
-        label: fitText(it.name, nameUnits),
-        badge,
-        count: it.count,
-        kind: it.kind,
-        icon: FLOW_ICONS[col],
-        x,
-        y,
-        w: round1(colW),
-        h: blockH,
-        labelY: twoLines ? y + 12 : round1(y + blockH / 2 + 3.5),
-        badgeY: twoLines ? y + 23 : 0,
-        tip: it.tip || it.name,
-      });
+      const y = isCloud ? top : round1(top + j * rowH);
+      let geom: FlowNodeGeom;
+      if (isCloud) {
+        // ⑥：一朵大云（图标居中 + 底部极小次数）
+        geom = {
+          key: it.key,
+          col,
+          label: '',
+          badge: fitText(it.sub || '', badgeUnits),
+          count: it.count,
+          kind: it.kind,
+          icon: FLOW_ICONS.cloud,
+          x,
+          y,
+          w: colW,
+          h: blockH,
+          mode: 'cloud',
+          iconSize: G.cloudIcon,
+          iconX: round1(x + (colW - G.cloudIcon) / 2),
+          iconY: y + 8,
+          countX: round1(x + colW / 2),
+          countY: y + G.cloudIcon + 30,
+          tint: 'col-cloud',
+          labelY: 0,
+          badgeY: badgeUnits >= 3 ? y + blockH - 8 : 0,
+          tip: it.tip || '互联网',
+        };
+      } else if (isIcon) {
+        // ⑤：只有图标（协议色）+ 右侧极小次数
+        const size = Math.min(G.nodeIcon, Math.max(12, Math.min(blockH - 4, colW - 40)));
+        geom = {
+          key: it.key,
+          col,
+          label: fitText(it.name, nameUnits),
+          badge: '',
+          count: it.count,
+          kind: it.kind,
+          icon: it.rowIcon ?? FLOW_ICONS.node,
+          x,
+          y,
+          w: colW,
+          h: blockH,
+          mode: 'icon',
+          iconSize: size,
+          iconX: round1(x + (colW - size) / 2),
+          iconY: round1(y + (blockH - size) / 2),
+          countX: round1(x + colW - 6),
+          countY: round1(y + blockH / 2 + 3),
+          tint: it.rowIcon ? 'col-group' : it.kind !== 'proxy' ? it.kind : protoTint(it.proto ?? ''),
+          labelY: round1(y + blockH / 2 + 3),
+          badgeY: 0,
+          tip: it.tip || it.name,
+        };
+      } else {
+        // 次行：徽章 + 成员数（放得下就合并，如「手动 · 16 成员」）
+        const combined = it.badge && it.sub ? `${it.badge} · ${it.sub}` : '';
+        const badge =
+          (combined && fitText(combined, badgeUnits) === combined ? combined : it.badge || it.sub || '') || '';
+        const twoLines = !!badge && blockH >= 26;
+        geom = {
+          key: it.key,
+          col,
+          label: fitText(it.name, nameUnits),
+          badge: badge ? fitText(badge, badgeUnits) : '',
+          count: it.count,
+          kind: it.kind,
+          icon: FLOW_ICONS[col],
+          x,
+          y,
+          w: colW,
+          h: blockH,
+          mode: 'text',
+          iconSize: 13,
+          iconX: x + 6,
+          iconY: round1(y + (blockH - 13) / 2),
+          countX: round1(x + colW - 7),
+          countY: twoLines ? y + 13 : round1(y + blockH / 2 + 3.5),
+          tint: `col-${col}`,
+          labelY: twoLines ? y + 13 : round1(y + blockH / 2 + 3.5),
+          badgeY: twoLines ? y + 23 : 0,
+          tip: it.tip || it.name,
+        };
+      }
+      nodes.push(geom);
+      if (isIcon) geom.band = bandOf(it.group);
       anchors.set(it.key, { x0: x, x1: round1(x + colW), cy: round1(y + blockH / 2) });
     });
-    slotAnchors.push({ x0: x, x1: round1(x + colW), cy: round1(top + avail / 2) });
+    slotAnchors.push({ x0: x, x1: round1(x + colW), cy: round1(top + (viewH - top) / 2) });
+    // ⑥ 前面用更宽的间隙
+    x += colW + (col === 'node' ? cloudGap : gap);
   });
 
   // 超出一列上限的节点在 sample 路径里仍存在：按列中心兜底定位，粒子不会凭空消失
@@ -1121,13 +1423,13 @@ export function buildLayout(flow: FlowLayout, size: FlowSize): FlowGeom {
       count: e.count,
       kind: e.kind,
       // 结构边：浅色虚线（config 拓扑）；动态边随条数加粗加深
-      opacity: e.stat ? 0.18 : round1(Math.min(0.62, 0.16 + Math.log2(1 + e.count) * 0.12)),
+      opacity: e.stat ? 0.16 : round1(Math.min(0.62, 0.16 + Math.log2(1 + e.count) * 0.12)),
       width: e.stat ? 1 : round1(Math.min(3.2, 1 + Math.log2(e.count) * 0.55)),
       stat: e.stat,
     };
   });
 
-  return { cols, nodes, edges, anchors, fallback };
+  return { w, h: viewH, cols, nodes, edges, anchors, fallback };
 }
 
 /** 一条列 key 路径在 t∈[0,1] 处的坐标（各段均分时间，段内走真实贝塞尔） */
