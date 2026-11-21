@@ -95,8 +95,9 @@ func handlePublish(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, emsg)
 		return
 	}
-	if st, err := os.Stat(shareDir); err != nil || !st.IsDir() {
-		fail(w, 503, "share not mounted")
+	// 共享可用性探测（SMB 会真的连一次；local 模式检查目录）
+	if _, err := shareFS.List(); err != nil {
+		fail(w, 503, "share 不可用："+err.Error())
 		return
 	}
 	// 规范化输出：version=1 + 2 空格缩进 + 末尾换行（与页面「格式化」一致）
@@ -126,11 +127,12 @@ func handlePublish(w http.ResponseWriter, r *http.Request) {
 		fail(w, 500, "read srs: "+err.Error())
 		return
 	}
-	if err := os.WriteFile(filepath.Join(shareDir, req.Bucket+".json"), jtxt, 0644); err != nil {
+	// 成对写回（内部先写临时名再 rename，路由不会拉到半截文件）
+	if err := shareFS.WriteFile(req.Bucket+".json", jtxt); err != nil {
 		fail(w, 500, "write json: "+err.Error())
 		return
 	}
-	if err := os.WriteFile(filepath.Join(shareDir, req.Bucket+".srs"), srs, 0644); err != nil {
+	if err := shareFS.WriteFile(req.Bucket+".srs", srs); err != nil {
 		fail(w, 500, "write srs: "+err.Error())
 		return
 	}

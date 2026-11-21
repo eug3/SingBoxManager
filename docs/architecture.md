@@ -52,7 +52,25 @@ check/备份/替换/重启/健康判定/回滚 —— **路由上不需要预装
 - `x/crypto/ssh` 的 `Stdout`/`Stderr` 不能共用同一个 `bytes.Buffer`（静默丢输出）；
 - 健康判定必须「换新 pid **且** :9090 监听」，只看端口会被旧进程残留 socket 骗过。
 
-### 2.3 凭据与密钥的分层
+### 2.3 规则桶存储：纯 Go SMB2（不再依赖 cifs 挂载）
+
+`share.go` 抽象出最小文件接口 `ShareFS`，三种实现用 `SHARE_MODE` 切换：
+
+| 模式 | 实现 | 依赖 |
+|---|---|---|
+| `smb`（默认） | `github.com/cloudsoda/go-smb2`，直连 NAS `445` | 纯 Go，**不需要任何挂载** |
+| `sftp` | `github.com/pkg/sftp` + `x/crypto/ssh` | 纯 Go；NAS 开了 SSH 时可用 |
+| `local` | 本地目录（旧的 `/mnt/hdd` 用法） | 需要内核 cifs 挂载 |
+
+NAS 侧共享是 `sec=none`（guest），所以零凭据即可读写；若以后要账号，用
+`SMB_USER/SMB_PASS/SMB_DOMAIN`（或 `SFTP_USER/SFTP_PASS/SFTP_KEY`）从
+`/etc/vault-edit.env` 注入，不进仓库。
+
+写入采用「临时名 + rename」，路由不会拉到半截文件；会话失败会自动重连重试一次。
+`GET /share/health` 是这套通道的体检接口：文件通道（模式/文件数/样本大小/耗时）
++ 公网 URL（状态码/字节数/耗时），顶栏那个状态点就是它。
+
+### 2.4 凭据与密钥的分层
 
 | 凭据 | 存哪 | 谁能看到 |
 |---|---|---|

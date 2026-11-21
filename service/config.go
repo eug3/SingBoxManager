@@ -17,8 +17,10 @@ func env(key, def string) string {
 }
 
 var (
-	listen    = env("LISTEN", ":9099")                                  // 监听地址（只应绑内网）
-	shareDir  = env("SHARE_DIR", "/mnt/hdd/WebEdit/rule-set")           // NAS 规则桶目录（.json/.srs）
+	listen = env("LISTEN", ":9099") // 监听地址（只应绑内网）
+	// SHARE_DIR 仅在 SHARE_MODE=local 时使用（等价于旧的 cifs 挂载路径）；
+	// 默认 SHARE_MODE=smb，直接走纯 Go SMB2 客户端，不需要任何挂载。
+	shareDir  = env("SHARE_DIR", "/mnt/hdd/WebEdit/rule-set")
 	pageDir   = env("PAGE_DIR", "/usr/local/share/vault-edit/edit")     // Angular 管理台产物目录
 	staticDir = env("STATIC_DIR", "/usr/local/share/vault-edit/static") // Monaco 等静态资源目录
 	singBox   = env("SINGBOX", "/usr/local/bin/sing-box")               // 99 本机的 sing-box（编译 rule-set 用）
@@ -36,4 +38,7 @@ var (
 
 	// /publish 只接受纯规则桶（这四类键）；完整 route 规则请走「配置」tab 改 config.json
 	ruleKeys = map[string]bool{"domain": true, "domain_suffix": true, "domain_keyword": true, "ip_cidr": true}
+
+	// 规则桶存储（见 share.go）：默认纯 Go SMB2，直连 NAS，不依赖 cifs 挂载
+	shareFS = newShareFS()
 )

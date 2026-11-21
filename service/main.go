@@ -8,7 +8,8 @@ package main
 //   GET  /health                     健康与配置自检            main.go
 //   GET  /edit/                      Angular 管理台（SPA）     files.go
 //   GET  /static/                    Monaco 等本地静态资源     files.go
-//   GET  /rule-set/<桶>.{json,srs}   NAS 规则桶只读源          files.go
+//   GET  /rule-set/<桶>.{json,srs}   NAS 规则桶只读源（SMB/SFTP）files.go
+//   GET  /share/health               文件通道+公网 URL 体检     share_health.go
 //   POST /publish                    规则桶校验+编译+写回 NAS  publish.go
 //   GET  /router/config              读路由 config.json        router_http.go
 //   POST /router/check               路由上跑 sing-box check   router_http.go
@@ -33,8 +34,11 @@ func main() {
 	if vaultKey == "" {
 		log.Fatal("VAULT_KEY 未设置（应为两台路由 clash_api secret；systemd 从 /etc/vault-edit.env 注入）")
 	}
-	if st, err := os.Stat(shareDir); err != nil || !st.IsDir() {
-		log.Printf("警告：共享目录当前不可用（%s）：发布接口会返回 503", shareDir)
+	// 启动即探一次共享（SMB 首次连接稍慢，但不阻塞服务对外）
+	if files, err := shareFS.List(); err != nil {
+		log.Printf("警告：规则桶共享当前不可用（%s）：发布接口会返回 503；错误：%v", shareFS.Describe(), err)
+	} else {
+		log.Printf("规则桶共享就绪：%s（%d 个文件）", shareFS.Describe(), len(files))
 	}
 
 	mux := http.NewServeMux()
@@ -42,9 +46,11 @@ func main() {
 	// 健康自检：目录与凭据文件是否就绪（check.sh / 部署脚本断言用）
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		_, rerr := os.Stat(routersFile())
+		shareInfo, shareErr := shareFS.List()
 		writeJSON(w, 200, map[string]any{
-			"ok": true, "lang": "go", "share": shareDir, "page": pageDir, "static": staticDir,
+			"ok": true, "lang": "go", "share": shareFS.Describe(), "page": pageDir, "static": staticDir,
 			"routers": routersFile(), "routersReady": rerr == nil,
+			"shareReady": shareErr == nil, "shareFiles": len(shareInfo), "shareError": errText(shareErr),
 		})
 	})
 
@@ -58,6 +64,9 @@ func main() {
 	mux.HandleFunc("GET /edit/index.html", servePage)
 	mux.HandleFunc("GET /static/", serveStatic)
 	mux.HandleFunc("GET /rule-set/", serveRuleSet)
+
+	// 存储（SMB/SFTP/本地）与公网读取通道体检：顶栏状态点用
+	mux.HandleFunc("GET /share/health", handleShareHealth)
 
 	// 规则桶发布
 	mux.HandleFunc("/publish", handlePublish)

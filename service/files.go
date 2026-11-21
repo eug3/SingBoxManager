@@ -6,17 +6,24 @@ package main
 //   /static/                   Monaco 编辑器等本地静态资源（不依赖 CDN）
 
 import (
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 )
 
-// serveRuleSet 只读桶源：白名单文件名，no-store（路由侧自带 60s 缓存周期）
+// serveRuleSet 只读桶源：白名单文件名，no-store（路由侧自带 60s 缓存周期）。
+// 数据经 ShareFS 取（默认纯 Go SMB2 → NAS，不需要任何挂载）。
 func serveRuleSet(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimPrefix(r.URL.Path, "/rule-set/")
 	if !rsFileRe.MatchString(name) {
 		fail(w, 404, "bad rule-set name")
+		return
+	}
+	data, info, err := shareFS.ReadFile(name)
+	if err != nil {
+		fail(w, 404, "not found: "+err.Error())
 		return
 	}
 	if strings.HasSuffix(name, ".json") {
@@ -25,7 +32,16 @@ func serveRuleSet(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/octet-stream")
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	http.ServeFile(w, r, filepath.Join(shareDir, name))
+	if info != nil && !info.ModTime().IsZero() {
+		w.Header().Set("Last-Modified", info.ModTime().UTC().Format(http.TimeFormat))
+	}
+	w.Header().Set("Content-Length", fmt.Sprint(len(data)))
+	if r.Method == http.MethodHead {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(data)
 }
 
 // servePage 管理台 SPA：存在的文件直接给，其余路径回退 index.html（前端路由）。

@@ -25,7 +25,19 @@ echo "== 2/5 准备上传物（unit / env / 安装脚本）"
 STAGE=$(mktemp -d); trap 'rm -rf "$STAGE"' EXIT
 cp /tmp/vault-edit-linux "$STAGE/vault-edit.bin"
 cp "$ROOT/service/vault-edit.service" "$STAGE/vault-edit.service"
-printf 'VAULT_KEY=%s\n' "$VAULT_KEY" > "$STAGE/vault-edit.env"
+{
+  printf 'VAULT_KEY=%s\n' "$VAULT_KEY"
+  # 规则桶存储（默认纯 Go SMB2，直连 NAS，不需要 cifs 挂载）
+  [ -n "${SHARE_MODE:-}" ] && printf 'SHARE_MODE=%s\n' "$SHARE_MODE"
+  [ -n "${SMB_ADDR:-}" ] && printf 'SMB_ADDR=%s\n' "$SMB_ADDR"
+  [ -n "${SMB_SHARE:-}" ] && printf 'SMB_SHARE=%s\n' "$SMB_SHARE"
+  [ -n "${SMB_PATH:-}" ] && printf 'SMB_PATH=%s\n' "$SMB_PATH"
+  [ -n "${SMB_USER:-}" ] && printf 'SMB_USER=%s\n' "$SMB_USER"
+  [ -n "${SMB_PASS:-}" ] && printf 'SMB_PASS=%s\n' "$SMB_PASS"
+  [ -n "${SFTP_ADDR:-}" ] && printf 'SFTP_ADDR=%s\n' "$SFTP_ADDR"
+  [ -n "${SFTP_PATH:-}" ] && printf 'SFTP_PATH=%s\n' "$SFTP_PATH"
+  [ -n "${PUBLIC_BASE:-}" ] && printf 'PUBLIC_BASE=%s\n' "$PUBLIC_BASE"
+} > "$STAGE/vault-edit.env"
 printf '%s\n' "$ROUTER_PW" > "$STAGE/vault-edit.pw"
 chmod 600 "$STAGE/vault-edit.pw"
 cat > "$STAGE/install.sh" <<'EOF'

@@ -59,6 +59,14 @@ func safeJoin(base, rel string) (string, error) {
 	return full, nil
 }
 
+// errText 把 error 转成字符串（nil → ""），给 /health 用
+func errText(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
+}
+
 // trunc 保留末尾 n 字节（编译报错等长输出的尾部信息最有价值）
 func trunc(b []byte, n int) []byte {
 	if len(b) > n {

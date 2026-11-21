@@ -38,6 +38,14 @@ for R in 192.168.31.32 172.16.8.1; do
   echo
 done
 
-# 4) 本机 NAS 挂载（发布链路的前提）
-echo "== NAS 挂载 =="
-[ -d /Volumes/HddShare/WebEdit/rule-set ] && echo "  /Volumes/HddShare OK ($(ls /Volumes/HddShare/WebEdit/rule-set/*.srs | wc -l | tr -d ' ') 个 srs)" || echo "  未挂载"
+# 4) 规则桶通道：99 直接用纯 Go SMB2 读 NAS（不需要 cifs 挂载）
+echo "== 规则桶通道（/share/health）=="
+curl -s -m 25 http://192.168.31.99:9099/share/health | python3 -c "
+import json,sys
+d=json.load(sys.stdin); f=d['file']; h=d['http']
+print('  文件通道 %s → %s（%d 文件, 样本 %s %dB, %dms）' % (f['mode'], '✓' if f['ok'] else '✗ '+str(f.get('error')), f['files'], f['sample'], f['size'], f['ms']))
+print('  公网 URL %s → %s %s（%dB, %dms）' % (h['url'], '✓' if h['ok'] else '✗ '+str(h.get('error')), h['status'], h['size'], h['ms']))
+" 2>/dev/null || echo "  /share/health 不可用（服务未部署该版本？）"
+# 开发机本地 NAS 挂载只剩方便手工看文件，不再参与发布链路
+echo "== 开发机 NAS 挂载（可选）=="
+[ -d /Volumes/HddShare/WebEdit/rule-set ] && echo "  /Volumes/HddShare OK（仅本地便利，发布走 SMB 客户端）" || echo "  未挂载（不影响发布）"

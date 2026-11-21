@@ -1,17 +1,19 @@
 # 部署手册（vault-edit + 管理台 + 路由侧）
 
-> 目标读者：拿到这台 Mac 与内网权限的人。所有命令都在**本仓库根目录**执行。
+> 目标读者：拿到开发机与内网权限的人。所有命令都在**本仓库根目录**执行。
 > 密钥只走环境变量，**任何一步都不要把口令写进仓库文件**。
+>
+> 本文主机名 / IP / 域名均为**示例占位**：`console.lan`（管理机）、`nas.lan`（NAS）、`router-a.lan` / `router-b.lan`（各路由）、`dash.lan:888`（NAS 上的看板入口）、`rules.example.com`（公网只读入口）。真实地址只记录在内部运维资料，不进本仓库。
 
 ## 0. 拓扑与角色
 
 | 角色 | 机器 | 说明 |
 |---|---|---|
-| 控制台/写通道 | 99 号机 `192.168.31.99`（Debian） | `vault-edit` Go 服务（`:9099`，systemd）；挂载 NAS 到 `/mnt/hdd`；带 `sing-box` 编译器 |
-| 规则仓库 | NAS `HddShare/WebEdit/` | `rule-set/*.json|*.srs`、`index.html`（公网首页）、`zashboard/` |
-| 路由甲 | `192.168.31.32`（OpenWrt x86_64） | sing-box 1.15，TUN 分流，remote rule-set 每 60s 拉取 |
-| 路由乙 | `172.16.8.1`（GL-BE3600 aarch64） | 同上，另一套 WiFi 网段 |
-| 开发机 | Mac | `go` / `node` / `sshpass` / `npm` |
+| 控制台/写通道 | 管理机 `console.lan`（Debian） | `vault-edit` Go 服务（`:9099`，systemd）；挂载 NAS 到 `/mnt/hdd`；带 `sing-box` 编译器 |
+| 规则仓库 | NAS `nas.lan` 的 `<规则共享目录>` | `rule-set/*.json|*.srs`、`index.html`（公网首页）、`zashboard/` |
+| 路由 A | `router-a.lan` | sing-box 1.15，TUN 分流，remote rule-set 每 60s 拉取 |
+| 路由 B（可继续扩展） | `router-b.lan` … | 同上；新路由配置同一批 rule-set URL 即可接入 |
+| 开发机 | Mac / Linux | `go` / `node` / `sshpass` / `npm` |
 
 部署只有三个「可独立发版」的单元：**后端（Go）**、**前端（Angular）**、**公网首页（NAS 静态）**；路由侧只是配置项。
 
@@ -24,17 +26,17 @@ npm -v
 which sshpass
 ```
 
-99 号机需要：可用 sudo、`/mnt/hdd` 已挂 NAS、`/usr/local/bin/sing-box` 可执行：
+管理机需要：可用 sudo、`/mnt/hdd` 已挂 NAS、`/usr/local/bin/sing-box` 可执行：
 
 ```bash
-ssh beijihu@192.168.31.99
+ssh <user>@console.lan
 sudo -n true && echo sudo-ok
 mount | grep /mnt/hdd          # 应为 cifs 挂载
 /usr/local/bin/sing-box version | head -1
 sudo systemctl status vault-edit --no-pager
 ```
 
-## 2. 99 号机一次性初始化（新机器才会用到）
+## 2. 管理机一次性初始化（新机器才会用到）
 
 > 已有机器跳过；`deploy_service.sh` 会自动创建目录、写 env、装 unit。
 
@@ -47,7 +49,7 @@ sudo sh -c 'printf "VAULT_KEY=%s\n" "<clash_api secret>" > /etc/vault-edit.env'
 sudo chmod 600 /etc/vault-edit.env
 
 # 2.3 NAS 挂载（fstab 持久；guest 只读+写目录）
-#    //<nas>/HddShare /mnt/hdd cifs guest,uid=beijihu,gid=users,iocharset=utf8,nofail 0 0
+#    //<nas-host>/<share> /mnt/hdd cifs guest,uid=<user>,gid=users,iocharset=utf8,nofail 0 0
 
 # 2.4 systemd：unit 随仓库 service/vault-edit.service 一起由 deploy_service.sh 安装
 sudo systemctl enable --now vault-edit
@@ -59,7 +61,7 @@ sudo ss -ltnp | grep 9099
 | 变量 | 默认 | 说明 |
 |---|---|---|
 | `LISTEN` | `:9099` | 监听地址（只在内网暴露，别改成 `0.0.0.0` 供公网） |
-| `SHARE_DIR` | `/mnt/hdd/WebEdit/rule-set` | rule-set 桶目录 |
+| `SHARE_DIR` | `/mnt/hdd/WebEdit/rule-set` | rule-set 桶目录（NAS 挂载点下的路径） |
 | `PAGE_DIR` | `/usr/local/share/vault-edit/edit` | Angular 前端产物目录 |
 | `STATIC_DIR` | `/usr/local/share/vault-edit/static` | Monaco 等静态资源 |
 | `SINGBOX` | `/usr/local/bin/sing-box` | 编译 `.srs` 用 |
@@ -68,7 +70,7 @@ sudo ss -ltnp | grep 9099
 ## 3. 发布后端（Go 服务）
 
 ```bash
-export ROUTER_PW='99号机口令'
+export ROUTER_PW='<管理机 sudo 口令>'
 export VAULT_KEY='<clash_api secret>'
 scripts/deploy_service.sh
 ```
@@ -90,7 +92,7 @@ scripts/deploy_service.sh
 ## 4. 发布前端（Angular 管理台 + Monaco）
 
 ```bash
-export ROUTER_PW='99号机口令'
+export ROUTER_PW='<管理机 sudo 口令>'
 scripts/deploy_console.sh
 ```
 
@@ -109,44 +111,44 @@ scripts/deploy_console.sh
 scripts/deploy_web.sh      # 只上传 web/index.html → NAS WebEdit/index.html
 ```
 
-注意：NAS 的 nginx 有约 1 分钟的句柄缓存，发布后可能短暂拿到旧页面；Cloudflare 侧另有缓存，必要时 purge。
+注意：NAS 的 nginx 有约 1 分钟的句柄缓存，发布后可能短暂拿到旧页面；CDN 侧另有缓存，必要时 purge。
 
-`WebEdit/` 目录现状：`index.html`（脱敏首页）+ `rule-set/`（桶）+ `zashboard/`（备选看板）。**管理台不在公网**，`https://router.guaishoudejia.com/edit/` 应返回 404。
+`<规则共享目录>` 现状：`index.html`（脱敏首页）+ `rule-set/`（桶）+ `zashboard/`（备选看板）。**管理台不在公网**，`https://rules.example.com/edit/` 应返回 404。
 
-## 6. 路由侧配置（甲 32 / 乙 GL）
+## 6. 路由侧配置（路由 A / 路由 B / …）
 
 ### 6.1 remote rule-set 指向 NAS
 
-两台 `config.json` 的 `route.rule_set[]` 均为 `type: remote`、`format: binary`、`url: https://router.guaishoudejia.com/rule-set/<桶>.srs`、`update_interval: 1m`。换域名/NAS 时改这里，**改完必须 `sing-box check` + 重启**。
+各路由 `config.json` 的 `route.rule_set[]` 均为 `type: remote`、`format: binary`、`url: https://rules.example.com/rule-set/<桶>.srs`、`update_interval: 1m`。换域名/NAS 时改这里，**改完必须 `sing-box check` + 重启**。
 
 ### 6.2 页面来源白名单（CORS）
 
-管理台浏览器直连 `clash_api`，所以两台都要放行页面来源：
+管理台浏览器直连 `clash_api`，所以每台路由都要放行页面来源：
 
 ```json
-"access_control_allow_origin": ["http://192.168.31.8:888",
-                                "http://192.168.31.99:9099",
-                                "http://10.1.1.99:9099"],
+"access_control_allow_origin": ["http://dash.lan:888",
+                                "http://console.lan:9099",
+                                "http://console-vpn.lan:9099"],
 "access_control_allow_private_network": true
 ```
 
-改配置的标准动作（两台同）：
+改配置的标准动作（各台同）：
 
 ```bash
 cp /etc/sing-box/config.json /etc/sing-box/config.json.bak-$(date +%Y%m%d-%H%M%S)-before-origin
-# 编辑 access_control_allow_origin（32 是 2 空格缩进 + LF；GL 是 1 空格缩进 + CRLF，别改格式）
+# 编辑 access_control_allow_origin（注意各路由配置文件的缩进与行尾可能不同，别改格式）
 /opt/sing-box/sing-box check -c /etc/sing-box/config.json
 /etc/init.d/sing-box restart
 ```
 
-> origin 必须是**精确的 `协议://主机:端口`**，写 `10.1.1.0/24` 这类网段无效。
+> origin 必须是**精确的 `协议://主机:端口`**，写 `10.x.x.0/24` 这类网段无效。
 
 ### 6.3 验证 CORS
 
 ```bash
-for R in 192.168.31.32 172.16.8.1; do
-  for O in http://192.168.31.8:888 http://192.168.31.99:9099 http://10.1.1.99:9099 http://evil.example; do
-    printf "%-14s %-28s ACAO=%s\n" "$R" "$O" \
+for R in router-a.lan router-b.lan; do
+  for O in http://dash.lan:888 http://console.lan:9099 http://console-vpn.lan:9099 http://evil.example; do
+    printf "%-16s %-28s ACAO=%s\n" "$R" "$O" \
       "$(curl -s -D - -o /dev/null -m 8 -X OPTIONS -H "Origin: $O" -H 'Access-Control-Request-Method: GET' \
          "http://$R:9090/version" | grep -ci '^access-control-allow-origin')"
   done
@@ -162,29 +164,29 @@ sing-box 1.15 的 `services[{type:"api"}]` 提供比 Clash API 更全的运行�
 "services": [
   { "type": "api", "tag": "api", "listen": "0.0.0.0", "listen_port": 9092,
     "secret": "<与 clash_api 相同>",
-    "access_control_allow_origin": ["http://192.168.31.8:888",
-                                    "http://192.168.31.99:9099",
-                                    "http://10.1.1.99:9099"],
+    "access_control_allow_origin": ["http://dash.lan:888",
+                                    "http://console.lan:9099",
+                                    "http://console-vpn.lan:9099"],
     "access_control_allow_private_network": true }
 ]
 ```
 
-- 端口避开占用项（32 的 9091 被容器占用 → 统一 9092）；
-- 追加时保持原缩进与行尾（32：2 空格+LF；GL：1 空格+CRLF）；
+- 端口避开占用项（若某台 9091 已被占用 → 统一 9092）；
+- 追加时保持原缩进与行尾（不同路由的配置格式可能不同，别改格式）；
 - 生效流程：`sing-box check` → 重启 → 双端口验证（9090 带 secret 返回 200；9092 返回任意非 000 即活）；
-- 协议是 **gRPC over h2c**，浏览器不能直连，用 99 的 `sing-box api ... --url http://<router>:9092 --secret <secret>`；
+- 协议是 **gRPC over h2c**，浏览器不能直连，用管理机的 `sing-box api ... --url http://<router>:9092 --secret <secret>`；
 - 实测重启断流约 **1 秒**。
 
 ```bash
-export BOX_API_URL=http://192.168.31.32:9092 BOX_API_SECRET='<secret>'
+export BOX_API_URL=http://router-a.lan:9092 BOX_API_SECRET='<secret>'
 /usr/local/bin/sing-box api status && /usr/local/bin/sing-box api group list | head
 ```
 
 ### 6.5 路由配置通道（管理台「配置」tab 依赖）
 
-**路由侧无需任何预装**：备份/校验/替换/重启/回滚全部由 99 的 vault-edit 通过 SSH 内联执行。
+**路由侧无需任何预装**：备份/校验/替换/重启/回滚全部由管理机的 vault-edit 通过 SSH 内联执行。
 
-1. 99 侧放凭据（二选一）：
+1. 管理机侧放凭据（二选一）：
 
    - **页面方式（推荐，浏览器不保存）**：管理台 → 对应后端 → `配置` → `路由凭据` → 填用户名/口令 → `保存并读取配置`。口令写入 `/etc/vault-edit/routers.json`（0600），页面提交后立即清空；`GET /router/credentials` 只回显 user。
    - **手工方式**：
@@ -192,8 +194,8 @@ export BOX_API_URL=http://192.168.31.32:9092 BOX_API_SECRET='<secret>'
 ```bash
 sudo install -d -m 0755 /etc/vault-edit
 sudo tee /etc/vault-edit/routers.json >/dev/null <<'JSON'
-{"192.168.31.32":{"name":"甲 32","user":"root","password":"<甲口令>"},
- "172.16.8.1":{"name":"乙 GL","user":"root","password":"<乙口令>"}}
+{"router-a.lan":{"name":"路由 A","user":"root","password":"<路由A口令>"},
+ "router-b.lan":{"name":"路由 B","user":"root","password":"<路由B口令>"}}
 JSON
 sudo chmod 600 /etc/vault-edit/routers.json && sudo chown root:root /etc/vault-edit/routers.json
 ```
@@ -204,12 +206,39 @@ sudo chmod 600 /etc/vault-edit/routers.json && sudo chown root:root /etc/vault-e
 
 ```bash
 curl -s -H "X-Vault-Key: $VAULT_KEY" 'localhost:9099/router/credentials'
-curl -s -H "X-Vault-Key: $VAULT_KEY" 'localhost:9099/router/config?host=192.168.31.32' | head -c 120
+curl -s -H "X-Vault-Key: $VAULT_KEY" 'localhost:9099/router/config?host=router-a.lan' | head -c 120
 curl -s -X POST -H "X-Vault-Key: $VAULT_KEY" -H 'Content-Type: application/json' \
-     -d '{"host":"192.168.31.32"}' localhost:9099/router/restart   # 断流约 1–2s
+     -d '{"host":"router-a.lan"}' localhost:9099/router/restart   # 断流约 1–2s
 ```
 
-3. 可选环境变量（99 的 `/etc/vault-edit.env`）：`ROUTERS_FILE`、`ROUTER_HOSTS`（白名单，逗号分隔）、`ROUTER_CONFIG`（默认 `/etc/sing-box/config.json`）、`ROUTER_SINGBOX`（默认 `/opt/sing-box/sing-box`）、`ROUTER_INIT`（默认 `/etc/init.d/sing-box`）。
+4. 可选环境变量（管理机的 `/etc/vault-edit.env`）：`ROUTERS_FILE`、`ROUTER_HOSTS`（白名单，逗号分隔）、`ROUTER_CONFIG`（默认 `/etc/sing-box/config.json`）、`ROUTER_SINGBOX`（默认 `/opt/sing-box/sing-box`）、`ROUTER_INIT`（默认 `/etc/init.d/sing-box`）。
+
+### 6.6 规则桶存储模式（2026-11-21 起默认纯 Go SMB2，不再需要 cifs 挂载）
+
+`/etc/vault-edit.env` 可选变量：
+
+```bash
+SHARE_MODE=smb        # smb(默认) | sftp | local
+SMB_ADDR=192.168.31.8:445
+SMB_SHARE=HddShare
+SMB_PATH=WebEdit/rule-set
+SMB_USER=             # 留空=guest（NAS 共享是 sec=none 时无需账号）
+SMB_PASS=
+# SFTP 备用通道
+SFTP_ADDR=nas.lan:22
+SFTP_USER=
+SFTP_PASS=            # 或 SFTP_KEY=/path/to/id_ed25519
+SFTP_PATH=/volume1/WebEdit/rule-set
+PUBLIC_BASE=https://rules.example.com   # 体检时拉取公网 URL 用
+```
+
+体检（管理台顶栏状态点也用它）：
+
+```bash
+curl -s localhost:9099/share/health | python3 -m json.tool
+```
+
+旧行为（`SHARE_MODE=local` + 内核 cifs 挂载 `/mnt/hdd`）仍可用，但已不必要。
 
 ## 7. 验证（发布后必跑）
 
@@ -219,12 +248,12 @@ VAULT_KEY='<clash_api secret>' scripts/check.sh
 
 全绿清单：
 
-- 管理台：`/health` 200、`/edit/` 200（LAN + EasyTier 两个入口）、`/rule-set/*.json` 200、Monaco loader 200、首页 `main-*.js` 200、`/publish` 无 key 401
+- 管理台：`/health` 200、`/edit/` 200（LAN + 虚拟内网两个入口）、`/rule-set/*.json` 200、Monaco loader 200、首页 `main-*.js` 200、`/publish` 无 key 401
 - 公网：`/edit/` **404**、`/` 200、三个桶 `*.srs` 200
-- 路由：`/proxies` 200（带 key），三来源预检均回 `Access-Control-Allow-Origin`，未知来源无
-- NAS 挂载：`/Volumes/HddShare/WebEdit/rule-set` 可读
+- 路由：`/proxies` 200（带 key），各页面来源预检均回 `Access-Control-Allow-Origin`，未知来源无
+- NAS 挂载：管理机的 `SHARE_DIR` 可读
 
-浏览器侧抽查（管理台 → 甲）：「概览」曲线有数据、「分组与节点」有 18 个组、「连接」有行、`🧩 规则编辑` 能打开 Monaco 且底部显示「✓ 合法 …」。
+浏览器侧抽查（管理台 → 任一路由）：「概览」曲线有数据、「分组与节点」有组、「连接」有行、`🧩 规则编辑` 能打开 Monaco 且底部显示「✓ 合法 …」。
 
 ## 8. 升级流程
 
@@ -252,7 +281,7 @@ VAULT_KEY='<clash_api secret>' scripts/check.sh
 2. **Monaco 不出来**：`/static/monaco/vs` 没铺或只放了 `editor.main.js`；它需要整份 `min/vs`（含 `language/json/json.worker.js`）。
 3. **后端页 401**：该后端没填密钥（顶部「发布密钥」也会兜底）。
 4. **`Failed to fetch`**：CORS 白名单缺页面来源，或来源写成了网段。
-5. **99 ping 不通 `10.1.1.x` 但 peer 表正常**：EasyTier 数据面被 32 的 Socat 转发毒化（`/etc/config/socat` 里 `备注11010` 的 `udp → tcp4`）——改成 `udp4` 并清 socat 进程后重启 easytier。
+5. **管理机 ping 不通虚拟内网对端但 peer 表正常**：虚拟内网（如 EasyTier）数据面被中间转发（如 Socat 的 `udp → tcp4` 误配）毒化——改成 `udp4` 并清 socat 进程后重启虚拟内网服务。
 6. **规则不生效**：桶内容未变化（按 hash 判定不会重载）/ 未过 60s / NAS 写回失败；查路由日志 `update rule-set <桶>`。
 7. **`sshpass` 连续握手被掐**：脚本统一「一次 scp 上传全部 + 单次 ssh 安装」，sudo 口令走 `0600` 临时文件喂 `sudo -S`，不要放 argv。
 
