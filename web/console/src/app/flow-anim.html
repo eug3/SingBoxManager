@@ -1,4 +1,4 @@
-<div class="flow">
+<div class="flow" [class.fs]="fs()" (document:keydown.escape)="exitFs()">
   <!-- 顶部统计：一排小 pill -->
   <div class="flowbar">
     <span class="fstat">活跃连接 <b>{{ stats().total }}</b></span>
@@ -19,6 +19,14 @@
     @if (err()) {
       <span class="ferr">✗ {{ err() }}</span>
     }
+    <button
+      type="button"
+      class="ffs"
+      [attr.title]="fs() ? '退出全屏（Esc）' : '全屏铺满整个页面'"
+      (click)="toggleFs()"
+    >
+      {{ fs() ? '✕' : '⛶' }}
+    </button>
   </div>
 
   <div class="flowcanvas" #canvas (mousemove)="onMove($event)" (mouseleave)="clearHover()">
@@ -247,5 +255,23 @@
         还没有活跃连接，配置也没读到 → ③④⑤ 为空（检查后端地址与 /router/config 通道）
       </div>
     }
+  </div>
+
+  <!-- 右下角微型图：clash ws /traffic（↑up ↓down）+ /memory，纯展示、不挡交互 -->
+  <div class="mini" aria-hidden="true">
+    <div class="minibox">
+      <div class="minihd">
+        <span class="mininame">速率</span>
+        <span class="minival">↓{{ rateLabel().down }} ↑{{ rateLabel().up }}</span>
+      </div>
+      <app-area-chart [series]="rateSeries()" [height]="36" [mirror]="true" />
+    </div>
+    <div class="minibox">
+      <div class="minihd">
+        <span class="mininame">内存</span>
+        <span class="minival">{{ memLabel() }}</span>
+      </div>
+      <app-area-chart [series]="memSeries()" [height]="36" />
+    </div>
   </div>
 </div>

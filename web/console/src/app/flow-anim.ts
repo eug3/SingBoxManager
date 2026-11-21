@@ -20,7 +20,9 @@ import type { Backend, Connection } from './models';
 import { BackendsService } from './backends.service';
 import { ClashService } from './clash.service';
 import { RouterService } from './router.service';
-import { errMsg } from './util';
+import { errMsg, fmtBytes, fmtRate } from './util';
+import { AreaChartComponent } from './area-chart';
+import type { ChartSeries } from './area-chart';
 import {
   buildFlow,
   buildLayout,
@@ -55,6 +57,12 @@ const CLIENTS_MS = 30_000;
 const PROXIES_MS = 5000;
 /** 边「活跃」的保持时长：最后一次看到字节增长后再亮这么久（≈2.7 次采样） */
 const IDLE_MS = 4000;
+/** 右下角微型图：滚动缓冲点数（1s 一个点 ≈ 1 分钟） */
+const MINI_POINTS = 60;
+/** 微型图 WS 断线重连间隔 */
+const MINI_RETRY_MS = 3000;
+/** 微型图高度（px） */
+const MINI_H = 36;
 /** 粒子走完全程的时长 */
 const PARTICLE_MS = 1800;
 /** 同时存在的粒子上限（超出丢最旧的） */
@@ -68,6 +76,44 @@ const FALLBACK_W = 1080;
 const FALLBACK_H = 520;
 
 const round1 = (n: number): number => Math.round(n * 10) / 10;
+
+/* #mini-pure-start */
+/** 追加一个点并裁剪到最近 cap 个（缓冲裁剪的唯一入口） */
+export function pushCapped(arr: readonly number[], v: number, cap: number): number[] {
+  const next = [...arr, Number.isFinite(v) ? v : 0];
+  return next.length > cap ? next.slice(next.length - cap) : next;
+}
+
+/** 左侧补 null 到 len（AreaChart 按窗口格数右对齐，没有数据的格子留空） */
+export function padPoints(arr: readonly number[], len: number): (number | null)[] {
+  if (arr.length >= len) return arr.slice(arr.length - len);
+  return [...new Array<null>(len - arr.length).fill(null), ...arr];
+}
+
+/** clash `/traffic` 的一条消息 → {up, down}（字节/秒）；坏数据返回 null */
+export function parseTrafficMsg(raw: string): { up: number; down: number } | null {
+  try {
+    const o = JSON.parse(raw) as { up?: unknown; down?: unknown };
+    const up = Number(o?.up);
+    const down = Number(o?.down);
+    if (!Number.isFinite(up) && !Number.isFinite(down)) return null;
+    return { up: Number.isFinite(up) ? Math.max(0, up) : 0, down: Number.isFinite(down) ? Math.max(0, down) : 0 };
+  } catch {
+    return null;
+  }
+}
+
+/** clash `/memory` 的一条消息 → inuse 字节；坏数据返回 null */
+export function parseMemoryMsg(raw: string): number | null {
+  try {
+    const o = JSON.parse(raw) as { inuse?: unknown };
+    const n = Number(o?.inuse);
+    return Number.isFinite(n) ? Math.max(0, n) : null;
+  } catch {
+    return null;
+  }
+}
+/* #mini-pure-end */
 
 /** `GET /router/clients` 的响应（service 侧新接口；这里只声明用到的字段） */
 interface RouterClientsResp {
@@ -141,7 +187,7 @@ interface Particle {
 @Component({
   selector: 'app-flow-anim',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [],
+  imports: [AreaChartComponent],
   templateUrl: './flow-anim.html',
   styles: `
     :host {
@@ -204,12 +250,39 @@ export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
   private activeNodes: ReadonlySet<string> = new Set<string>();
   /** 活跃度状态（id → 累计字节；边/节点 → 活跃截止时间） */
   private actState: ActivityState = { totals: new Map(), until: new Map(), nodeUntil: new Map() };
+  /** 右下角微型图：速率（上=↑up / 下=↓down）与内存缓冲（1s 一点，最近 MINI_POINTS 点） */
+  readonly miniUp = signal<number[]>([]);
+  readonly miniDown = signal<number[]>([]);
+  readonly miniMem = signal<number[]>([]);
+  /** 全屏态：铺满整个 web 页面（Esc / ✕ / ⛶ 退出） */
+  readonly fs = signal(false);
+  /** 微型图的两条 WebSocket 及其重连定时器 */
+  private miniSockets: { ws: WebSocket | null; path: string; timer: ReturnType<typeof setTimeout> | null }[] = [];
   /** ⑤ 节点延时：tag → 末次测速 delay（ms）；拿不到就是空表，方格不画点 */
   private delays: DelayMap = new Map<string, number>();
   private delayTimer: ReturnType<typeof setInterval> | null = null;
   private lastFrame = 0;
 
   readonly stats = computed(() => this.flow().stats);
+
+  /** 微型图：速率双系列（镜像，上=↑ 下=↓）+ 内存单系列；空数据时给空数组（图表显示「等待数据」） */
+  readonly rateSeries = computed<ChartSeries[]>(() => [
+    { points: padPoints(this.miniUp(), MINI_POINTS), color: '#2f6fd0' },
+    { points: padPoints(this.miniDown(), MINI_POINTS), color: '#0f8f9a' },
+  ]);
+  readonly memSeries = computed<ChartSeries[]>(() => [
+    { points: padPoints(this.miniMem(), MINI_POINTS), color: '#8a5cd0' },
+  ]);
+  /** 速率标签：当前 ↓x/s ↑x/s */
+  readonly rateLabel = computed(() => {
+    const last = (arr: number[]): number => (arr.length ? arr[arr.length - 1] : 0);
+    return { down: fmtRate(last(this.miniDown())), up: fmtRate(last(this.miniUp())) };
+  });
+  /** 内存标签：当前 inuse（字节 → 人类可读；这里是占用不是速率，不用 fmtMib） */
+  readonly memLabel = computed(() => {
+    const arr = this.miniMem();
+    return fmtBytes(arr.length ? arr[arr.length - 1] : 0);
+  });
   /**
    * 六列几何（列 / 节点块 / 连线 / 粒子锚点）。
    * `h` 是**内容高度**：⑤ 行数可能上百，画布按行数撑高，超出 .flowcanvas 时纵向滚动。
@@ -299,6 +372,7 @@ export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
     if (this.connTimer) clearInterval(this.connTimer);
     if (this.clientsTimer) clearInterval(this.clientsTimer);
     if (this.delayTimer) clearInterval(this.delayTimer);
+    this.closeMini();
     this.cfgTimer = null;
     this.connTimer = null;
     this.clientsTimer = null;
@@ -332,11 +406,107 @@ export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
     this.actState = { totals: new Map(), until: new Map(), nodeUntil: new Map() };
     this.rebuild();
     this.startLoops();
+    this.restartMini();
     void this.loadVersion(b);
     void this.loadClients(b);
     void this.loadDelays(b);
     void this.loadConfig(b);
     void this.sample(b);
+  }
+
+  /** 全屏开关（⛶ / ✕ / Esc 都走这里） */
+  toggleFs(): void {
+    this.fs.update((v) => !v);
+  }
+
+  /** 退出全屏（Esc 用；已经在嵌入态就什么都不做） */
+  exitFs(): void {
+    if (this.fs()) this.fs.set(false);
+  }
+
+  /* ────────────────────────── 右下角微型图（clash ws） ────────────────────────── */
+
+  /** 打开一条微型图 WebSocket：消息交给 onMsg，坏数据/单条失败都静默 */
+  private openMiniWs(path: string, onMsg: (raw: string) => void): void {
+    const entry: { ws: WebSocket | null; path: string; timer: ReturnType<typeof setTimeout> | null } = {
+      ws: null,
+      path,
+      timer: null,
+    };
+    this.miniSockets.push(entry);
+    const connect = (): void => {
+      if (this.destroyed || !this.backend()?.api) return;
+      try {
+        const ws = new WebSocket(this.clash.wsUrl(this.backend(), path));
+        entry.ws = ws;
+        ws.onmessage = (ev) => {
+          try {
+            onMsg(String(ev.data));
+          } catch {
+            /* 单条消息解析失败忽略 */
+          }
+        };
+        ws.onerror = () => {
+          try {
+            ws.close();
+          } catch {
+            /* 已经关了 */
+          }
+        };
+        ws.onclose = () => {
+          entry.ws = null;
+          if (this.destroyed) return;
+          if (entry.timer) clearTimeout(entry.timer);
+          // 断线 3s 后重连（后端切换时 closeMini 会把定时器清掉）
+          entry.timer = setTimeout(() => {
+            entry.timer = null;
+            connect();
+          }, MINI_RETRY_MS);
+        };
+      } catch {
+        /* WebSocket 构造失败（地址非法等）不打扰用户 */
+      }
+    };
+    connect();
+  }
+
+  /** 关掉微型图的所有 socket 与重连定时器（换后端 / OnDestroy） */
+  private closeMini(): void {
+    for (const e of this.miniSockets.splice(0)) {
+      if (e.timer) clearTimeout(e.timer);
+      e.timer = null;
+      const ws = e.ws;
+      e.ws = null;
+      if (ws) {
+        ws.onmessage = null;
+        ws.onerror = null;
+        ws.onclose = null;
+        try {
+          ws.close();
+        } catch {
+          /* 已关闭 */
+        }
+      }
+    }
+  }
+
+  /** 重开微型图 ws 并清空缓冲（换后端时用） */
+  private restartMini(): void {
+    this.closeMini();
+    this.miniUp.set([]);
+    this.miniDown.set([]);
+    this.miniMem.set([]);
+    this.openMiniWs('/traffic', (raw) => {
+      const t = parseTrafficMsg(raw);
+      if (!t) return;
+      this.miniUp.update((a) => pushCapped(a, t.up, MINI_POINTS));
+      this.miniDown.update((a) => pushCapped(a, t.down, MINI_POINTS));
+    });
+    this.openMiniWs('/memory', (raw) => {
+      const m = parseMemoryMsg(raw);
+      if (m === null) return;
+      this.miniMem.update((a) => pushCapped(a, m, MINI_POINTS));
+    });
   }
 
   /** 用当前连接 + 静态结构 + 名册重建六列（唯一出口，避免各处漏传 clients） */
