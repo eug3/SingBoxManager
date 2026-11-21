@@ -849,7 +849,18 @@ tr.oldconn td { background: #fffaf0; }
   color: var(--dim);
   padding: 2px 2px 6px;
 }
-.flowbar .fstat b { color: var(--ink); font-size: 12px; margin-left: 2px; }
+.flowbar .fstat {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 1px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fff;
+  font-size: 10.5px;
+  line-height: 17px;
+}
+.flowbar .fstat b { color: var(--ink); font-size: 11.5px; margin-left: 1px; }
 .flowbar .fhint { font-size: 10px; color: #9aa7b6; }
 .flowbar .ferr { font-size: 10px; color: var(--bad); }
 .flowcanvas {
@@ -918,59 +929,68 @@ tr.oldconn td { background: #fffaf0; }
 .ficon.p-mieru { color: #2f6f8f; }
 .ficon.p-other { color: #5b7fa6; }
 
-/* 列背景与列头（列头：图标 + 列名 + 右上角累计连接数 + 副标题） */
-/* 列不再画方框背景（用户要求）：只留列头文字与内容，靠留白分列 */
-.fcoltitle { fill: #33465c; font-size: 11px; font-family: var(--mono); }
-.fcolcnt { fill: #9aa7b6; font-size: 10px; font-family: var(--mono); }
-.fcolsub { fill: #9aa7b6; font-size: 9px; font-family: var(--mono); }
+/* 列头（图标 + 列名 + 右侧圆角计数 pill + 副标题小字）；列本身不再画方框背景 */
+.fcoltitle { fill: #33465c; font-family: var(--mono); }
+.fcolsub { fill: #9aa7b6; font-size: 8.5px; font-family: var(--mono); }
+.fpill { fill: #eef3fa; stroke: #dde6f2; stroke-width: 1; }
+.fpills { fill: #4a5c73; font-size: 9px; font-family: var(--mono); }
+
+/* 横带（band）：一条分组一条带，交替浅底 + 极淡分隔线（不是方框） */
+.fband { fill: transparent; }
+.fband.alt { fill: #f4f8fd; }
+.fsep { stroke: #eaeff7; stroke-width: 1; stroke-dasharray: 2 4; }
 
 /* 列间连线：细、淡，浓度与粗细随该方向连接数增长；
    出口类型上色（代理蓝 / 直连灰 / 拦截红，与粒子同色系），结构边用虚线，
    hover 命中时统一换成强调色（.hi 写在最后，同优先级后写的赢） */
-.fedge { fill: none; stroke: #b6c5d8; stroke-linecap: round; }
-.fedge.fedge-proxy { stroke: #b6c5d8; }
+.fedge { fill: none; stroke: #b9c7d9; stroke-linecap: round; }
+.fedge.fedge-proxy { stroke: #b9c7d9; }
 .fedge.fedge-direct { stroke: #ccd6e2; }
 .fedge.fedge-block { stroke: #edc3ca; }
-.fedge.stat { stroke: #c9d4e2; stroke-dasharray: 3 3; }
+.fedge.stat { stroke: #cbd6e5; stroke-dasharray: 2 4; }
 .fedge.hi { stroke: var(--acc2); stroke-dasharray: none; }
 .fedge.hi.fedge-block { stroke: var(--bad); }
 
-/* 节点块：白底 + 边框；直连灰、代理蓝、拦截红（与粒子同色系） */
+/* 节点块：卡片（③④）圆角 8、方格（①②⑤）圆角 6，浅底细边 */
 .fn .fnbox { fill: #fff; stroke: var(--line); stroke-width: 1; transition: stroke .12s, fill .12s; }
-/* ⑤ 行：只有图标的窄条，边框更淡；有实时流量的行描边亮起来 */
-.fn.m-icon .fnbox { fill: #f9fbfe; stroke: #e3eaf4; }
-/* ①电脑 / ②路由器：正方形方块，浅底 + 细边，图标居中 */
-.fn.m-tile .fnbox { fill: #f7fafd; stroke: #dfe7f2; }
-.fn.m-tile.live .fnbox { fill: #eef6ff; stroke: #b9d0ee; }
-.fn.m-tile.hi .fnbox { fill: #f2f8ff; stroke: var(--acc2); stroke-width: 1.4; }
-.fn.m-tile .ficon { opacity: .95; }
-.fn.m-tile .fncount { fill: #7c8ea3; font-size: 8px; }
-/* ⑤ 行按所属分组交替底色：54 行同形图标时靠底色就能看出分组边界 */
-.fn.m-icon.band1 .fnbox { fill: #eef3fa; stroke: #dde6f2; }
-.fn.m-icon.live .fnbox { fill: #eef6ff; stroke: #b9d0ee; }
-.fn.m-icon.hi .fnbox { fill: #f2f8ff; stroke: var(--acc2); }
-.fn.m-icon .fncount { fill: #6c7d92; font-size: 8.5px; }
-/* ⑥ 一朵大云：虚线大框，图标居中，次数在下方 */
-.fn.m-cloud .fnbox { fill: #f5fcfd; stroke: #bfe0e4; stroke-dasharray: 4 3; }
-.fn.m-cloud.live .fnbox { fill: #eefafb; stroke: #7fc4cc; stroke-dasharray: none; }
-.fn.m-cloud .fncloudcnt { fill: #0f8f9a; font-size: 11px; font-family: var(--mono); }
-.fn.m-cloud .fncloudsub { fill: #7fa9ad; font-size: 8.5px; font-family: var(--mono); }
 .fn .fnname { fill: var(--ink); font-size: 9.5px; font-family: var(--mono); }
 .fn .fnbadge { fill: #8a99ab; font-size: 8.5px; font-family: var(--mono); }
-.fn .fncount { fill: #9aa7b6; font-size: 9px; font-family: var(--mono); }
-.fn.direct .fnbox { stroke: #b9c4d2; }
-.fn.direct .fnname { fill: #6c7d92; }
-.fn.proxy .fnbox { stroke: #b9d0ee; fill: #f7fbff; }
-.fn.proxy .fnname { fill: #14456f; }
-.fn.block .fnbox { stroke: #efc9cf; fill: #fdf5f6; }
-.fn.block .fnname { fill: var(--bad); }
+.fn .fncount { fill: #8fa0b3; font-size: 8.5px; font-family: var(--mono); }
+
+/* ③ 规则卡片：代理靛 / 直连灰 / 拦截红 */
+.fn.m-card.proxy .fnbox { fill: #fbfdff; stroke: #dbe6f5; }
+.fn.m-card.proxy .fnname { fill: #24405e; }
+.fn.m-card.direct .fnbox { fill: #fafbfd; stroke: #dfe5ee; }
+.fn.m-card.direct .fnname { fill: #6c7d92; }
+.fn.m-card.block .fnbox { fill: #fdf6f7; stroke: #f0d2d7; }
+.fn.m-card.block .fnname { fill: var(--bad); }
+/* ④ 分组卡片：略强的底，突出「这是一条带的主人」 */
+.fn.m-card.proxy.m-card .fnbox { }
+.fn.m-card .fnbadge { fill: #93a3b6; }
+
+/* ⑤ 成员方格 / ① 电脑 / ② 路由器：小方块，图标居中 */
+.fn.m-tile .fnbox { fill: #fbfdff; stroke: #e0e8f3; }
+.fn.m-tile .ficon { opacity: .95; }
+.fn.m-tile.live .fnbox { fill: #f0f7ff; stroke: #b9d0ee; }
+.fn.m-tile .fncount { fill: #7c8ea3; font-size: 8px; }
+/* ⑤ 有流量的成员方格：右上角小亮点 */
+.fn .fdot { fill: var(--acc2); stroke: #fff; stroke-width: .8; }
+/* ① 方块下的 IP 标签 */
+.fntilelabel { fill: #7c8ea3; font-size: 7.5px; font-family: var(--mono); }
+
+/* ⑥ 一朵大云：浅青底，图标居中，次数与目标数在下方 */
+.fn.m-cloud .fnbox { fill: #f3fbfc; stroke: #bfe0e4; stroke-width: 1.2; }
+.fn.m-cloud.live .fnbox { fill: #ecf9fb; stroke: #7fc4cc; }
+.fn.m-cloud .fncloudcnt { fill: #0f8f9a; font-size: 12px; font-family: var(--mono); }
+.fn.m-cloud .fnbadge { fill: #7fa9ad; font-size: 8.5px; }
 
 /* hover：该节点描边加粗发亮，其余节点整体变淡（连线由模板把 opacity 降到 0.08） */
 .fn { cursor: default; }
-.fn.hi .fnbox { stroke: var(--acc2); stroke-width: 1.8; fill: #f2f8ff; }
+.fn.hi { filter: drop-shadow(0 1px 3px rgba(34, 48, 63, .18)); }
+.fn.hi .fnbox { stroke: var(--acc2); stroke-width: 1.6; fill: #f2f8ff; }
 .fn.hi .fnname { fill: #0c3f6d; }
 .fn.hi .fncount { fill: var(--acc2); }
-.fn.dim { opacity: .3; }
+.fn.dim { opacity: .28; }
 
 /* 自绘 tooltip：HTML 层叠在 SVG 上，不吃鼠标事件，\n 走 pre-line 换行 */
 .flowtip {

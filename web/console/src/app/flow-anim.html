@@ -1,18 +1,17 @@
 <div class="flow">
-  <!-- 顶部统计：活跃连接 / 粒子 / 电脑 / 规则 / 分组 / 节点行 / 采样节奏 -->
+  <!-- 顶部统计：一排小 pill -->
   <div class="flowbar">
     <span class="fstat">活跃连接 <b>{{ stats().total }}</b></span>
     <span class="fstat">流动粒子 <b>{{ dots().length }}</b></span>
-    <span class="fstat">电脑 <b>{{ stats().pcs }}</b> 台</span>
-    <span class="fstat">规则 <b>{{ stats().rules }}</b> 条</span>
-    <span class="fstat">分组 <b>{{ stats().groups }}</b> 个</span>
-    <span class="fstat">节点行 <b>{{ stats().nodeRows }}</b> 行</span>
+    <span class="fstat">电脑 <b>{{ stats().pcs }}</b></span>
+    <span class="fstat">规则 <b>{{ stats().rules }}</b></span>
+    <span class="fstat">分组 <b>{{ stats().groups }}</b></span>
+    <span class="fstat">成员 <b>{{ stats().nodeRows }}</b></span>
+    <span class="fstat">横带 <b>{{ stats().bands }}</b></span>
     @if (stats().hitRules) {
-      <span class="fstat">命中规则 <b>{{ stats().hitRules }}</b></span>
+      <span class="fstat">命中 <b>{{ stats().hitRules }}</b></span>
     }
-    <span class="fhint">
-      采样 1.5s · 配置 30s · ①电脑 → ②路由器 → ③规则集 → ④分组 → ⑤分组成员（逐行）→ ⑥互联网
-    </span>
+    <span class="fhint">采样 1.5s · 配置 30s · ①电脑 → ②路由器 → ③规则集 → ④分组 → ⑤组成员方格 → ⑥互联网</span>
     @if (cfgErr()) {
       <span class="ferr">⚠ {{ cfgErr() }}</span>
     }
@@ -22,14 +21,14 @@
   </div>
 
   <div class="flowcanvas" #canvas (mousemove)="onMove($event)" (mouseleave)="clearHover()">
-    <!-- 画布高度＝内容高度（⑤ 行多时比容器高，交给 .flowcanvas 纵向滚动） -->
+    <!-- 画布高度＝内容高度；仍比容器高时由 .flowcanvas 内部滚动 -->
     <svg
       class="flowsvg"
       [attr.viewBox]="vb()"
       [style.height.px]="geom().h"
       preserveAspectRatio="xMidYMid meet"
     >
-      <!-- 图标库：六列各一个 symbol，节点块与列头都用 <use> 引用（currentColor 上色） -->
+      <!-- 图标库：六列各一个 symbol，方块/卡片与列头都用 <use> 引用（currentColor 上色） -->
       <defs>
         <symbol id="ico-pc" viewBox="0 0 16 16">
           <rect x="1.5" y="2.5" width="13" height="8.5" rx="1.4" />
@@ -61,45 +60,77 @@
         </symbol>
       </defs>
 
-      <!-- 六列背景 + 列头（图标 + 列名 + 右上角累计次数 + 副标题≡行数） -->
+      <!-- 横带：交替浅底 + 极淡分隔线（不是方框） -->
+      @for (b of geom().bands; track b.key) {
+        <g>
+          <rect
+            class="fband"
+            [class.alt]="b.alt"
+            [attr.x]="b.x"
+            [attr.y]="b.y"
+            [attr.width]="b.w"
+            [attr.height]="b.h"
+            rx="6"
+          />
+          <line class="fsep" [attr.x1]="b.x" [attr.x2]="b.x + b.w" [attr.y1]="b.y + b.h" [attr.y2]="b.y + b.h" />
+        </g>
+      }
+
+      <!-- 列头：图标 + 列名 + 右侧圆角计数 pill + 副标题小字 -->
       @for (c of geom().cols; track c.key) {
         <g>
           <use
             [attr.class]="'ficon col-' + c.key"
             [attr.href]="c.icon"
-            [attr.x]="c.x + 8"
-            [attr.y]="c.y + 9"
-            width="15"
-            height="15"
+            [attr.x]="c.x + 7"
+            [attr.y]="c.y + 8"
+            width="14"
+            height="14"
           />
-          <text class="fcoltitle" [attr.x]="c.x + 28" [attr.y]="c.y + 20">
+          <text class="fcoltitle" [attr.x]="c.x + 25" [attr.y]="c.y + 19" [attr.font-size]="c.titlePx">
             {{ c.mark }} {{ c.title }}
           </text>
-          <text class="fcolcnt" [attr.x]="c.x + c.w - 9" [attr.y]="c.y + 20" text-anchor="end">
-            {{ c.total }}
+          <rect
+            class="fpill"
+            [attr.x]="c.pillX"
+            [attr.y]="c.pillY"
+            [attr.width]="c.pillW"
+            [attr.height]="c.pillH"
+            [attr.rx]="c.pillH / 2"
+          />
+          <text
+            class="fpills"
+            [attr.x]="c.pillX + c.pillW / 2"
+            [attr.y]="c.pillY + c.pillH - 4"
+            text-anchor="middle"
+          >
+            {{ c.pillText }}
           </text>
-          <text class="fcolsub" [attr.x]="c.x + 8" [attr.y]="c.y + 36">
-            {{ c.sub }}@if (c.rows) {
-              <tspan> · {{ c.rows }} 行</tspan>
-            }
-          </text>
+          <text class="fcolsub" [attr.x]="c.x + 7" [attr.y]="c.y + 35">{{ c.sub }}</text>
         </g>
       }
 
-      <!-- 列间连线：结构边虚线浅色，动态边随条数加粗加深；hover 时其余降到 0.08 -->
+      <!-- 连线：结构边浅色，动态边按 count 加权；hover 时其余降到 0.08 -->
       @for (e of edgesView(); track e.key) {
         <path
           [attr.class]="'fedge fedge-' + e.kind + (e.stat ? ' stat' : '') + (e.hi ? ' hi' : '') + (e.dim ? ' dim' : '')"
           [attr.d]="e.d"
           [attr.stroke-opacity]="e.dim ? 0.08 : e.opacity"
-          [attr.stroke-width]="e.hi ? e.width + 0.9 : e.width"
+          [attr.stroke-width]="e.hi ? e.width + 0.8 : e.width"
         />
       }
 
-      <!-- 节点块：text=图标+标题+次行+次数；icon=只有图标（⑤ 行）；cloud=一朵大云（⑥） -->
+      <!-- 节点：card=③④ 文字卡片；tile=①②⑤ 方格；cloud=⑥ 大云 -->
       @for (n of nodesView(); track n.key) {
         <g
-          [attr.class]="'fn ' + n.kind + ' m-' + n.mode + (n.mode === 'icon' && n.band ? ' band1' : '') + (n.count > 0 ? ' live' : '') + (n.hi ? ' hi' : n.dim ? ' dim' : '')"
+          [attr.class]="
+            'fn ' +
+            n.kind +
+            ' m-' +
+            n.mode +
+            (n.count > 0 ? ' live' : '') +
+            (n.hi ? ' hi' : n.dim ? ' dim' : '')
+          "
           (mouseenter)="onEnter(n.key, $event)"
           (mouseleave)="clearHover()"
         >
@@ -109,7 +140,7 @@
             [attr.y]="n.y"
             [attr.width]="n.w"
             [attr.height]="n.h"
-            [attr.rx]="n.mode === 'icon' ? 5 : 6"
+            [attr.rx]="n.mode === 'card' ? 8 : 6"
           />
           <use
             [attr.class]="'ficon ' + n.tint"
@@ -119,23 +150,31 @@
             [attr.width]="n.iconSize"
             [attr.height]="n.iconSize"
           />
-          @if (n.mode === 'text') {
-            <text class="fnname" [attr.x]="n.x + 24" [attr.y]="n.labelY">{{ n.label }}</text>
-            @if (n.badge && n.badgeY) {
-              <text class="fnbadge" [attr.x]="n.x + 24" [attr.y]="n.badgeY">{{ n.badge }}</text>
-            }
+          @if (n.label && n.labelY) {
+            <text
+              [attr.class]="n.mode === 'card' ? 'fnname' : 'fntilelabel'"
+              [attr.x]="n.labelX"
+              [attr.y]="n.labelY"
+              [attr.text-anchor]="n.labelAnchor"
+            >
+              {{ n.label }}
+            </text>
           }
-          @if (n.mode === 'cloud' && n.badge && n.badgeY) {
-            <text class="fncloudsub" [attr.x]="n.x + n.w / 2" [attr.y]="n.badgeY" text-anchor="middle">
+          @if (n.badge && n.badgeY) {
+            <text class="fnbadge" [attr.x]="n.labelX" [attr.y]="n.badgeY" [attr.text-anchor]="n.labelAnchor">
               {{ n.badge }}
             </text>
+          }
+          <!-- ⑤ 成员方格：有流量的右上角加一个小亮点 -->
+          @if (n.col === 'node' && n.mode === 'tile' && n.count > 0) {
+            <circle class="fdot" [attr.cx]="n.x + n.w - 4" [attr.cy]="n.y + 4" r="1.9" />
           }
           @if (n.count > 0 && n.countX) {
             <text
               [attr.class]="n.mode === 'cloud' ? 'fncloudcnt' : 'fncount'"
               [attr.x]="n.countX"
               [attr.y]="n.countY"
-              [attr.text-anchor]="n.mode === 'cloud' ? 'middle' : 'end'"
+              [attr.text-anchor]="n.countAnchor"
             >
               {{ n.count }}
             </text>
