@@ -51,8 +51,20 @@ func routerHosts() map[string]bool {
 	return out
 }
 
-// loadRouters 读凭据表；user/port 缺省补 root/22
+// loadRouters 读凭据表（SQLite 为准）；user/port 缺省补 root/22
 func loadRouters() (map[string]routerCred, error) {
+	m, err := routersFromDB()
+	if err != nil {
+		return nil, err
+	}
+	if len(m) == 0 {
+		return nil, fmt.Errorf("凭据库为空（可先在页面「路由凭据」里填写）")
+	}
+	return m, nil
+}
+
+// loadRoutersFile 读旧的 routers.json（仅首次迁移用）
+func loadRoutersFile() (map[string]routerCred, error) {
 	b, err := os.ReadFile(routersFile())
 	if err != nil {
 		return nil, err
@@ -73,8 +85,13 @@ func loadRouters() (map[string]routerCred, error) {
 	return m, nil
 }
 
-// saveRouters 写凭据表：临时文件 0600 → 原子 rename，避免半截文件
+// saveRouters 写凭据表（SQLite）
 func saveRouters(m map[string]routerCred) error {
+	return routersToDB(m)
+}
+
+// saveRoutersLegacyFile 旧实现（保留给需要导出 JSON 的场景，当前未用）
+func saveRoutersLegacyFile(m map[string]routerCred) error {
 	b, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
 		return err
@@ -200,7 +217,7 @@ func handleRouterCredentialsDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	delete(all, host)
-	if err := saveRouters(all); err != nil {
+	if err := routerDeleteDB(host); err != nil {
 		fail(w, 500, "写凭据失败: "+err.Error())
 		return
 	}

@@ -133,7 +133,7 @@ func handleRouterRestart(w http.ResponseWriter, r *http.Request) {
 		fail(w, 502, err.Error())
 		return
 	}
-	log.Printf("router restart %s ok (%dms) %s", host, time.Since(t0).Milliseconds(), cleanLine(out))
+	logApplyWrap(host, false, "", "", "RESTART "+cleanLine(out), time.Since(t0).Milliseconds())
 	writeJSON(w, 200, map[string]any{"ok": true, "host": host, "log": out, "ms": time.Since(t0).Milliseconds()})
 }
 
@@ -201,7 +201,7 @@ func handleRouterApply(w http.ResponseWriter, r *http.Request) {
 		fail(w, code, msg)
 		return
 	}
-	log.Printf("router apply %s changed=%v (%dms) %s", host, res.Changed, time.Since(t0).Milliseconds(), cleanLine(res.Log))
+	logApplyWrap(host, res.Changed, req.ExpectSha, "", res.Log, time.Since(t0).Milliseconds())
 	writeJSON(w, 200, map[string]any{
 		"ok": true, "changed": res.Changed, "host": host, "log": res.Log,
 		"ms": time.Since(t0).Milliseconds(),

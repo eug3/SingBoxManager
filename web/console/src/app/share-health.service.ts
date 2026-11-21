@@ -47,6 +47,26 @@ export interface ShareConfigEcho extends Omit<ShareConfigPayload, 'smb' | 'sftp'
 }
 
 /** 一次体检结果（/share/health 与 /share/probe 同结构） */
+/** 公网入口改写预览：每台路由会改几条 rule_set url */
+export interface PublicRulesPreviewHost {
+  host: string;
+  name?: string;
+  ok: boolean;
+  changes?: number;
+  sample?: { tag: string; from: string; to: string }[];
+  error?: string;
+}
+
+/** 公网入口写入结果 */
+export interface PublicRulesApplyHost {
+  host: string;
+  ok: boolean;
+  changed?: boolean;
+  changes?: number;
+  log?: string;
+  error?: string;
+}
+
 export interface ShareProbe extends ShareHealth {
   mode?: string;
   localDir?: string;
@@ -121,6 +141,27 @@ export class ShareHealthService {
   async importToLocal(): Promise<{ copied: number; skipped: number; dir: string }> {
     return firstValueFrom(
       this.httpClient.post<{ copied: number; skipped: number; dir: string }>('/share/import', {}, { headers: this.authHeaders() }),
+    );
+  }
+
+  /** 预览：把 rule_set url 改到给定公网入口后，每台路由会改几条 */
+  async publicRulesPreview(base: string): Promise<{ base: string; hosts: PublicRulesPreviewHost[] }> {
+    return firstValueFrom(
+      this.httpClient.get<{ base: string; hosts: PublicRulesPreviewHost[] }>('/public/rules/preview', {
+        headers: this.authHeaders(),
+        params: { base },
+      }),
+    );
+  }
+
+  /** 写入：真正改路由器 config.json 的 rule_set url（走备份→check→替换→重启通道） */
+  async publicRulesApply(base: string): Promise<{ base: string; hosts: PublicRulesApplyHost[] }> {
+    return firstValueFrom(
+      this.httpClient.post<{ base: string; hosts: PublicRulesApplyHost[] }>(
+        '/public/rules/apply',
+        { base, confirm: true },
+        { headers: this.authHeaders() },
+      ),
     );
   }
 

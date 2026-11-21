@@ -79,7 +79,34 @@ NAS 侧共享是 `sec=none`（guest），所以零凭据即可读写；若以后
 它只挂 `/rule-set/*` 与 `/health`，`/edit`、`/router/*`、`/publish` 一律 404。
 所以「文件对外」和「控制台对内」可以分开：对外只反代 9098，9099 继续只在内网。
 
-### 2.4 凭据与密钥的分层
+### 2.4 SQLite 后端（替代散落的 JSON）
+
+`db.go`（纯 Go 驱动 `modernc.org/sqlite`，无 CGO）把状态收进
+`/etc/vault-edit/sbm.db`（0600，WAL）：
+
+| 表 | 内容 |
+|---|---|
+| `kv` | 存储配置（`shareConfig`）等键值；以后加设置项不用再开文件 |
+| `routers` | 路由 SSH 凭据（原 routers.json） |
+| `publish_log` | 每次 /publish 的桶、json/srs 字节数、sha、时间 |
+| `apply_log` | 每次配置应用/重启的 host、changed、sha、backup、耗时 |
+
+首次启动若库为空，会自动把旧的 `share.json` / `routers.json` 导入（一次性迁移，旧文件保留）。
+`GET /db/info` 回显表名与行数 + 最近 5 次发布，页面与体检脚本都用它。
+
+### 2.5 公网只读入口 → 自动写进路由器规则
+
+两台路由 `config.json` 的 `route.rule_set` 里有 24 条 `type=remote` 规则，`url` 形如
+`https://<公网入口>/rule-set/<桶>.srs`。换入口时用：
+
+- `GET /public/rules/preview?base=` —— 每台路由会改几条 + 样例 old→new（只读，不动配置）
+- `POST /public/rules/apply {base, confirm:true}` —— 真正改写并走既有
+  「备份→check→原子替换→重启→健康检查→失败回滚」通道；内容没变则 `changed=false` 不重启
+
+页面在存储弹窗里：「预览规则改写」→ 看条数 →「写入路由器规则」（会提示断流约 1 秒）。
+改完也会在 `apply_log` 留痕。
+
+### 2.6 凭据与密钥的分层
 
 | 凭据 | 存哪 | 谁能看到 |
 |---|---|---|

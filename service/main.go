@@ -34,7 +34,14 @@ func main() {
 	if vaultKey == "" {
 		log.Fatal("VAULT_KEY 未设置（应为两台路由 clash_api secret；systemd 从 /etc/vault-edit.env 注入）")
 	}
-	// 存储配置：读盘（无文件则用 env 默认值），并热装到全局
+	// 数据库：打开 + 建表 + 一次性迁移旧 JSON
+	if ok, derr := dbHealthy(); !ok {
+		log.Printf("警告：SQLite 不可用（%s）：%v", dbFile(), derr)
+	} else {
+		log.Printf("SQLite 就绪：%s", dbFile())
+	}
+
+	// 存储配置：读库（无记录则用 env 默认值），并热装到全局
 	applyShareConfig(loadShareConfig())
 
 	// 只读文件服务跑在独立端口（默认 :9098）：文件可对外，管理台不外露
@@ -55,9 +62,11 @@ func main() {
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		_, rerr := os.Stat(routersFile())
 		shareInfo, shareErr := currentShareFS().List()
+		dbOK, dbMsg := dbHealthy()
 		writeJSON(w, 200, map[string]any{
 			"ok": true, "lang": "go", "share": currentShareFS().Describe(), "shareMode": currentShareCfg().Mode, "page": pageDir, "static": staticDir,
-			"files": filesSrv.current(), "routers": routersFile(), "routersReady": rerr == nil,
+			"files": filesSrv.current(), "db": dbFile(), "dbOK": dbOK, "dbError": dbMsg,
+			"routers": routersFile(), "routersReady": rerr == nil,
 			"shareReady": shareErr == nil, "shareFiles": len(shareInfo), "shareError": errText(shareErr),
 		})
 	})
@@ -79,6 +88,27 @@ func main() {
 	mux.HandleFunc("POST /share/config", handleShareConfigSet)
 	mux.HandleFunc("POST /share/probe", handleShareProbe)
 	mux.HandleFunc("POST /share/import", handleShareImport)
+
+	// 公网只读入口 → 写进路由器规则（route.rule_set[].url）
+	mux.HandleFunc("GET /public/rules/preview", handlePublicRulesPreview)
+	mux.HandleFunc("POST /public/rules/apply", handlePublicRulesApply)
+
+	// 数据库信息（表与行数，页面/体检用）
+	mux.HandleFunc("GET /db/info", func(w http.ResponseWriter, r *http.Request) {
+		if preflight(w, r) {
+			return
+		}
+		if !routerAuth(w, r, "") {
+			return
+		}
+		st, err := dbStats()
+		if err != nil {
+			fail(w, 500, err.Error())
+			return
+		}
+		st["publishes"] = recentPublishes(5)
+		writeJSON(w, 200, st)
+	})
 
 	// 规则桶发布
 	mux.HandleFunc("/publish", handlePublish)

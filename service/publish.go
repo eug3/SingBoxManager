@@ -138,6 +138,7 @@ func handlePublish(w http.ResponseWriter, r *http.Request) {
 	}
 	sum := sha256.Sum256(srs)
 	log.Printf("published %s: json=%dB srs=%dB sha=%s", req.Bucket, len(jtxt), len(srs), hex.EncodeToString(sum[:])[:16])
+	logPublish(req.Bucket, len(jtxt), len(srs), hex.EncodeToString(sum[:])[:16]) // 落 SQLite 留痕
 	writeJSON(w, 200, map[string]any{
 		"ok": true, "bucket": req.Bucket,
 		"json": len(jtxt), "srs": len(srs),

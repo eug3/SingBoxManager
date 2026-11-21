@@ -238,6 +238,13 @@ PUBLIC_BASE=https://rules.example.com   # 体检时拉取公网 URL 用
 
 存储配置也可在管理台顶栏状态点后的 ⚙ 里改（保存即热生效），落盘 `/etc/vault-edit/share.json`（0600）。
 
+**数据库**：状态都在 `/etc/vault-edit/sbm.db`（0600，SQLite/WAL）——存储配置、路由 SSH 凭据、
+发布与配置应用记录。可用 `DB_FILE` 改位置；首次启动会自动迁移旧的 `share.json` / `routers.json`
+（旧文件保留不动）。查看：`curl -s -H "X-Vault-Key: $VAULT_KEY" localhost:9099/db/info`。
+
+**公网入口写进路由规则**：`GET /public/rules/preview?base=…` 预览会改多少条，
+`POST /public/rules/apply {"base":…,"confirm":true}` 写入（会重启 sing-box，约 1s）。
+
 体检（管理台顶栏状态点也用它）：
 
 ```bash

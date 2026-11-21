@@ -60,6 +60,46 @@
         <span>公网只读入口</span>
         <input [value]="form().publicBase" (input)="patch('publicBase', $any($event.target).value)" placeholder="https://rules.example.com" />
       </label>
+      <div class="row">
+        <span></span>
+        <div style="display: flex; gap: 6px; flex-wrap: wrap">
+          <button (click)="previewRules()" [disabled]="busy()">预览规则改写</button>
+          <button (click)="applyRules()" [disabled]="busy() || !rulesPreview()">写入路由器规则</button>
+          <span class="dim small">把 route.rule_set[].url 换到这个入口（会重启 sing-box）</span>
+        </div>
+      </div>
+      @if (rulesPreview(); as hosts) {
+        <div class="probe">
+          @for (h of hosts; track h.host) {
+            <div>
+              {{ h.host }} <span class="dim">{{ h.name }}</span> ·
+              @if (h.ok) {
+                需改 <b>{{ h.changes }}</b> 条
+                @if (h.sample?.length) {
+                  <span class="dim">（例：{{ h.sample![0].from }} → {{ h.sample![0].to }}）</span>
+                }
+              } @else {
+                <span style="color: var(--bad)">失败：{{ h.error }}</span>
+              }
+            </div>
+          }
+        </div>
+      }
+      @if (rulesApplied(); as hosts) {
+        <div class="probe">
+          @for (h of hosts; track h.host) {
+            <div>
+              {{ h.host }} ·
+              @if (h.ok) {
+                已改 {{ h.changes }} 条 · changed={{ h.changed }}
+              } @else {
+                <span style="color: var(--bad)">失败：{{ h.error }}</span>
+              }
+            </div>
+          }
+        </div>
+      }
+
       <label class="row"><span>体检样本</span><input [value]="form().sample" (input)="patch('sample', $any($event.target).value)" placeholder="rs-tg.srs" /></label>
 
       @if (probeResult(); as p) {

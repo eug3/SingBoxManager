@@ -3,6 +3,8 @@ package main
 // httpx.go — HTTP 公共工具：JSON 应答、CORS、预检、路径安全。
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -57,6 +59,12 @@ func safeJoin(base, rel string) (string, error) {
 		return "", fmt.Errorf("path escape: %s", rel)
 	}
 	return full, nil
+}
+
+// sha256Hex 内容 sha256（配置乐观锁 / 变更比对用）
+func sha256Hex(s string) string {
+	sum := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(sum[:])
 }
 
 // errText 把 error 转成字符串（nil → ""），给 /health 用

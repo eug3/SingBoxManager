@@ -147,38 +147,26 @@ func shareFSFromConfig(c ShareConfig) ShareFS {
 	}
 }
 
-// loadShareConfig 启动时读盘；无文件则用 env 默认值
+// loadShareConfig 启动时从 SQLite 读；没有记录则用 env 默认值
 func loadShareConfig() ShareConfig {
-	b, err := os.ReadFile(shareConfigFile())
-	if err != nil {
+	raw, ok := kvGet("shareConfig")
+	if !ok {
 		return defaultShareConfig()
 	}
 	var c ShareConfig
-	if err := json.Unmarshal(b, &c); err != nil {
+	if err := json.Unmarshal([]byte(raw), &c); err != nil {
 		return defaultShareConfig()
 	}
 	return normalizeShareConfig(c)
 }
 
-// saveShareConfig 落盘（0600，原子写）
+// saveShareConfig 写 SQLite（kv 表，key=shareConfig）
 func saveShareConfig(c ShareConfig) error {
-	b, err := json.MarshalIndent(c, "", "  ")
+	b, err := json.Marshal(c)
 	if err != nil {
 		return err
 	}
-	b = append(b, '\n')
-	dir := filepath.Dir(shareConfigFile())
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	tmp := shareConfigFile() + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
-		return err
-	}
-	if err := os.Chmod(tmp, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, shareConfigFile())
+	return kvSet("shareConfig", string(b))
 }
 
 // currentShareCfg / currentShareFS 线程安全读取
@@ -227,7 +215,7 @@ func publicMasked(c ShareConfig) map[string]any {
 		"publicBase":  c.PublicBase,
 		"filesListen": c.FilesListen,
 		"sample":      c.Sample,
-		"file":        shareConfigFile(),
+		"file":        dbFile(),
 	}
 }
 
