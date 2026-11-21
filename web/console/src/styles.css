@@ -621,3 +621,20 @@ button.win { padding: 2px 8px; font-size: 10px; color: var(--dim); border-color:
 button.win.on { color: var(--acc); border-color: var(--acc); background: #eefaf4; }
 
 .winsel .wsep { width: 1px; height: 14px; background: var(--line); margin: 0 4px; align-self: center; }
+
+.bw { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; color: var(--dim); }
+.bw input {
+  width: 62px;
+  padding: 2px 5px;
+  font-size: 11px;
+  font-family: var(--mono);
+  color: var(--ink);
+  background: #fff;
+  border: 1px solid var(--line);
+}
+.bw input:focus { outline: none; border-color: var(--acc2); }
+
+/* 速率卡控制行：单独一行，避免与图例挤在一起 */
+.ovctl { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 8px; row-gap: 6px; }
+.ovctl button.win, .ovctl .bw, .ovleg .lg { white-space: nowrap; flex: 0 0 auto; }
+.ovleg { flex-wrap: wrap; row-gap: 4px; }

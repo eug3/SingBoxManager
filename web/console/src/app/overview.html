@@ -8,7 +8,9 @@
       <span>速率</span>
       <span class="ovvals">
         <b class="dl">↓ {{ rateTextMib(rateDown()) }}</b>
+        <span class="dim small">占 {{ utilization(rateDown()) }}</span>
         <b class="ul">↑ {{ rateTextMib(rateUp()) }}</b>
+        <span class="dim small">占 {{ utilization(rateUp()) }}</span>
         <span class="dim small">{{ rateText(rateDown()) }} / {{ rateText(rateUp()) }} · 累计 ↓{{ fmtB(totals().down) }} · ↑{{ fmtB(totals().up) }}</span>
       </span>
     </div>
@@ -20,25 +22,40 @@
       [fixedMax]="rateFixedMax()"
     />
     <div class="ovleg">
-      <span class="lg dl">下载</span><span class="lg ul">上传</span>
+      <span class="lg dl">下载</span>
+      <span class="lg ul">上传</span>
       <span class="dim small">
         {{ windowLabel() }} · {{ bucketText() }}（已填 {{ sampleCount() }} 格，右侧推进、满窗后左移，来自 ws /traffic）
-        · 速率满量程 {{ rateScale() === 'fixed' ? '固定 1000 Mib/s' : '自动' }}（1 Mib = 2²⁰ bit）
         @if (chartMode() === 'bar') {
-          <span class="dim">· 柱形：中线以上下载、以下上传</span>
+          <span class="dim"> · 柱形：中线以上下载、以下上传</span>
         }
       </span>
-      <span class="winsel">
-        <button class="win" [class.on]="rateScale() === 'fixed'" (click)="rateScale.set('fixed')" title="满量程固定 1000 Mib/s">刻度 1000M</button>
-        <button class="win" [class.on]="rateScale() === 'auto'" (click)="rateScale.set('auto')" title="按窗口内峰值自适应">自动</button>
-        <span class="wsep"></span>
-        <button class="win" [class.on]="chartMode() === 'line'" (click)="chartMode.set('line')">曲线</button>
-        <button class="win" [class.on]="chartMode() === 'bar'" (click)="chartMode.set('bar')">柱形</button>
-        <span class="wsep"></span>
-        @for (w of windowOptions; track w) {
-          <button class="win" [class.on]="w === windowMin()" (click)="windowMin.set(w)">{{ w }} 分</button>
-        }
-      </span>
+    </div>
+    <div class="ovctl">
+      <label class="bw" title="手填线路带宽（Mib/s，1 Mib = 2²⁰ bit）">
+        带宽
+        <input
+          type="number"
+          min="1"
+          step="100"
+          [value]="bandwidth()"
+          (change)="setBandwidth($any($event.target).value)"
+        />
+        Mib/s
+      </label>
+      <button class="win" [class.on]="rateScale() === 'fixed'" (click)="rateScale.set('fixed')" title="按手填带宽满量程">
+        固定满量程
+      </button>
+      <button class="win" [class.on]="rateScale() === 'auto'" (click)="rateScale.set('auto')" title="按窗口内峰值自适应">
+        自动
+      </button>
+      <span class="wsep"></span>
+      <button class="win" [class.on]="chartMode() === 'line'" (click)="chartMode.set('line')">曲线</button>
+      <button class="win" [class.on]="chartMode() === 'bar'" (click)="chartMode.set('bar')">柱形</button>
+      <span class="wsep"></span>
+      @for (w of windowOptions; track w) {
+        <button class="win" [class.on]="w === windowMin()" (click)="windowMin.set(w)">{{ w }} 分</button>
+      }
     </div>
   </div>
 
@@ -60,6 +77,7 @@
       <tr><td>运行模式</td><td>{{ mode() || '—' }}</td></tr>
       <tr><td>活跃连接</td><td>{{ connCount() }}</td></tr>
       <tr><td>累计流量</td><td>↓{{ fmtB(totals().down) }} · ↑{{ fmtB(totals().up) }}</td></tr>
+      <tr><td>带宽基准</td><td>{{ bandwidth() }} Mib/s（满量程）· 当前下行占 {{ utilization(rateDown()) }}</td></tr>
     </table>
     <div class="bar" style="margin: 8px 0 0">
       @for (m of modeList(); track m) {

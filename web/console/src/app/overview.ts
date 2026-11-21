@@ -15,8 +15,12 @@ import { ClashService } from './clash.service';
 
 const MAX_POINTS = 600; // 原始 1s 采样缓冲 = 10 分钟
 const BUCKET_SECONDS = 2; // 图形窗口按 2 秒一格填充（10 分钟 = 300 格）
-/** 速率图满量程：1000 Mib/s（1 Mib = 2^20 bit）→ 换成 sing-box 的字节/秒 */
-const RATE_FULL_SCALE_BYTES = (1000 * 1024 * 1024) / 8;
+/** 速率图默认满量程带宽：1000 Mib/s（千兆，1 Mib = 2^20 bit） */
+const DEFAULT_BANDWIDTH_MIB = 1000;
+const BW_STORE_KEY = 'rateBandwidthMib';
+
+/** Mib/s → sing-box 的字节/秒 */
+const mibToBytes = (mib: number): number => (mib * 1024 * 1024) / 8;
 const WINDOW_OPTIONS = [1, 5, 10];
 const OK_GREEN = 400;
 const OK_YELLOW = 800;
@@ -49,10 +53,13 @@ export class OverviewPane implements OnInit, OnDestroy {
   readonly windowOptions = WINDOW_OPTIONS;
   /** 曲线 / 柱形 两种画法（速率图柱形模式以上下镜像呈现：上=下载、下=上传） */
   readonly chartMode = signal<'line' | 'bar'>('line');
-  /** 速率图刻度：固定满量程 1000 Mib/s（默认）或按窗口内峰值自适应 */
+  /** 速率图刻度：固定（按手填带宽满量程，默认千兆）或按窗口内峰值自适应 */
   readonly rateScale = signal<'fixed' | 'auto'>('fixed');
-  readonly rateFullScale = RATE_FULL_SCALE_BYTES;
-  readonly rateFixedMax = computed(() => (this.rateScale() === 'fixed' ? RATE_FULL_SCALE_BYTES : undefined));
+  /** 手填带宽，单位 Mib/s（1 Mib = 2^20 bit），持久化在 localStorage */
+  readonly bandwidth = signal<number>(this.loadBandwidth());
+  readonly rateFixedMax = computed(() =>
+    this.rateScale() === 'fixed' ? mibToBytes(Math.max(1, this.bandwidth())) : undefined,
+  );
   readonly nodeLat = signal<Record<string, number>>({});
   readonly testing = signal(false);
   readonly testProgress = signal('');
@@ -270,6 +277,29 @@ export class OverviewPane implements OnInit, OnDestroy {
     if (mib < 1) return mib.toFixed(2) + ' Mib/s';
     if (mib < 10) return mib.toFixed(2) + ' Mib/s';
     return mib.toFixed(1) + ' Mib/s';
+  }
+
+  private loadBandwidth(): number {
+    const raw = Number(localStorage.getItem(BW_STORE_KEY));
+    return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_BANDWIDTH_MIB;
+  }
+
+  /** 手填带宽（Mib/s）；空/非法值回退当前值 */
+  setBandwidth(v: string): void {
+    const n = Number(v);
+    if (!Number.isFinite(n) || n <= 0) return;
+    const clamped = Math.min(1_000_000, Math.max(1, n));
+    this.bandwidth.set(clamped);
+    localStorage.setItem(BW_STORE_KEY, String(clamped));
+    if (this.rateScale() === 'auto') this.rateScale.set('fixed');
+  }
+
+  /** 当前速率占带宽的百分比 */
+  utilization(n: number): string {
+    const bw = Math.max(1, this.bandwidth());
+    const pct = ((n * 8) / (1024 * 1024) / bw) * 100;
+    if (!pct) return '0%';
+    return pct < 10 ? pct.toFixed(1) + '%' : Math.round(pct) + '%';
   }
 
   rateText(n: number): string {
