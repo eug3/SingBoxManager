@@ -1,6 +1,10 @@
 <div class="wrap">
   <header class="top">
     <h1>规则编辑台 <b>◆ SBM CONSOLE</b></h1>
+    <button class="hstat" [class.ok]="activeStatus()?.ok" [class.bad]="activeStatus()?.ok === false"
+            [title]="activeStatus()?.error || '点击打开该后端的「配置」页'" (click)="openConfig()">
+      <span class="dot"></span>{{ statusText() }}
+    </button>
   </header>
 
   @if (!originOk) {
@@ -19,7 +23,7 @@
       </button>
     }
     <button class="tab add" (click)="addBackend()">＋ 添加后端</button>
-    <button class="tab" [class.on]="active() === 'edit'" (click)="active.set('edit')">🧩 规则编辑</button>
+    <button class="tab right" [class.on]="active() === 'edit'" (click)="active.set('edit')">🧩 规则编辑</button>
   </nav>
 
   <div class="content">

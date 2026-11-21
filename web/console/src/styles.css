@@ -715,3 +715,25 @@ td.age { white-space: nowrap; }
 td.age.y { color: var(--warn); }
 td.age.r { color: var(--bad); font-weight: 600; }
 tr.oldconn td { background: #fffaf0; }
+
+/* 顶栏右侧：配置通道状态点（点击进入该后端「配置」页） */
+.hstat {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-family: var(--mono);
+  color: var(--dim);
+  background: #f7f9fc;
+  border: 1px solid var(--line);
+  padding: 5px 10px;
+  cursor: pointer;
+}
+.hstat .dot { width: 7px; height: 7px; border-radius: 50%; background: #c3cddb; }
+.hstat.ok { color: var(--acc); border-color: #bfe3d3; background: #f1faf6; }
+.hstat.ok .dot { background: var(--acc); box-shadow: 0 0 0 3px rgba(15,143,104,.15); }
+.hstat.bad { color: var(--bad); border-color: #f0ccd2; background: #fdf3f4; }
+.hstat.bad .dot { background: var(--bad); }
+/* 主 tab 里「规则编辑」固定顶到最右 */
+.tabs .tab.right { margin-left: auto; }
