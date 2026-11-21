@@ -919,7 +919,7 @@ tr.oldconn td { background: #fffaf0; }
 .ficon.p-other { color: #5b7fa6; }
 
 /* 列背景与列头（列头：图标 + 列名 + 右上角累计连接数 + 副标题） */
-.fcol { fill: #f7f9fc; stroke: #e6ecf5; stroke-width: 1; }
+/* 列不再画方框背景（用户要求）：只留列头文字与内容，靠留白分列 */
 .fcoltitle { fill: #33465c; font-size: 11px; font-family: var(--mono); }
 .fcolcnt { fill: #9aa7b6; font-size: 10px; font-family: var(--mono); }
 .fcolsub { fill: #9aa7b6; font-size: 9px; font-family: var(--mono); }
@@ -939,6 +939,12 @@ tr.oldconn td { background: #fffaf0; }
 .fn .fnbox { fill: #fff; stroke: var(--line); stroke-width: 1; transition: stroke .12s, fill .12s; }
 /* ⑤ 行：只有图标的窄条，边框更淡；有实时流量的行描边亮起来 */
 .fn.m-icon .fnbox { fill: #f9fbfe; stroke: #e3eaf4; }
+/* ①电脑 / ②路由器：正方形方块，浅底 + 细边，图标居中 */
+.fn.m-tile .fnbox { fill: #f7fafd; stroke: #dfe7f2; }
+.fn.m-tile.live .fnbox { fill: #eef6ff; stroke: #b9d0ee; }
+.fn.m-tile.hi .fnbox { fill: #f2f8ff; stroke: var(--acc2); stroke-width: 1.4; }
+.fn.m-tile .ficon { opacity: .95; }
+.fn.m-tile .fncount { fill: #7c8ea3; font-size: 8px; }
 /* ⑤ 行按所属分组交替底色：54 行同形图标时靠底色就能看出分组边界 */
 .fn.m-icon.band1 .fnbox { fill: #eef3fa; stroke: #dde6f2; }
 .fn.m-icon.live .fnbox { fill: #eef6ff; stroke: #b9d0ee; }

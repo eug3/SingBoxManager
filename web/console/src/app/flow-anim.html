@@ -64,14 +64,6 @@
       <!-- 六列背景 + 列头（图标 + 列名 + 右上角累计次数 + 副标题≡行数） -->
       @for (c of geom().cols; track c.key) {
         <g>
-          <rect
-            class="fcol"
-            [attr.x]="c.x"
-            [attr.y]="c.y"
-            [attr.width]="c.w"
-            [attr.height]="c.h"
-            rx="8"
-          />
           <use
             [attr.class]="'ficon col-' + c.key"
             [attr.href]="c.icon"

@@ -1064,7 +1064,7 @@ export interface FlowNodeGeom {
   w: number;
   h: number;
   /** 渲染模式：text = 图标+标题+次行+次数；icon = 只有图标（⑤ 行）；cloud = 一朵大云（⑥） */
-  mode: 'text' | 'icon' | 'cloud';
+  mode: 'text' | 'icon' | 'tile' | 'cloud';
   /** 图标尺寸 / 位置 */
   iconSize: number;
   iconX: number;
@@ -1140,7 +1140,7 @@ export const FLOW_GEO = {
   colGapMin: 10,
   colGapMax: 18,
   /** 每列行高（⑤ 最紧，③④ 略大以便两行文字） */
-  row: { pc: 30, router: 36, rule: 30, group: 30, node: 22, cloud: 72 } as Record<FlowCol, number>,
+  row: { pc: 56, router: 56, rule: 30, group: 30, node: 22, cloud: 72 } as Record<FlowCol, number>,
   nodeIcon: 16,
   cloudIcon: 34,
   /** ⑥ 云块高度（图标 + 条数 + 目标数两行小字） */
@@ -1152,8 +1152,8 @@ export const FLOW_GEO = {
 
 /** 列宽规则：⑤ 固定窄条（90–110），③④ 吃掉剩余宽度 */
 const COL_WIDTH: Record<FlowCol, { min: number; max: number; weight: number }> = {
-  pc: { min: 112, max: 168, weight: 1.0 },
-  router: { min: 104, max: 158, weight: 0.95 },
+  pc: { min: 76, max: 96, weight: 0.5 },
+  router: { min: 76, max: 96, weight: 0.5 },
   rule: { min: 190, max: 460, weight: 2.3 },
   group: { min: 172, max: 400, weight: 2.05 },
   node: { min: 90, max: 108, weight: 0.7 },
@@ -1301,6 +1301,8 @@ export function buildLayout(flow: FlowLayout, size: FlowSize): FlowGeom {
 
     const rowH = rowOf(col);
     const isIcon = col === 'node';
+    // ①电脑 / ②路由器：画成正方形小图标（不是长条），列宽仅容一个方块
+    const isTile = col === 'pc' || col === 'router';
     // ⑤ 行按「所属分组」交替底色：54 行同形图标时，靠底色就能看出分组边界
     let band = -1;
     let lastGroup = '';
@@ -1319,7 +1321,35 @@ export function buildLayout(flow: FlowLayout, size: FlowSize): FlowGeom {
     list.forEach((it, j) => {
       const y = isCloud ? top : round1(top + j * rowH);
       let geom: FlowNodeGeom;
-      if (isCloud) {
+      if (isTile) {
+        // 正方形方块：44×44，居中放图标；详情都在 hover tooltip 里
+        const side = Math.min(44, Math.max(24, rowH - 12));
+        geom = {
+          key: it.key,
+          col,
+          label: '',
+          badge: '',
+          count: it.count,
+          kind: it.kind,
+          icon: FLOW_ICONS[col === 'pc' ? 'pc' : 'router'],
+          x: round1(x + (colW - side) / 2),
+          y: round1(y + (rowH - side) / 2),
+          w: side,
+          h: side,
+          mode: 'tile',
+          iconSize: Math.round(side * 0.62),
+          iconX: 0,
+          iconY: 0,
+          countX: round1(x + (colW + side) / 2 - 5),
+          countY: round1(y + (rowH - side) / 2 + side - 4),
+          tint: 'col-' + col,
+          labelY: 0,
+          badgeY: 0,
+          tip: it.tip || it.name,
+        };
+        geom.iconX = round1(geom.x + (side - geom.iconSize) / 2);
+        geom.iconY = round1(geom.y + (side - geom.iconSize) / 2);
+      } else if (isCloud) {
         // ⑥：一朵大云（图标居中 + 底部极小次数）
         geom = {
           key: it.key,
