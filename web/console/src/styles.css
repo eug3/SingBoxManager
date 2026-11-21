@@ -877,8 +877,27 @@ tr.oldconn td { background: #fffaf0; }
 .flowbar .fhint { font-size: 10px; color: #9aa7b6; }
 .flowbar .ferr { font-size: 10px; color: var(--bad); }
 /* 右侧全屏开关（⛶ / ✕）：小圆角按钮 */
-.flowbar .ffs {
+/* 缩放模式按钮（100% / 自适应）：与全屏按钮同款，文案就是当前模式 */
+.flowbar .fbarbtns {
   margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.flowbar .fscale {
+  padding: 1px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--dim);
+  font-size: 10.5px;
+  line-height: 18px;
+  font-family: var(--mono);
+  cursor: pointer;
+}
+.flowbar .fscale:hover { color: var(--acc2); border-color: var(--acc2); }
+.flowbar .ffs {
+  margin-left: 0;
   padding: 1px 8px;
   border: 1px solid var(--line);
   border-radius: 999px;
@@ -922,6 +941,11 @@ tr.oldconn td { background: #fffaf0; }
 .mini .mininame { color: #9aa7b6; }
 .mini .minival { color: var(--ink); }
 .mini app-area-chart .chart { border-radius: 4px; }
+.flowcanvas.fit {
+  /* 自适应模式：整图缩放进可视区，不出现滚动条 */
+  overflow: hidden;
+  scrollbar-gutter: auto;
+}
 .flowcanvas {
   position: relative;
   flex: 1 1 auto;

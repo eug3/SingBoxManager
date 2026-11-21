@@ -256,6 +256,12 @@ export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
   readonly miniMem = signal<number[]>([]);
   /** 全屏态：铺满整个 web 页面（Esc / ✕ / ⛶ 退出） */
   readonly fs = signal(false);
+  /**
+   * 图的自适应模式：
+   *  · '100'（默认，保持原行为）＝ 内容像素 1:1，画布超出容器时内部滚动
+   *  · 'fit' ＝ 整幅图（含全部 band）等比缩放进可视容器，不滚动
+   */
+  readonly scaleMode = signal<'fit' | '100'>('100');
   /** 微型图的两条 WebSocket 及其重连定时器 */
   private miniSockets: { ws: WebSocket | null; path: string; timer: ReturnType<typeof setTimeout> | null }[] = [];
   /** ⑤ 节点延时：tag → 末次测速 delay（ms）；拿不到就是空表，方格不画点 */
@@ -336,9 +342,14 @@ export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
     if (!node) return null;
     const p = this.pointer();
     const g = this.geom();
+    // fit 模式下 svg 被等比缩放、画布不可滚动 → 收边按可视区算；100% 按内容尺寸算
+    const el = this.canvas()?.nativeElement as HTMLElement | undefined;
+    const fit = this.scaleMode() === 'fit';
+    const bw = fit ? Math.max(120, el?.clientWidth ?? g.w) : g.w;
+    const bh = fit ? Math.max(80, el?.clientHeight ?? g.h) : g.h;
     return {
-      x: Math.min(p.x + 14, Math.max(6, g.w - 250)),
-      y: Math.min(p.y + 16, Math.max(6, g.h - 90)),
+      x: Math.min(p.x + 14, Math.max(6, bw - 250)),
+      y: Math.min(p.y + 16, Math.max(6, bh - 90)),
       text: node.tip || node.label,
     };
   });
@@ -417,6 +428,11 @@ export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
   /** 全屏开关（⛶ / ✕ / Esc 都走这里） */
   toggleFs(): void {
     this.fs.update((v) => !v);
+  }
+
+  /** 图缩放模式切换：100% ⇄ 自适应（按钮点击） */
+  toggleScale(): void {
+    this.scaleMode.update((m) => (m === 'fit' ? '100' : 'fit'));
   }
 
   /** 退出全屏（Esc 用；已经在嵌入态就什么都不做） */
@@ -795,10 +811,13 @@ export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
     const el = this.canvas()?.nativeElement;
     if (!el) return;
     const r = el.getBoundingClientRect();
-    // canvas 可纵向滚动：换算到内容坐标（tooltip 是 canvas 的绝对定位子元素，会跟着一起滚）
+    // tooltip 是 canvas 的绝对定位子元素：
+    //  · 100%：canvas 可纵向滚动 → 换算到内容坐标（随滚动一起走）
+    //  · fit：整图被等比缩放进可视区、不滚动 → 直接用画布可视坐标（不会因为缩放跑偏）
+    const fit = this.scaleMode() === 'fit';
     this.pointer.set({
-      x: Math.round(ev.clientX - r.left + el.scrollLeft),
-      y: Math.round(ev.clientY - r.top + el.scrollTop),
+      x: Math.round(ev.clientX - r.left + (fit ? 0 : el.scrollLeft)),
+      y: Math.round(ev.clientY - r.top + (fit ? 0 : el.scrollTop)),
     });
   }
 

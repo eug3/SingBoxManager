@@ -19,22 +19,41 @@
     @if (err()) {
       <span class="ferr">✗ {{ err() }}</span>
     }
-    <button
-      type="button"
-      class="ffs"
-      [attr.title]="fs() ? '退出全屏（Esc）' : '全屏铺满整个页面'"
-      (click)="toggleFs()"
-    >
-      {{ fs() ? '✕' : '⛶' }}
-    </button>
+    <span class="fbarbtns">
+      <button
+        type="button"
+        class="fscale"
+        [attr.title]="
+          scaleMode() === 'fit' ? '切到 100%（原像素，画布内滚动）' : '切到自适应（整图等比缩放，不滚动）'
+        "
+        (click)="toggleScale()"
+      >
+      {{ scaleMode() === 'fit' ? '自适应' : '100%' }}
+      </button>
+      <button
+        type="button"
+        class="ffs"
+        [attr.title]="fs() ? '退出全屏（Esc）' : '全屏铺满整个页面'"
+        (click)="toggleFs()"
+      >
+        {{ fs() ? '✕' : '⛶' }}
+      </button>
+    </span>
   </div>
 
-  <div class="flowcanvas" #canvas (mousemove)="onMove($event)" (mouseleave)="clearHover()">
-    <!-- 画布高度＝内容高度；仍比容器高时由 .flowcanvas 内部滚动 -->
+  <div
+    class="flowcanvas"
+    [class.fit]="scaleMode() === 'fit'"
+    #canvas
+    (mousemove)="onMove($event)"
+    (mouseleave)="clearHover()"
+  >
+    <!-- 100%：svg 高＝内容高，超出容器时 .flowcanvas 内部滚动；
+         自适应：svg 撑满可视容器 + viewBox=内容尺寸 → 整图等比缩放（不滚动） -->
     <svg
       class="flowsvg"
       [attr.viewBox]="vb()"
-      [style.height.px]="geom().h"
+      [style.height]="scaleMode() === 'fit' ? '100%' : geom().h + 'px'"
       preserveAspectRatio="xMidYMid meet"
     >
       <!-- 图标库：六列各一个 symbol，方块/卡片与列头都用 <use> 引用（currentColor 上色） -->
