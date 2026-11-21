@@ -6,6 +6,55 @@ export interface ChartSeries {
 }
 
 /** 轻量 SVG 面积图（无第三方图表库，60 点级别足够，浅色主题） */
+/** 图宽固定 240，最多画 160 个点，再密就肉眼无收益、还会像素级锯齿 */
+const MAX_DRAW_POINTS = 160;
+
+/** 桶平均降采样：把 n 个点压到 ≤max 个点（保留首尾） */
+function reduce(points: number[], max: number): number[] {
+  if (points.length <= max) return points;
+  const bucket = points.length / max;
+  const out: number[] = [];
+  for (let i = 0; i < max; i++) {
+    const from = Math.floor(i * bucket);
+    const to = Math.max(from + 1, Math.floor((i + 1) * bucket));
+    let sum = 0;
+    for (let j = from; j < to; j++) sum += points[j] ?? 0;
+    out.push(sum / (to - from));
+  }
+  return out;
+}
+
+/** 3 点二项平滑（端点保持原值），把毛刺抚平但保留趋势 */
+function smooth(points: number[]): number[] {
+  if (points.length < 3) return points;
+  const out = points.slice();
+  for (let i = 1; i < points.length - 1; i++) {
+    out[i] = points[i - 1] * 0.25 + points[i] * 0.5 + points[i + 1] * 0.25;
+  }
+  return out;
+}
+
+const round = (n: number): number => Math.round(n * 10) / 10;
+
+/** Catmull-Rom 样条 → 三次贝塞尔，曲线平滑且不过冲（端点切线收敛） */
+function curve(pts: readonly (readonly [number, number])[]): string {
+  if (!pts.length) return '';
+  if (pts.length === 1) return `M${pts[0][0]} ${pts[0][1]}`;
+  let d = `M${pts[0][0]} ${pts[0][1]}`;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[i - 1] ?? pts[i];
+    const p1 = pts[i];
+    const p2 = pts[i + 1];
+    const p3 = pts[i + 2] ?? p2;
+    const c1x = round(p1[0] + (p2[0] - p0[0]) / 6);
+    const c1y = round(p1[1] + (p2[1] - p0[1]) / 6);
+    const c2x = round(p2[0] - (p3[0] - p1[0]) / 6);
+    const c2y = round(p2[1] - (p3[1] - p1[1]) / 6);
+    d += ` C${c1x} ${c1y},${c2x} ${c2y},${p2[0]} ${p2[1]}`;
+  }
+  return d;
+}
+
 @Component({
   selector: 'app-area-chart',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -64,19 +113,21 @@ export class AreaChartComponent {
     const series = this.series().filter((s) => s.points.length > 1);
     if (!series.length) return [];
     const h = this.height();
-    const all = series.flatMap((s) => s.points);
+    // 先按桶取平均降采样，再做 3 点二项平滑，避免 1s 采样的锯齿
+    const reduced = series.map((s) => reduce(s.points, MAX_DRAW_POINTS));
+    const smoothed = reduced.map((pts) => smooth(pts));
+    const all = smoothed.flatMap((s) => s);
     const max = Math.max(1, ...all) * 1.12; // 顶部留一点余量，平稳曲线不贴顶
-    const n = Math.max(...series.map((s) => s.points.length));
-    const step = this.W / Math.max(1, n - 1);
-    return series.map((s) => {
-      const pts = s.points.map((v, i) => {
+    return smoothed.map((points, idx) => {
+      const step = this.W / Math.max(1, points.length - 1);
+      const pts = points.map((v, i) => {
         const x = i * step;
         const y = h - (Math.min(v, max) / max) * (h - 3) - 1;
-        return [Math.round(x * 10) / 10, Math.round(y * 10) / 10] as const;
+        return [round(x), round(Math.max(1, Math.min(h, y)))] as const;
       });
-      const line = pts.map(([x, y], i) => (i ? 'L' : 'M') + x + ' ' + y).join(' ');
+      const line = curve(pts);
       const area = `${line} L${pts[pts.length - 1][0]} ${h} L${pts[0][0]} ${h} Z`;
-      return { line, area, color: s.color };
+      return { line, area, color: series[idx].color };
     });
   });
 }
