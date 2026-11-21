@@ -60,17 +60,21 @@ export class OverviewPane implements OnInit, OnDestroy {
   bucketCount = computed(() => Math.round((this.windowMin() * 60) / BUCKET_SECONDS));
 
   /**
-   * 把原始 1s 采样填进 2 秒一格：先截最近「格数 × 2」个样本，
-   * 再逐格取平均（末尾不足 2 个样本时用实际样本平均），保证格数与窗口严格对应。
+   * 固定长度格数组：一上来就是「格数」个空位（10 分钟 = 300 格），
+   * 原始 1s 采样每 2 秒聚成一格，**靠右填入**并随时间往前推（满窗后最左的格被挤出）。
    */
-  private bucketize(raw: number[]): number[] {
-    const need = this.bucketCount() * BUCKET_SECONDS;
+  private bucketize(raw: number[]): (number | null)[] {
+    const n = this.bucketCount();
+    const need = n * BUCKET_SECONDS;
     const slice = raw.slice(-need);
-    const out: number[] = [];
+    const filled: number[] = [];
     for (let i = 0; i < slice.length; i += BUCKET_SECONDS) {
       const chunk = slice.slice(i, i + BUCKET_SECONDS);
-      out.push(chunk.reduce((a, b) => a + b, 0) / chunk.length);
+      filled.push(chunk.reduce((a, b) => a + b, 0) / chunk.length);
     }
+    const out: (number | null)[] = new Array<number | null>(n).fill(null);
+    const start = n - filled.length;
+    for (let i = 0; i < filled.length; i++) out[start + i] = filled[i];
     return out;
   }
 
@@ -90,9 +94,9 @@ export class OverviewPane implements OnInit, OnDestroy {
     return '近 ' + this.windowMin() + ' 分钟';
   }
 
-  /** 已填满的格数（尚未满窗时小于 bucketCount） */
+  /** 已填入数据的格数（< bucketCount 时空格在左侧，数据贴右侧） */
   sampleCount(): number {
-    return this.connSeriesPts().length;
+    return this.connSeriesPts().filter((v) => v !== null).length;
   }
 
   bucketText(): string {

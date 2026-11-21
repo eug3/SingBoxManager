@@ -1,45 +1,26 @@
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 
+/** 序列点位允许 null：null = 该格还没数据（初始化时空位，靠右对齐、逐格往前推） */
 export interface ChartSeries {
-  points: number[];
+  points: (number | null)[];
   color: string;
 }
 
 type ChartMode = 'line' | 'bar';
 
-/** 概览已按 2 秒一格聚合（10 分钟 = 300 格），这里只做兜底上限 */
-const MAX_LINE_POINTS = 320;
-/** 柱形模式柱宽要有下限，太多列会糊成一片 */
-const MAX_BAR_POINTS = 160;
-
 const round = (n: number): number => Math.round(n * 10) / 10;
 
-/** 桶平均降采样：把 n 个点压到 ≤max 个点（保留首尾） */
-function reduce(points: number[], max: number): number[] {
-  if (points.length <= max) return points;
-  const bucket = points.length / max;
-  const out: number[] = [];
-  for (let i = 0; i < max; i++) {
-    const from = Math.floor(i * bucket);
-    const to = Math.max(from + 1, Math.floor((i + 1) * bucket));
-    let sum = 0;
-    for (let j = from; j < to; j++) sum += points[j] ?? 0;
-    out.push(sum / (to - from));
+/** 3 点二项平滑（只在连续有数据的段内做，跨越空档不插值） */
+function smoothRun(values: number[]): number[] {
+  if (values.length < 3) return values;
+  const out = values.slice();
+  for (let i = 1; i < values.length - 1; i++) {
+    out[i] = values[i - 1] * 0.25 + values[i] * 0.5 + values[i + 1] * 0.25;
   }
   return out;
 }
 
-/** 3 点二项平滑（端点保持原值），把毛刺抚平但保留趋势 */
-function smooth(points: number[]): number[] {
-  if (points.length < 3) return points;
-  const out = points.slice();
-  for (let i = 1; i < points.length - 1; i++) {
-    out[i] = points[i - 1] * 0.25 + points[i] * 0.5 + points[i + 1] * 0.25;
-  }
-  return out;
-}
-
-/** Catmull-Rom 样条 → 三次贝塞尔，曲线平滑且端点切线收敛 */
+/** Catmull-Rom 样条 → 三次贝塞尔 */
 function curve(pts: readonly (readonly [number, number])[]): string {
   if (!pts.length) return '';
   if (pts.length === 1) return `M${pts[0][0]} ${pts[0][1]}`;
@@ -60,8 +41,9 @@ function curve(pts: readonly (readonly [number, number])[]): string {
 
 /**
  * 轻量 SVG 图表（无第三方库）
- * - mode='line'：平滑曲线 + 半透明面积（线宽 1px）
- * - mode='bar'：柱形；mirror=true 时以中线为轴，series[0] 向上、series[1] 向下（上下行速率图）
+ * - 序列长度固定 = 窗口格数（如 10 分钟 = 300 格），空位为 null，数据靠右推进
+ * - mode='line'：平滑曲线 + 半透明面积，线宽 1px
+ * - mode='bar'：柱形；mirror=true 时以中线为轴（series[0] 向上、series[1] 向下）
  */
 @Component({
   selector: 'app-area-chart',
@@ -92,7 +74,7 @@ function curve(pts: readonly (readonly [number, number])[]): string {
       }
 
       @if ((mode() === 'bar' ? bars().length : paths().length) === 0) {
-        <text x="4" y="14" class="empty">暂无数据</text>
+        <text x="4" y="14" class="empty">等待数据…</text>
       }
     </svg>
   `,
@@ -128,7 +110,7 @@ export class AreaChartComponent {
   readonly series = input<ChartSeries[]>([]);
   readonly height = input(64);
   readonly mode = input<ChartMode>('line');
-  /** 双系列镜像（上=series[0]，下=series[1]），柱形模式用于上下行速率 */
+  /** 双系列镜像（上=series[0]，下=series[1]） */
   readonly mirror = input(false);
 
   protected readonly grid = computed(() => {
@@ -136,45 +118,63 @@ export class AreaChartComponent {
     return [h * 0.25, h * 0.5, h * 0.75].map(round);
   });
 
-  private readonly prepared = computed(() => {
-    const max = this.mode() === 'bar' ? MAX_BAR_POINTS : MAX_LINE_POINTS;
-    return this.series()
-      .filter((s) => s.points.length > 1)
-      .map((s) => ({ color: s.color, points: smooth(reduce(s.points, max)) }));
+  /** 所有序列共用的格数（固定长度，空位 null） */
+  private readonly slots = computed(() => Math.max(0, ...this.series().map((s) => s.points.length)));
+
+  private readonly scaleMax = computed(() => {
+    const values = this.series().flatMap((s) => s.points).filter((v): v is number => v !== null);
+    return Math.max(1, ...values) * 1.12;
   });
 
   protected readonly paths = computed(() => {
-    const series = this.prepared();
-    if (!series.length) return [];
+    const slots = this.slots();
+    if (!slots) return [];
     const h = this.height();
-    const max = Math.max(1, ...series.flatMap((s) => s.points)) * 1.12; // 顶部留余量
-    const n = Math.max(...series.map((s) => s.points.length));
-    const step = this.W / Math.max(1, n - 1);
-    return series.map((s) => {
-      const pts = s.points.map((v, i) => {
-        const x = i * step;
-        const y = h - (Math.min(v, max) / max) * (h - 3) - 1;
-        return [round(x), round(Math.max(1, Math.min(h, y)))] as const;
-      });
-      const line = curve(pts);
-      const area = `${line} L${pts[pts.length - 1][0]} ${h} L${pts[0][0]} ${h} Z`;
-      return { line, area, color: s.color };
-    });
+    const max = this.scaleMax();
+    const step = this.W / Math.max(1, slots - 1);
+    const yOf = (v: number): number => round(Math.max(1, Math.min(h, h - (Math.min(v, max) / max) * (h - 3) - 1)));
+
+    return this.series()
+      .map((s) => {
+        let line = '';
+        let area = '';
+        let runX: number[] = [];
+        let runV: number[] = [];
+        const flush = (): void => {
+          if (runX.length >= 2) {
+            const ys = smoothRun(runV).map(yOf);
+            const pts = runX.map((x, i) => [round(x), ys[i]] as const);
+            line += curve(pts);
+            area += `${curve(pts)} L${pts[pts.length - 1][0]} ${h} L${pts[0][0]} ${h} Z`;
+          }
+          runX = [];
+          runV = [];
+        };
+        s.points.forEach((v, i) => {
+          if (v === null) {
+            flush();
+            return;
+          }
+          runX.push(i * step);
+          runV.push(v);
+        });
+        flush();
+        return { line, area, color: s.color };
+      })
+      .filter((s) => s.line);
   });
 
   protected readonly bars = computed(() => {
-    const series = this.prepared();
-    if (!series.length) return [];
+    const slots = this.slots();
+    if (!slots) return [];
     const h = this.height();
-    const n = Math.max(...series.map((s) => s.points.length));
-    const step = this.W / Math.max(1, n);
-    const w = Math.max(0.7, step * 0.68);
+    const step = this.W / Math.max(1, slots);
+    const w = Math.max(0.5, step * 0.68);
     const center = h / 2;
-    const top = series[0];
-    const bottom = series[1];
-    const topMax = Math.max(1, ...top.points) * 1.06;
-    const bottomMax = Math.max(1, ...(bottom?.points ?? [0])) * 1.06;
-    const flatMax = Math.max(1, ...series.flatMap((s) => s.points)) * 1.06;
+    const values = this.series().map((s) => s.points.filter((v): v is number => v !== null));
+    const flatMax = this.scaleMax();
+    const topMax = Math.max(1, ...values[0]) * 1.06;
+    const bottomMax = Math.max(1, ...(values[1] ?? [0])) * 1.06;
 
     const rect = (x: number, y1: number, y2: number): string => {
       const top0 = round(Math.min(y1, y2));
@@ -182,21 +182,24 @@ export class AreaChartComponent {
       return `M${round(x)} ${top0} h${round(w)} v${hh} h${round(-w)} Z`;
     };
 
-    return series.map((s, idx) => {
-      let path = '';
-      s.points.forEach((v, i) => {
-        const x = i * step + (step - w) / 2;
-        if (this.mirror()) {
-          const isUp = idx === 0;
-          const scale = isUp ? topMax : bottomMax;
-          const len = (Math.min(v, scale) / scale) * (center - 2);
-          path += isUp ? rect(x, center - len, center) : rect(x, center, center + len);
-        } else {
-          const y = h - (Math.min(v, flatMax) / flatMax) * (h - 2) - 1;
-          path += rect(x, y, h);
-        }
-      });
-      return { d: path, color: s.color };
-    });
+    return this.series()
+      .map((s, idx) => {
+        let path = '';
+        s.points.forEach((v, i) => {
+          if (v === null) return;
+          const x = i * step + (step - w) / 2;
+          if (this.mirror()) {
+            const isUp = idx === 0;
+            const scale = isUp ? topMax : bottomMax;
+            const len = (Math.min(v, scale) / scale) * (center - 2);
+            path += isUp ? rect(x, center - len, center) : rect(x, center, center + len);
+          } else {
+            const y = h - (Math.min(v, flatMax) / flatMax) * (h - 2) - 1;
+            path += rect(x, y, h);
+          }
+        });
+        return { d: path, color: s.color };
+      })
+      .filter((b) => b.d);
   });
 }

@@ -16,7 +16,7 @@
     <div class="ovleg">
       <span class="lg dl">下载</span><span class="lg ul">上传</span>
       <span class="dim small">
-        {{ windowLabel() }} · {{ bucketText() }}（已填 {{ sampleCount() }} 格，来自 ws /traffic）
+        {{ windowLabel() }} · {{ bucketText() }}（已填 {{ sampleCount() }} 格，右侧推进、满窗后左移，来自 ws /traffic）
         @if (chartMode() === 'bar') {
           <span class="dim">· 柱形：中线以上下载、以下上传</span>
         }
