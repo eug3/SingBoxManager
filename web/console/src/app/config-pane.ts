@@ -3,6 +3,7 @@ import { Backend } from './models';
 import { RouterCredInfo, RouterService } from './router.service';
 import { BackendsService } from './backends.service';
 import { MonacoEditorComponent } from './monaco-editor';
+import { RuleSelector } from './rule-selector';
 import { AnyObj, ConfigDoc, addNode, deleteImpact, deleteNode, findNode, groups, nodes, parseConfig, serializeConfig, updateNode, validateDoc } from './config-ops';
 import { ParsedNode, parseShareLinks } from './share-link';
 import { NodeForm, NODE_TYPES, buildNode, emptyForm, formFromNode } from './node-form';
@@ -25,7 +26,7 @@ type FormMode = 'none' | 'add' | 'edit';
 @Component({
   selector: 'app-config-pane',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [MonacoEditorComponent],
+  imports: [MonacoEditorComponent, RuleSelector],
   templateUrl: './config-pane.html',
 })
 export class ConfigPane {
@@ -52,6 +53,9 @@ export class ConfigPane {
   readonly formGroups = signal<string[]>([]); // 表单勾选的分组归属
   readonly editingTag = signal('');
   readonly nodeTypes = NODE_TYPES;
+
+  // —— 分流规则选择器（只读视图内；基准是原始配置，见 origDoc）——
+  readonly rulesOpen = signal(false);
 
   // —— 分享链接导入 ——
   readonly importOpen = signal(false);
@@ -94,6 +98,15 @@ export class ConfigPane {
   readonly doc = computed<ConfigDoc | null>(() => {
     try {
       return parseConfig(this.raw());
+    } catch {
+      return null;
+    }
+  });
+
+  /** 原始配置（最近一次读取）的结构化文档 — 分流规则选择器的稳定基准，不随暂存文本漂移 */
+  readonly origDoc = computed<ConfigDoc | null>(() => {
+    try {
+      return parseConfig(this.original());
     } catch {
       return null;
     }
@@ -386,6 +399,13 @@ export class ConfigPane {
     this.importOpen.set(false);
     this.importText.set('');
     this.importResult.set([]);
+    this.enterReview(d);
+  }
+
+  // ---------- 分流规则选择器（模型见 rule-model.ts，交互见 rule-selector.ts）----------
+
+  /** 选择器产出新文档 → 走既有暂存复核（serializeConfig 序列化 + diff + 应用并重启） */
+  onRulesDoc(d: ConfigDoc): void {
     this.enterReview(d);
   }
 

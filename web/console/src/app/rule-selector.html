@@ -1,0 +1,55 @@
+<div class="rsel">
+  <!-- 重启语义图例：桶内容 vs config 结构 -->
+  <div class="rsellegend">
+    <span class="rselleg free">改桶内容 = 免重启 · 约 60s 生效</span>
+    <span class="rselleg restart">改 config 结构（停用/启用规则）= 需重启</span>
+  </div>
+
+  @if (!base()) {
+    <div class="dim small">原始配置解析失败，暂无分流规则可读</div>
+  } @else {
+    <!-- ===== 规则集（桶）：只展示，改内容去「规则编辑」tab ===== -->
+    <div class="rselhd">规则集 route.rule_set（{{ model().ruleSets.length }} 个桶）</div>
+    <div class="rsellist">
+      @for (s of model().ruleSets; track $index) {
+        <div class="rselrow static">
+          <span class="rseltag">{{ s.tag }}</span>
+          @if (s.contentRestartFree) {
+            <span class="rselbadge free">内容免重启·去规则编辑改</span>
+          } @else {
+            <span class="rselbadge local">本地</span>
+          }
+          <span class="rselmeta" [title]="s.type === 'remote' ? s.url : s.path">
+            {{ s.type === 'remote' ? s.url : s.path }}
+          </span>
+        </div>
+      } @empty {
+        <div class="rselempty dim small">没有 rule_set</div>
+      }
+    </div>
+
+    <!-- ===== route.rules：勾选=启用，取消=停用（从 config 移除该条） ===== -->
+    <div class="rselhd">
+      路由规则 route.rules（{{ model().routeRules.length }} 条）· 勾选=启用，取消=停用（停用即从 config 移除该条，「应用并重启」后生效）
+    </div>
+    <div class="rsellist">
+      @for (r of model().routeRules; track r.index) {
+        <label class="rselrow" [class.off]="disabled().has(r.index)">
+          <input
+            type="checkbox"
+            [checked]="!disabled().has(r.index)"
+            (change)="toggle(r.index, $any($event.target).checked)"
+          />
+          <span class="rselidx">#{{ r.index }}</span>
+          <span class="rselsum" [title]="r.summary">{{ r.summary }}</span>
+          @for (ref of r.ruleSetRefs; track $index) {
+            <span class="tag rule">{{ ref }}</span>
+          }
+          <span class="rselbadge restart">结构·需重启</span>
+        </label>
+      } @empty {
+        <div class="rselempty dim small">route.rules 为空</div>
+      }
+    </div>
+  }
+</div>

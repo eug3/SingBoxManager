@@ -768,3 +768,29 @@ tr.oldconn td { background: #fffaf0; }
 .modal-note { margin: 8px 16px 0; padding: 6px 10px; background: #f1faf6; border: 1px solid #bfe3d3; color: var(--acc); font-size: 11px; }
 .probe { border: 1px dashed var(--line); padding: 8px 10px; font-size: 11px; line-height: 1.8; background: #fbfcfe; }
 .modal-ft { display: flex; align-items: center; gap: 8px; padding: 10px 16px 14px; border-top: 1px solid var(--line); flex-wrap: wrap; }
+
+/* 分流规则选择器（配置页只读视图内） */
+.rsel { border: 1px solid var(--line); background: var(--panel); padding: 10px 12px; margin: 8px 0 10px; }
+.rsellegend { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+.rselleg { font-size: 10px; line-height: 16px; padding: 1px 8px; border: 1px solid; border-radius: 2px; white-space: nowrap; }
+.rselleg.free { color: #0d7a4f; border-color: #b7e3cd; background: #eafaf1; }
+.rselleg.restart { color: #8a6100; border-color: #efd89b; background: #fff8e6; }
+.rselhd { font-size: 11px; color: var(--dim); margin: 8px 0 4px; line-height: 1.6; }
+.rsellist { border: 1px solid #eef2f8; background: #fbfdff; max-height: 260px; overflow: auto; }
+.rselrow { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-bottom: 1px solid #eef2f8; font-size: 11px; cursor: pointer; }
+.rselrow:last-child { border-bottom: none; }
+.rselrow:hover { background: #f6f9fd; }
+.rselrow.static { cursor: default; }
+.rselrow.off { opacity: 0.6; }
+.rselrow.off .rselsum { text-decoration: line-through; }
+.rselrow input[type='checkbox'] { flex: 0 0 auto; accent-color: var(--acc); cursor: pointer; }
+.rselidx { flex: 0 0 auto; min-width: 28px; font-size: 10px; color: var(--dim); }
+.rseltag { flex: 0 0 auto; color: #16202c; }
+.rselsum { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #3c4b5d; }
+.rselmeta { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; color: var(--dim); }
+.rselrow .tag.rule { flex: 0 0 auto; max-width: 140px; }
+.rselbadge { flex: 0 0 auto; font-size: 10px; line-height: 16px; padding: 0 5px; border: 1px solid; border-radius: 2px; white-space: nowrap; }
+.rselbadge.free { color: #0d7a4f; border-color: #b7e3cd; background: #eafaf1; }
+.rselbadge.local { color: #5a6a7d; border-color: var(--line); background: #f2f6fb; }
+.rselbadge.restart { color: #8a6100; border-color: #efd89b; background: #fff8e6; }
+.rselempty { padding: 6px 8px; }
