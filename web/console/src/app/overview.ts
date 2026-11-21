@@ -15,6 +15,8 @@ import { ClashService } from './clash.service';
 
 const MAX_POINTS = 600; // 原始 1s 采样缓冲 = 10 分钟
 const BUCKET_SECONDS = 2; // 图形窗口按 2 秒一格填充（10 分钟 = 300 格）
+/** 速率图满量程：1000 Mib/s（1 Mib = 2^20 bit）→ 换成 sing-box 的字节/秒 */
+const RATE_FULL_SCALE_BYTES = (1000 * 1024 * 1024) / 8;
 const WINDOW_OPTIONS = [1, 5, 10];
 const OK_GREEN = 400;
 const OK_YELLOW = 800;
@@ -47,6 +49,10 @@ export class OverviewPane implements OnInit, OnDestroy {
   readonly windowOptions = WINDOW_OPTIONS;
   /** 曲线 / 柱形 两种画法（速率图柱形模式以上下镜像呈现：上=下载、下=上传） */
   readonly chartMode = signal<'line' | 'bar'>('line');
+  /** 速率图刻度：固定满量程 1000 Mib/s（默认）或按窗口内峰值自适应 */
+  readonly rateScale = signal<'fixed' | 'auto'>('fixed');
+  readonly rateFullScale = RATE_FULL_SCALE_BYTES;
+  readonly rateFixedMax = computed(() => (this.rateScale() === 'fixed' ? RATE_FULL_SCALE_BYTES : undefined));
   readonly nodeLat = signal<Record<string, number>>({});
   readonly testing = signal(false);
   readonly testProgress = signal('');
@@ -255,6 +261,15 @@ export class OverviewPane implements OnInit, OnDestroy {
     if (d === null) return '—';
     if (d <= 0) return '✗';
     return d >= 1000 ? (d / 1000).toFixed(1) + 's' : d + 'ms';
+  }
+
+  /** 字节/秒 → Mib/s（1 Mib = 2^20 bit） */
+  rateTextMib(n: number): string {
+    const mib = (n * 8) / (1024 * 1024);
+    if (!mib) return '0 Mib/s';
+    if (mib < 1) return mib.toFixed(2) + ' Mib/s';
+    if (mib < 10) return mib.toFixed(2) + ' Mib/s';
+    return mib.toFixed(1) + ' Mib/s';
   }
 
   rateText(n: number): string {

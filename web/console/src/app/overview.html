@@ -7,21 +7,31 @@
     <div class="ovhd">
       <span>速率</span>
       <span class="ovvals">
-        <b class="dl">↓ {{ rateText(rateDown()) }}</b>
-        <b class="ul">↑ {{ rateText(rateUp()) }}</b>
-        <span class="dim small">累计 ↓{{ fmtB(totals().down) }} · ↑{{ fmtB(totals().up) }}</span>
+        <b class="dl">↓ {{ rateTextMib(rateDown()) }}</b>
+        <b class="ul">↑ {{ rateTextMib(rateUp()) }}</b>
+        <span class="dim small">{{ rateText(rateDown()) }} / {{ rateText(rateUp()) }} · 累计 ↓{{ fmtB(totals().down) }} · ↑{{ fmtB(totals().up) }}</span>
       </span>
     </div>
-    <app-area-chart [series]="rateSeries()" [height]="96" [mode]="chartMode()" [mirror]="true" />
+    <app-area-chart
+      [series]="rateSeries()"
+      [height]="96"
+      [mode]="chartMode()"
+      [mirror]="true"
+      [fixedMax]="rateFixedMax()"
+    />
     <div class="ovleg">
       <span class="lg dl">下载</span><span class="lg ul">上传</span>
       <span class="dim small">
         {{ windowLabel() }} · {{ bucketText() }}（已填 {{ sampleCount() }} 格，右侧推进、满窗后左移，来自 ws /traffic）
+        · 速率满量程 {{ rateScale() === 'fixed' ? '固定 1000 Mib/s' : '自动' }}（1 Mib = 2²⁰ bit）
         @if (chartMode() === 'bar') {
           <span class="dim">· 柱形：中线以上下载、以下上传</span>
         }
       </span>
       <span class="winsel">
+        <button class="win" [class.on]="rateScale() === 'fixed'" (click)="rateScale.set('fixed')" title="满量程固定 1000 Mib/s">刻度 1000M</button>
+        <button class="win" [class.on]="rateScale() === 'auto'" (click)="rateScale.set('auto')" title="按窗口内峰值自适应">自动</button>
+        <span class="wsep"></span>
         <button class="win" [class.on]="chartMode() === 'line'" (click)="chartMode.set('line')">曲线</button>
         <button class="win" [class.on]="chartMode() === 'bar'" (click)="chartMode.set('bar')">柱形</button>
         <span class="wsep"></span>

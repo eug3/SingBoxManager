@@ -112,6 +112,8 @@ export class AreaChartComponent {
   readonly mode = input<ChartMode>('line');
   /** 双系列镜像（上=series[0]，下=series[1]） */
   readonly mirror = input(false);
+  /** 固定满量程（与 series 同单位）；设置后 y 轴不再自适应 */
+  readonly fixedMax = input<number | undefined>(undefined);
 
   protected readonly grid = computed(() => {
     const h = this.height();
@@ -122,6 +124,8 @@ export class AreaChartComponent {
   private readonly slots = computed(() => Math.max(0, ...this.series().map((s) => s.points.length)));
 
   private readonly scaleMax = computed(() => {
+    const fixed = this.fixedMax();
+    if (fixed && fixed > 0) return fixed;
     const values = this.series().flatMap((s) => s.points).filter((v): v is number => v !== null);
     return Math.max(1, ...values) * 1.12;
   });
@@ -172,9 +176,10 @@ export class AreaChartComponent {
     const w = Math.max(0.5, step * 0.68);
     const center = h / 2;
     const values = this.series().map((s) => s.points.filter((v): v is number => v !== null));
+    const fixed = this.fixedMax();
     const flatMax = this.scaleMax();
-    const topMax = Math.max(1, ...values[0]) * 1.06;
-    const bottomMax = Math.max(1, ...(values[1] ?? [0])) * 1.06;
+    const topMax = fixed && fixed > 0 ? fixed : Math.max(1, ...values[0]) * 1.06;
+    const bottomMax = fixed && fixed > 0 ? fixed : Math.max(1, ...(values[1] ?? [0])) * 1.06;
 
     const rect = (x: number, y1: number, y2: number): string => {
       const top0 = round(Math.min(y1, y2));
