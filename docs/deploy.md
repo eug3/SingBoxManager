@@ -180,6 +180,35 @@ export BOX_API_URL=http://192.168.31.32:9092 BOX_API_SECRET='<secret>'
 /usr/local/bin/sing-box api status && /usr/local/bin/sing-box api group list | head
 ```
 
+### 6.5 路由配置通道（管理台「配置」tab 依赖）
+
+1. 路由侧装脚本（只上传，不改配置）：
+
+```bash
+R32_PW='甲 root 口令' GL_PW='乙 root 口令' scripts/deploy_router_apply.sh
+# 脚本会校验 sha256；手工核验：ssh root@路由 'ls -l /usr/local/sbin/singbox-apply'
+```
+
+2. 99 侧放凭据（0600 root，内容含口令，不入库）：
+
+```bash
+sudo install -d -m 0755 /etc/vault-edit
+sudo tee /etc/vault-edit/routers.json >/dev/null <<'JSON'
+{"192.168.31.32":{"name":"甲 32","user":"root","password":"<甲口令>"},
+ "172.16.8.1":{"name":"乙 GL","user":"root","password":"<乙口令>"}}
+JSON
+sudo chmod 600 /etc/vault-edit/routers.json && sudo chown root:root /etc/vault-edit/routers.json
+```
+
+3. 验证（`/health` 应含 `routersReady:true`）：
+
+```bash
+curl -s localhost:9099/health | grep -o '"routersReady":[a-z]*'
+curl -s -H "X-Vault-Key: $VAULT_KEY" 'localhost:9099/router/config?host=192.168.31.32' | head -c 200
+```
+
+4. 启用 `golang.org/x/crypto/ssh` 依赖后二进制体积约 7.5 MB（交叉编译命令与 `/publish` 相同，见 `deploy_service.sh`）。
+
 ## 7. 验证（发布后必跑）
 
 ```bash

@@ -135,6 +135,31 @@ curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:9092/                 
 回滚：`cp -p /etc/sing-box/config.json.bak-<ts>-before-api /etc/sing-box/config.json && /etc/init.d/sing-box restart`。
 本轮备份：32 `config.json.bak-20261121-151649-before-api`，GL `config.json.bak-20261121-151719-before-api`。
 
+## 4.6 路由配置通道（2026-11-21 上线，管理台「配置」tab）
+
+sing-box 没有 reload/写配置 API，所以「改节点配置 → 生效」由 99 的服务代做，链路：
+
+```
+浏览器（管理台「配置」tab，X-Vault-Key）
+   → 99 vault-edit  /router/{config,check,apply,restart}
+   → 受限 SSH（凭据只存 99 的 /etc/vault-edit/routers.json，0600 root，白名单 host）
+   → 路由本地 /usr/local/sbin/singbox-apply（唯一允许执行的脚本）
+       ├ show    输出当前 config.json
+       ├ check   校验 stdin 传入的候选配置（sing-box check）
+       ├ apply   备份 → check → 原子替换 → restart → 健康检查（失败自动回滚）
+       └ restart 仅重启并等健康
+```
+
+要点：
+- **凭据**：`/etc/vault-edit/routers.json`（0600 root），形如 `{"192.168.31.32":{"user":"root","password":"…"},"172.16.8.1":{…}}`；只允许文件里列出的 host，其它一律 400。
+- **白名单命令**：服务只会执行 `singbox-apply` 的四个动作，不提供任意命令执行。
+- **健康判据**：必须「换了新 pid」且 `:9090` 在监听（只看端口会被旧进程 socket 骗过）；失败自动回滚并重启旧配置。
+- **并发保护**：apply 带 `expectSha`，配置被别人改过会返回 **409 STALE**，需刷新后重试。
+- **实测**：apply/restart 断流约 **1 秒**（`downtime_s=1`）。
+- **前端行为**：「配置」tab 显示节点表（凭证掩码）、`编辑配置` 打开整份 JSON 的 Monaco 编辑器、实时 diff 与结构校验（tag 重复/组引用/route 引用），`校验` → `应用并重启` → 自动刷新。
+- **部署**：`R32_PW=… GL_PW=… scripts/deploy_router_apply.sh`（只装路由脚本，不碰配置）；routers.json 需手工放 99（含口令，不入库）。
+- **回滚**：路由上每次 apply 前都有 `/etc/sing-box/config.json.bak-<ts>-before-apply`；页面也可改回原内容再 apply。
+
 ## 5. 坑（都是踩过的）
 
 1. **纯 ip_cidr 规则的顺序敏感性**：桶合并时只测域名会漏 IP 语义（曾把 telegram IP 段前移抢了 rs-tg 的活）；改桶结构要跑域名+IP 双维等价验证
