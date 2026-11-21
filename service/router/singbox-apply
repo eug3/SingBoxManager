@@ -1,0 +1,122 @@
+#!/bin/sh
+# singbox-apply — 由 99 的 vault-edit 通过受限 SSH 调用
+# 用法: singbox-apply show | check | apply [expectSha] | restart
+# 设计原则: 所有危险动作（备份/校验/替换/重启/回滚）都在路由器本地完成，
+#          调用方只提供候选配置，无法执行任意命令。
+set -u
+
+CFG=/etc/sing-box/config.json
+SB=/opt/sing-box/sing-box
+TS=$(date +%Y%m%d-%H%M%S)
+
+# 取当前 sing-box 主进程 pid（空=未运行）
+sbg_pid() {
+  ps w 2>/dev/null | grep '[s]ing-box run' | awk '{print $1}' | head -1
+}
+
+# 健康检查：必须「换了新 pid」且 9090 在监听。
+# 只看端口会被旧进程退出前的 socket 骗过（实测 restarted 后旧监听仍在，导致误判健康）。
+# $1 = 重启前的 pid（可空）
+health() {
+  old_pid="${1:-}"
+  i=0
+  while [ "$i" -lt 60 ]; do
+    pid=$(sbg_pid)
+    if [ -n "$pid" ] && [ "$pid" != "$old_pid" ] && netstat -lnt 2>/dev/null | grep -q ':9090 '; then
+      return 0
+    fi
+    i=$((i + 1))
+    sleep 1
+  done
+  return 1
+}
+
+case "${1:-}" in
+show)
+  cat "$CFG"
+  ;;
+
+check)
+  TMP=/tmp/sb-check.$$.json
+  cat >"$TMP" || { echo "READ_STDIN_FAILED"; exit 11; }
+  OUT=$("$SB" check -c "$TMP" 2>&1)
+  RC=$?
+  rm -f "$TMP"
+  echo "$OUT"
+  exit $RC
+  ;;
+
+apply)
+  EXPECT="${2:-}"
+  TMP=/tmp/sb-apply.$$.json
+  cat >"$TMP" || { echo "READ_STDIN_FAILED"; exit 11; }
+
+  CUR=$(sha256sum "$CFG" | cut -d' ' -f1)
+  NEW=$(sha256sum "$TMP" | cut -d' ' -f1)
+  echo "current_sha=$CUR"
+  echo "candidate_sha=$NEW"
+
+  if [ -n "$EXPECT" ] && [ "$EXPECT" != "$CUR" ]; then
+    echo "STALE expected=$EXPECT current=$CUR"
+    rm -f "$TMP"
+    exit 12
+  fi
+  if [ "$NEW" = "$CUR" ]; then
+    echo "NO_CHANGE"
+    rm -f "$TMP"
+    exit 0
+  fi
+
+  OUT=$("$SB" check -c "$TMP" 2>&1) || {
+    echo "CHECK_FAILED"
+    echo "$OUT"
+    rm -f "$TMP"
+    exit 13
+  }
+
+  BAK="$CFG.bak-$TS-before-apply"
+  cp -p "$CFG" "$BAK" || { echo "BACKUP_FAILED"; rm -f "$TMP"; exit 14; }
+  cp -p "$TMP" "$CFG.tmp" && chmod 644 "$CFG.tmp" && mv "$CFG.tmp" "$CFG" || {
+    echo "INSTALL_FAILED"
+    rm -f "$TMP"
+    exit 15
+  }
+  rm -f "$TMP"
+
+  OLD_PID=$(sbg_pid)
+  T0=$(date +%s)
+  /etc/init.d/sing-box restart >/dev/null 2>&1
+  if health "$OLD_PID"; then
+    echo "APPLIED"
+    echo "backup=$BAK"
+    echo "sha=$NEW"
+    echo "downtime_s=$(( $(date +%s) - T0 ))"
+    exit 0
+  fi
+
+  echo "UNHEALTHY_ROLLBACK"
+  cp -p "$BAK" "$CFG"
+  OLD_PID=$(sbg_pid)
+  /etc/init.d/sing-box restart >/dev/null 2>&1
+  if health "$OLD_PID"; then echo "ROLLBACK_OK"; else echo "ROLLBACK_FAILED"; fi
+  exit 16
+  ;;
+
+restart)
+  OLD_PID=$(sbg_pid)
+  T0=$(date +%s)
+  /etc/init.d/sing-box restart >/dev/null 2>&1
+  if health "$OLD_PID"; then
+    echo "RESTARTED"
+    echo "downtime_s=$(( $(date +%s) - T0 ))"
+    exit 0
+  fi
+  echo "RESTART_UNHEALTHY"
+  exit 17
+  ;;
+
+*)
+  echo "usage: singbox-apply show|check|apply [expectSha]|restart"
+  exit 2
+  ;;
+esac

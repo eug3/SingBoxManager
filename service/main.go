@@ -196,8 +196,10 @@ func main() {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
+		_, rerr := os.Stat(routersFile())
 		writeJSON(w, 200, map[string]any{
 			"ok": true, "lang": "go", "share": shareDir, "page": pageDir, "static": staticDir,
+			"routers": routersFile(), "routersReady": rerr == nil,
 		})
 	})
 
@@ -211,6 +213,12 @@ func main() {
 	mux.HandleFunc("GET /rule-set/", serveRuleSet)
 
 	mux.HandleFunc("/publish", handlePublish)
+
+	// 路由操作（受限 SSH → 路由器本地 singbox-apply 脚本）
+	mux.HandleFunc("GET /router/config", handleRouterConfig)
+	mux.HandleFunc("POST /router/restart", handleRouterRestart)
+	mux.HandleFunc("POST /router/check", handleRouterCheck)
+	mux.HandleFunc("POST /router/apply", handleRouterApply)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		setCors(w.Header(), r.Header.Get("Origin"))
 		if r.Method == http.MethodOptions {
