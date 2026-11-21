@@ -106,17 +106,35 @@
         自动刷新
       </label>
       <button (click)="refreshConns()">刷新</button>
+      <button class="danger" (click)="killMatched()" [disabled]="!matchedConns().length">
+        断开筛选({{ matchedConns().length }})
+      </button>
       <button class="danger" (click)="killAll()">全部断开</button>
-      <span class="dim small">↑↓ 为连接流量 · 最多显示 120 条</span>
+      <span class="dim small">存活：</span>
+      <button class="chip" [class.on]="ageFilter() === 0" (click)="ageFilter.set(0)">全部</button>
+      <button class="chip" [class.on]="ageFilter() === 60" (click)="ageFilter.set(60)">≥1分</button>
+      <button class="chip" [class.on]="ageFilter() === 300" (click)="ageFilter.set(300)">≥5分</button>
+      <button class="chip" [class.on]="ageFilter() === 1800" (click)="ageFilter.set(1800)">≥30分</button>
+      <span class="dim small">·</span>
+      <button class="chip" [class.on]="idleOnly()" (click)="idleOnly.set(!idleOnly())">空转≥1分</button>
+    </div>
+    <div class="connstat dim small">
+      共 <b>{{ connStats().total }}</b> 条活跃连接 · 最老 <b>{{ ageText(connStats().oldest) }}</b>
+      @if (connStats().old) {
+        · <span class="warn">{{ connStats().old }} 条已存活 ≥5 分钟</span>，其中 <b>{{ connStats().idleOld }}</b> 条空转 ≥1 分钟（长时间零字节增长，最可能是僵死，可筛选后批量断开）
+      } @else {
+        · 暂无 ≥5 分钟的老连接
+      }
+      · 最多显示 120 条
     </div>
     <div class="tblwrap">
       <table>
         <thead>
-          <tr><th>主机</th><th>目标</th><th>链</th><th>规则</th><th>↑</th><th>↓</th><th></th></tr>
+          <tr><th>主机</th><th>目标</th><th>链</th><th>规则</th><th>存活</th><th>空转</th><th>↑</th><th>↓</th><th></th></tr>
         </thead>
         <tbody>
           @for (c of filteredConns(); track c.id) {
-            <tr>
+            <tr [class.oldconn]="ageOf(c) >= 300">
               <td class="ch mono">{{ c.metadata?.host || c.metadata?.sniffHost }}</td>
               <td class="dim mono">{{ c.metadata?.destinationIP }}:{{ c.metadata?.destinationPort }}</td>
               <td>
@@ -139,12 +157,14 @@
                   <span class="dim">—</span>
                 }
               </td>
+              <td class="mono age {{ ageClass(ageOf(c)) }}">{{ ageText(ageOf(c)) }}</td>
+              <td class="mono age {{ idleSec(c) >= 300 ? 'r' : idleSec(c) >= 60 ? 'y' : '' }}">{{ idleSec(c) >= 60 ? ageText(idleSec(c)) : '—' }}</td>
               <td class="dim">{{ fmtB(c.upload) }}</td>
               <td class="dim">{{ fmtB(c.download) }}</td>
               <td><span class="x" (click)="kill(c)" title="断开">✕</span></td>
             </tr>
           } @empty {
-            <tr><td colspan="7" class="dim">当前没有活跃连接</td></tr>
+            <tr><td colspan="9" class="dim">没有符合条件的连接</td></tr>
           }
         </tbody>
       </table>

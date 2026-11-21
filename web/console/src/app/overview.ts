@@ -65,6 +65,16 @@ export class OverviewPane implements OnInit, OnDestroy {
 
   private readonly sockets: WebSocket[] = [];
   private timer: ReturnType<typeof setInterval> | null = null;
+  private histTimer: ReturnType<typeof setInterval> | null = null;
+
+  /** 速率历史缓存键（按路由主机区分，存 localStorage，切 tab 不丢曲线） */
+  private readonly histKey = computed(() => {
+    try {
+      return 'sbmHist:' + new URL(this.backend().api).hostname;
+    } catch {
+      return 'sbmHist:' + this.backend().api;
+    }
+  });
 
   /** 窗口格数 = 窗口秒数 / 2（10 分钟 → 300 格） */
   bucketCount = computed(() => Math.round((this.windowMin() * 60) / BUCKET_SECONDS));
@@ -114,6 +124,7 @@ export class OverviewPane implements OnInit, OnDestroy {
   }
 
   ngOnInit(): void {
+    this.loadHist(); // 先恢复上次的曲线，切 tab 回来不空白
     void this.loadStatic();
     this.openWs('/traffic', (raw) => {
       const m = JSON.parse(raw) as { up?: number; down?: number };
@@ -135,11 +146,15 @@ export class OverviewPane implements OnInit, OnDestroy {
       this.push(this.connPts, n);
     });
     this.timer = setInterval(() => void this.loadGroups(), 5000);
+    this.histTimer = setInterval(() => this.saveHist(), 2000); // 每 2s 落盘一次历史
   }
 
   ngOnDestroy(): void {
+    this.saveHist(); // 离开前再存一次，保证切 tab 时是最新的
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+    if (this.histTimer) clearInterval(this.histTimer);
+    this.histTimer = null;
     for (const ws of this.sockets.splice(0)) {
       ws.onmessage = null;
       ws.onerror = null;
@@ -149,6 +164,48 @@ export class OverviewPane implements OnInit, OnDestroy {
       } catch {
         /* ignore */
       }
+    }
+  }
+
+  /**
+   * 从 localStorage 恢复四条曲线（最近 MAX_POINTS=600 个 1s 采样 = 10 分钟 = 300 格）。
+   * 超过 10 分钟的旧数据已整段滑出窗口，直接丢弃避免把陈旧数据当当前显示。
+   */
+  private loadHist(): void {
+    try {
+      const raw = localStorage.getItem(this.histKey());
+      if (!raw) return;
+      const h = JSON.parse(raw) as { t?: number; down?: number[]; up?: number[]; conn?: number[]; mem?: number[]; win?: number; mode?: 'line' | 'bar' };
+      if (!h?.t || Date.now() - h.t > MAX_POINTS * 1000) return;
+      const cap = (a?: number[]) => (Array.isArray(a) ? a.slice(-MAX_POINTS) : []);
+      this.downPts.set(cap(h.down));
+      this.upPts.set(cap(h.up));
+      this.connPts.set(cap(h.conn));
+      this.memPts.set(cap(h.mem));
+      if (h.win === 1 || h.win === 5 || h.win === 10) this.windowMin.set(h.win);
+      if (h.mode === 'line' || h.mode === 'bar') this.chartMode.set(h.mode);
+    } catch {
+      /* 缓存损坏忽略，从空白开始 */
+    }
+  }
+
+  /** 把四条曲线 + 视图偏好写入 localStorage（按主机隔离） */
+  private saveHist(): void {
+    try {
+      localStorage.setItem(
+        this.histKey(),
+        JSON.stringify({
+          t: Date.now(),
+          down: this.downPts(),
+          up: this.upPts(),
+          conn: this.connPts(),
+          mem: this.memPts(),
+          win: this.windowMin(),
+          mode: this.chartMode(),
+        }),
+      );
+    } catch {
+      /* 存储满 / 隐私模式忽略 */
     }
   }
 

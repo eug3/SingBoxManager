@@ -65,7 +65,7 @@
   </div>
 
   <div class="ovcard">
-    <div class="ovhd"><span>内存使用</span><span class="ovvals"><b>{{ memText() }}</b><span class="dim small">{{ windowLabel() }}</span></span></div>
+    <div class="ovhd"><span title="sing-box clash_api /memory 口径：StackInuse + HeapInuse + HeapIdle − HeapReleased（Go 运行时占用，不含 mmap/线程栈等，通常明显小于进程 RSS）">内存使用 ⓘ</span><span class="ovvals"><b>{{ memText() }}</b><span class="dim small">{{ windowLabel() }}</span></span></div>
     <app-area-chart [series]="memSeries()" [height]="96" [mode]="chartMode()" />
   </div>
 

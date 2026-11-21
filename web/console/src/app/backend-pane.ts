@@ -83,6 +83,14 @@ export class BackendPane implements OnInit, OnDestroy {
   readonly unauthorized = signal(false);
 
   readonly filter = signal('');
+  /** 连接年龄过滤阈值（秒）：0=全部，其余=只看存活≥该秒数的（用来揪疑似僵死的老连接） */
+  readonly ageFilter = signal(0);
+  /** 当前时刻（每 3s 随刷新推进），用于实时计算连接存活时长 */
+  readonly now = signal(Date.now());
+  /** 只看「空转」连接（≥60s 没有任何字节增长） */
+  readonly idleOnly = signal(false);
+  /** 每条连接的「最近一次字节变化时刻」：id → 毫秒。用于区分长连接（仍在跑数据）与空转/僵死 */
+  private readonly lastMove = new Map<string, number>();
   readonly autoRefresh = signal(true);
   readonly paused = signal(false);
   readonly level = signal('info');
@@ -109,13 +117,37 @@ export class BackendPane implements OnInit, OnDestroy {
   readonly nodes = computed(() => Object.keys(this.proxyMap()).length);
   readonly totalDown = computed(() => this.conns().reduce((n, c) => n + (c.download ?? 0), 0));
   readonly totalUp = computed(() => this.conns().reduce((n, c) => n + (c.upload ?? 0), 0));
-  readonly filteredConns = computed(() => {
+  /** 当前筛选命中的全部连接（不受 120 条显示上限影响，批量断开用） */
+  readonly matchedConns = computed(() => {
     const q = this.filter().trim().toLowerCase();
+    const minAge = this.ageFilter();
+    const now = this.now();
+    let list = this.conns();
+    if (minAge > 0) list = list.filter((c) => this.ageOf(c, now) >= minAge);
+    if (this.idleOnly()) list = list.filter((c) => this.idleSec(c, now) >= 60);
+    if (q) list = list.filter((c) => this.connText(c).includes(q));
+    return list;
+  });
+
+  /** 表格显示用（最多 120 行） */
+  readonly filteredConns = computed(() => this.matchedConns().slice(0, 120));
+
+  /** 连接总览：总数 / 最老存活 / ≥5分钟的老连接数（疑似僵死候选） */
+  readonly connStats = computed(() => {
+    const now = this.now();
     const list = this.conns();
-    if (!q) return list.slice(0, 120);
-    return list
-      .filter((c) => this.connText(c).includes(q))
-      .slice(0, 120);
+    let oldest = 0;
+    let old = 0;
+    let idleOld = 0;
+    for (const c of list) {
+      const a = this.ageOf(c, now);
+      if (a > oldest) oldest = a;
+      if (a >= 300) {
+        old++;
+        if (this.idleSec(c, now) >= 60) idleOld++;
+      }
+    }
+    return { total: list.length, oldest, old, idleOld };
   });
 
   constructor() {
@@ -130,6 +162,7 @@ export class BackendPane implements OnInit, OnDestroy {
   ngOnInit(): void {
     this.timer = setInterval(() => {
       if (document.hidden) return;
+      this.now.set(Date.now()); // 推进连接年龄
       if (this.tab() === 'connections' && this.autoRefresh()) void this.refreshConns();
     }, 3000);
   }
@@ -156,7 +189,7 @@ export class BackendPane implements OnInit, OnDestroy {
       ]);
       this.version.set(ver?.version ?? '');
       this.proxyMap.set(proxies?.proxies ?? {});
-      this.conns.set(conns?.connections ?? []);
+      this.applyConns(conns?.connections ?? []);
     } catch (e) {
       const err = e as { status?: number; message?: string };
       if (err?.status === 401) this.unauthorized.set(true);
@@ -167,11 +200,41 @@ export class BackendPane implements OnInit, OnDestroy {
   async refreshConns(): Promise<void> {
     try {
       const conns = await this.clash.connections(this.backend());
-      this.conns.set(conns?.connections ?? []);
+      this.applyConns(conns?.connections ?? []);
     } catch {
       /* 自动刷新失败不打扰用户 */
     }
   }
+
+  /** 更新连接列表，同时刷新每条连接的「最近字节变化时刻」（空转判定依据） */
+  private applyConns(list: Connection[]): void {
+    const now = Date.now();
+    const seen = new Set<string>();
+    for (const c of list) {
+      seen.add(c.id);
+      const sig = (c.upload ?? 0) + (c.download ?? 0);
+      const prev = this.lastMove.get(c.id);
+      // 用「字节签名 + 首次出现」占位：第一次见到即算活跃；之后签名变化才更新
+      const prevSig = this.lastSig.get(c.id);
+      if (prev === undefined || prevSig === undefined) {
+        // 首次见到：记为活跃起点
+        this.lastMove.set(c.id, now);
+        this.lastSig.set(c.id, sig);
+      } else if (prevSig !== sig) {
+        // 字节有增长：刷新活跃时刻
+        this.lastMove.set(c.id, now);
+        this.lastSig.set(c.id, sig);
+      }
+    }
+    // 清掉已消失连接的记录，避免 Map 无限增长
+    for (const id of [...this.lastMove.keys()]) if (!seen.has(id)) this.lastMove.delete(id);
+    for (const id of [...this.lastSig.keys()]) if (!seen.has(id)) this.lastSig.delete(id);
+    this.now.set(now);
+    this.conns.set(list);
+  }
+
+  /** 字节签名表（配合 lastMove 判断是否还在跑数据） */
+  private readonly lastSig = new Map<string, number>();
 
   async refreshAll(): Promise<void> {
     await this.load();
@@ -275,12 +338,57 @@ export class BackendPane implements OnInit, OnDestroy {
     return c.chains ?? [];
   }
 
+  /** 连接存活秒数（now - start；start 缺失记 0） */
+  ageOf(c: Connection, now = this.now()): number {
+    const t = Date.parse(c.start);
+    return Number.isFinite(t) ? Math.max(0, (now - t) / 1000) : 0;
+  }
+
+  /** 空转秒数：距最近一次字节增长的时间（新连接算 0） */
+  idleSec(c: Connection, now = this.now()): number {
+    const t = this.lastMove.get(c.id);
+    return t === undefined ? 0 : Math.max(0, (now - t) / 1000);
+  }
+
+  ageText(sec: number): string {
+    if (sec < 60) return Math.round(sec) + 's';
+    if (sec < 3600) return Math.floor(sec / 60) + '分';
+    return Math.floor(sec / 3600) + '时' + Math.floor((sec % 3600) / 60) + '分';
+  }
+
+  /** 年龄着色：≥30分钟红（很可能僵死）、≥5分钟黄（偏老）、其余正常 */
+  ageClass(sec: number): string {
+    if (sec >= 1800) return 'r';
+    if (sec >= 300) return 'y';
+    return '';
+  }
+
   async kill(c: Connection): Promise<void> {
     try {
       await this.clash.kill(this.backend(), c.id);
       this.conns.update((list) => list.filter((x) => x.id !== c.id));
     } catch {
       /* 连接可能已关闭 */
+    }
+  }
+
+  /** 批量断开当前筛选命中的连接（例：存活 ≥5 分钟的全部断开，清僵死） */
+  async killMatched(): Promise<void> {
+    const targets = this.matchedConns();
+    if (!targets.length) return;
+    if (!confirm(`断开当前筛选出的 ${targets.length} 条连接？`)) return;
+    const ids = new Set(targets.map((c) => c.id));
+    for (const c of targets) {
+      try {
+        await this.clash.kill(this.backend(), c.id);
+      } catch {
+        /* 连接可能已自行关闭 */
+      }
+    }
+    this.conns.update((list) => list.filter((x) => !ids.has(x.id)));
+    for (const id of ids) {
+      this.lastMove.delete(id);
+      this.lastSig.delete(id);
     }
   }
 
