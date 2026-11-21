@@ -143,3 +143,11 @@
   - 主桶 rs-custom/rs-openai/rs-node 内容不变（没有可安全前移的整条目）。
 - 两台路由均 apply 成功并健康（甲 f9a9cc39 / 乙 1ed5bae7）；乙首次误用甲的规则下标失败，改按 tag 定位后成功。
 - 若要把 -3 等也完全删除，需接受少量域名分流归属变化（它们当前被其它组拦截），属另一决策。
+
+## 14. 第二轮同类合并：rs-direct-2/-3、rs-gdirect-2（2026-11-21）
+
+- 沿用 oracle（首条命中）0 差异方法。新增两类阴影检测：suffix 条目 vs 更早其它组 domain_keyword；
+  keyword 条目 vs 更早其它组 exact/suffix（主机串含 keyword）。
+- 结果：**rs-direct-2 完全删除**（config+SMB）；rs-direct-3 瘦身→1 条；rs-gdirect-2 保留 7 条
+  （其内容多被更早的 应用净化/拦截 抢走，无法安全前移）；rs-direct/rs-gdirect 主桶不变。
+- 两台路由 apply 成功；乙重启后启动约 5s 自愈（立即探针会抓到 downtime，非故障）。
