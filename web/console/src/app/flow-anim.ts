@@ -26,10 +26,13 @@ import {
   buildLayout,
   buildStatic,
   emptyStatic,
+  markActiveEdges,
   nameOfKey,
   pointOnPath,
+  stepActivity,
   tangentOnPath,
 } from './flow-model';
+import type { ActivityState } from './flow-model';
 import type {
   ClientInfo,
   ClientMap,
@@ -50,6 +53,8 @@ const CFG_MS = 30_000;
 const CLIENTS_MS = 30_000;
 /** 节点延时（clash_api /proxies 的 history 末次 delay）刷新间隔：测速本来就慢，5s 足够 */
 const PROXIES_MS = 5000;
+/** 边「活跃」的保持时长：最后一次看到字节增长后再亮这么久（≈2.7 次采样） */
+const IDLE_MS = 4000;
 /** 粒子走完全程的时长 */
 const PARTICLE_MS = 1800;
 /** 同时存在的粒子上限（超出丢最旧的） */
@@ -193,6 +198,10 @@ export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
   /** ① 列名册：ip → {mac,name}（拿不到就是空表，① 回落到按源 IP） */
   private clients: ClientMap = new Map<string, ClientInfo>();
   private clientsTimer: ReturnType<typeof setInterval> | null = null;
+  /** 活跃边：上一轮采样算出的「最近有字节增长」的边（绿色点线） */
+  private activeEdges: ReadonlySet<string> = new Set<string>();
+  /** 活跃度状态（id → 累计字节、边 → 活跃截止时间） */
+  private actState: ActivityState = { totals: new Map(), until: new Map() };
   /** ⑤ 节点延时：tag → 末次测速 delay（ms）；拿不到就是空表，方格不画点 */
   private delays: DelayMap = new Map<string, number>();
   private delayTimer: ReturnType<typeof setInterval> | null = null;
@@ -316,6 +325,8 @@ export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
     this.stat.set(emptyStatic(this.hostOf(b)));
     this.clients = new Map<string, ClientInfo>();
     this.delays = new Map<string, number>();
+    this.activeEdges = new Set<string>();
+    this.actState = { totals: new Map(), until: new Map() };
     this.rebuild();
     this.startLoops();
     void this.loadVersion(b);
@@ -327,7 +338,9 @@ export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
 
   /** 用当前连接 + 静态结构 + 名册重建六列（唯一出口，避免各处漏传 clients） */
   private rebuild(): void {
-    this.flow.set(buildFlow(this.lastConns, this.stat(), this.clients, this.delays));
+    this.flow.set(
+      buildFlow(this.lastConns, this.stat(), this.clients, this.delays, this.activeEdges),
+    );
   }
 
   /** ②列名字：后端的 host（例如 192.168.31.32）；解析不出来退回后端名 */
@@ -492,9 +505,15 @@ export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
 
   /** 归并布局 + 给「第一次见到」的连接生成粒子 */
   private apply(conns: Connection[]): void {
-    const flow = buildFlow(conns, this.stat(), this.clients, this.delays);
-    this.flow.set(flow);
     const now = Date.now();
+    // 先用本次连接 + 最新路径推活跃度（路径来自这次的 flow.sample，天然无延迟），再贴回 flow
+    const base = buildFlow(conns, this.stat(), this.clients, this.delays);
+    const paths = new Map(base.sample.map((s) => [s.id, s.path]));
+    const step = stepActivity(conns, paths, this.actState, now, IDLE_MS);
+    this.actState = { totals: step.totals, until: step.until };
+    this.activeEdges = step.active;
+    const flow = markActiveEdges(base, step.active);
+    this.flow.set(flow);
     const live = new Set<string>();
     for (const s of flow.sample) {
       live.add(s.id);

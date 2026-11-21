@@ -122,7 +122,14 @@
       <!-- 连线：结构边浅色，动态边按 count 加权；hover 时其余降到 0.08 -->
       @for (e of edgesView(); track e.key) {
         <path
-          [attr.class]="'fedge fedge-' + e.kind + (e.stat ? ' stat' : '') + (e.hi ? ' hi' : '') + (e.dim ? ' dim' : '')"
+          [attr.class]="
+            'fedge fedge-' +
+            e.kind +
+            (e.stat ? ' stat' : '') +
+            (e.active ? ' active' : '') +
+            (e.hi ? ' hi' : '') +
+            (e.dim ? ' dim' : '')
+          "
           [attr.d]="e.d"
           [attr.stroke-opacity]="e.dim ? 0.08 : e.opacity"
           [attr.stroke-width]="e.hi ? e.width + 0.8 : e.width"

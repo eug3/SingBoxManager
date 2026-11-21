@@ -231,6 +231,8 @@ export interface FlowEdge {
   kind: FlowKind;
   /** true = 来自 config 结构的静态边（渲染成浅色虚线） */
   stat: boolean;
+  /** true = 最近有字节增长（渲染成绿色点线 + 流动虚线） */
+  active?: boolean;
 }
 
 /** 一条连接的列 key 路径（粒子沿它逐列走） */
@@ -909,6 +911,7 @@ export function buildFlow(
   stat: FlowStat,
   clients?: ClientMap,
   delays?: DelayMap,
+  activeEdges?: ReadonlySet<string>,
 ): FlowLayout {
   const routerName = stat.routerName || 'sing-box';
   const routerKey = nodeKey('router', routerName);
@@ -1310,11 +1313,12 @@ export function buildFlow(
     for (const r of cols.rule) addStructural(routerKey, r.key);
   }
 
-  // 静态边垫底（后画的盖在上面），动态边按条数降序
+  // 静态边垫底（后画的盖在上面），动态边按条数降序；活跃标记只落在交通边上
+  // 每条边都给出显式 active（结构边恒为 false，活跃标记只落在交通边上）
   const edgeList: FlowEdge[] = [
     ...structural,
     ...[...edges.values()].sort((a, b) => b.count - a.count || cmpName(a.key, b.key)),
-  ];
+  ].map((e) => ({ ...e, active: !e.stat && !!activeEdges?.has(e.key) }));
 
   return {
     pcMode: pcUsedMac ? 'mac' : 'ip',
@@ -1336,6 +1340,78 @@ export function buildFlow(
     ok: stat.ok,
     targets: targets.slice(0, 12),
   };
+}
+
+/* ────────────────────────── 活跃边（最近有字节增长） ────────────────────────── */
+
+/** 相邻列 key → 边 key（与 buildFlow 里 edges 的 key 同口径：`from\u0000to`） */
+export function edgeKeyOf(from: string, to: string): string {
+  return `${from}\u0000${to}`;
+}
+
+/** 一条连接的累计流量（upload+download；缺字段按 0） */
+export function trafficTotal(c: Connection | null | undefined): number {
+  const o = c as { upload?: unknown; download?: unknown } | null | undefined;
+  const up = Number(o?.upload);
+  const down = Number(o?.download);
+  const sum = (Number.isFinite(up) ? up : 0) + (Number.isFinite(down) ? down : 0);
+  return Number.isFinite(sum) ? sum : 0;
+}
+
+/** 活跃度状态：由 flow-anim 每 1.5s 采样推进一次 */
+export interface ActivityState {
+  /** 连接 id → 上次采样到的 upload+download */
+  totals: ReadonlyMap<string, number>;
+  /** 边 key → 活跃截止时间（ms 时间戳） */
+  until: ReadonlyMap<string, number>;
+}
+
+export interface ActivityStep {
+  totals: Map<string, number>;
+  until: Map<string, number>;
+  /** 本次仍然活跃的边 key 集合 */
+  active: Set<string>;
+}
+
+/**
+ * 推进一步活跃度判定：
+ *  · 连接累计字节比上次多（或第一次见到）→ 该连接**当前路径**上所有相邻边标记
+ *    `activeUntil = now + idleMs`；路径由调用方用最新 flow.sample 提供（天然无延迟）；
+ *  · 断开的连接从 totals 里丢掉；until 里已过期的也丢掉（= 恢复闲置样式）。
+ */
+export function stepActivity(
+  conns: readonly Connection[],
+  pathsById: ReadonlyMap<string, readonly string[]>,
+  prev: ActivityState | null,
+  now: number,
+  idleMs: number,
+): ActivityStep {
+  const totals = new Map<string, number>();
+  const until = new Map<string, number>();
+  for (const [k, t] of prev?.until ?? []) if (t > now) until.set(k, t);
+  for (const c of conns ?? []) {
+    const id = String((c as { id?: unknown } | null | undefined)?.id ?? '');
+    if (!id) continue;
+    const cur = trafficTotal(c);
+    const before = prev?.totals.get(id);
+    totals.set(id, cur);
+    // 首次见到也算活跃；之后只有字节继续增长才算
+    const grew = before === undefined ? true : cur > before;
+    if (!grew) continue;
+    const path = pathsById.get(id);
+    if (!path || path.length < 2) continue;
+    for (let i = 0; i < path.length - 1; i++) until.set(edgeKeyOf(path[i], path[i + 1]), now + idleMs);
+  }
+  return { totals, until, active: new Set(until.keys()) };
+}
+
+/** 把活跃边集合贴到 flow 上（只改 edges 的 active 标志，节点/带/样本原样返回） */
+export function markActiveEdges(flow: FlowLayout, active: ReadonlySet<string>): FlowLayout {
+  const edges = flow.edges.map((e) => {
+    const a = !e.stat && active.has(e.key);
+    return a === !!e.active ? e : { ...e, active: a };
+  });
+  return { ...flow, edges };
 }
 
 /* ────────────────────────── 渲染几何（纯数学，无 DOM） ────────────────────────── */
@@ -1436,6 +1512,8 @@ export interface FlowEdgeGeom {
   opacity: number;
   width: number;
   stat: boolean;
+  /** true = 最近有字节增长（渲染成绿色点线） */
+  active: boolean;
 }
 
 export interface FlowGeom {
@@ -2019,9 +2097,11 @@ export function buildLayout(flow: FlowLayout, size: FlowSize): FlowGeom {
       d: curvePath(a, b),
       count: e.count,
       kind: e.kind,
-      opacity: e.stat ? 0.12 : round1(Math.min(0.6, 0.14 + Math.log2(1 + e.count) * 0.14)),
+      // 活跃边（最近有字节增长）用绿色点线，透明度比闲置高一点
+      opacity: e.active ? 0.9 : e.stat ? 0.12 : round1(Math.min(0.6, 0.14 + Math.log2(1 + e.count) * 0.14)),
       width: e.stat ? 0.8 : round1(Math.min(2.8, 0.9 + Math.log2(e.count) * 0.6)),
       stat: e.stat,
+      active: e.active === true,
     };
   });
 

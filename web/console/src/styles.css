@@ -948,6 +948,17 @@ tr.oldconn td { background: #fffaf0; }
 .fedge.fedge-direct { stroke: #ccd6e2; }
 .fedge.fedge-block { stroke: #edc3ca; }
 .fedge.stat { stroke: #cbd6e5; stroke-dasharray: 2 4; }
+/* 活跃边（最近有字节增长）：绿色点线 + 慢慢流动；闲置边保持原来的灰蓝实线/结构虚线 */
+.fedge.active {
+  stroke: var(--ok, #2f9e5f);
+  stroke-dasharray: 2 5;
+  stroke-linecap: round;
+  animation: fdashmove 1.1s linear infinite;
+}
+@keyframes fdashmove {
+  from { stroke-dashoffset: 0; }
+  to { stroke-dashoffset: -7; }
+}
 .fedge.hi { stroke: var(--acc2); stroke-dasharray: none; }
 .fedge.hi.fedge-block { stroke: var(--bad); }
 
