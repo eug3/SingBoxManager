@@ -1,10 +1,11 @@
 [Unit]
-Description=Rule-set vault edit/publish service
+Description=Rule-set vault edit/publish service (Go)
 After=network-online.target remote-fs.target
 Wants=network-online.target
 
 [Service]
-ExecStart=/usr/bin/python3 /home/beijihu/vault-edit/vault_edit.py
+EnvironmentFile=/etc/vault-edit.env
+ExecStart=/usr/local/bin/vault-edit
 Restart=always
 RestartSec=3
 
