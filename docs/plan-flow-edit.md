@@ -49,3 +49,12 @@ ng build 无 ERROR；浏览器：点 ③ 卡弹窗、拖/加/删 rs → 待保�
   移除 cn_ip→再保存恢复；clash 200。乙曾自行掉线（check 通过）已 restart 拉起，与本功能无关。
 - 已知限制：`router.setCredentials` 不传 port，弹窗非 22 端口会提示「按 22 保存」；如需自定义端口需要
   给 setCredentials 加参数（另开授权）。
+
+## 6. 分组类型加「负载均衡」预设（2026-11-21）
+
+- 实测：baseline `sing-box check` 通过，但 `loadbalance`/`load-balance`/`balance` 任一种独立类型都
+  check 失败 → 该 sing-box(1.15.0-alpha.13) **不支持原生负载均衡**（上游仅 selector/urltest；
+  轮询负载均衡为 mihomo/分支特性）。配置里的 BALANCE 实为 urltest。
+- 故分组弹窗类型 select 增加第三项「负载均衡（urltest 严格最快·1m）」= 预设：type=urltest +
+  tolerance=0 + interval=1m（check 通过）。以 tolerance===0 识别回显为 balance。
+- 界面注明：sing-box 无原生轮询负载均衡，此预设以 urltest 严格最快/故障切换近似。

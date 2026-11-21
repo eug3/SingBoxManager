@@ -58,6 +58,12 @@ export class GroupDialog {
   });
 
   readonly type = computed(() => String(this.groupObj()?.['type'] ?? 'selector'));
+  /** select 显示值：urltest 且 tolerance=0 视为「负载均衡」预设（sing-box 无原生轮询，用 urltest 严格最快近似） */
+  readonly typeSelect = computed(() => {
+    if (this.type() === 'urltest' && Number(this.groupObj()?.['tolerance'] ?? -1) === 0) return 'balance';
+    return this.type();
+  });
+  readonly isBalance = computed(() => this.typeSelect() === 'balance');
   readonly members = computed<string[]>(() => {
     const v = this.groupObj()?.['outbounds'];
     return Array.isArray(v) ? v.map(String) : [];
@@ -128,19 +134,27 @@ export class GroupDialog {
 
   /** 切换类型：urltest 补默认参数并去掉 default；selector 清掉 urltest 专属字段 */
   setType(t: string): void {
-    if (!GROUP_TYPES.has(t) || t === this.type()) return;
+    if (t === this.typeSelect()) return;
+    if (t !== 'balance' && !GROUP_TYPES.has(t)) return;
     this.mutate((g) => {
-      g['type'] = t;
-      if (t === 'urltest') {
-        if (typeof g['url'] !== 'string' || !g['url']) g['url'] = URLTEST_DEFAULT_URL;
-        if (typeof g['interval'] !== 'string' || !g['interval']) g['interval'] = URLTEST_DEFAULT_INTERVAL;
-        if (typeof g['tolerance'] !== 'number') g['tolerance'] = URLTEST_DEFAULT_TOLERANCE;
-        delete g['default']; // urltest 按延迟自动选，没有手动 default
-      } else {
+      if (t === 'selector') {
+        g['type'] = 'selector';
         delete g['url'];
         delete g['interval'];
         delete g['tolerance'];
+        return;
       }
+      // urltest / balance 都是 sing-box 的 urltest；balance 用 tolerance=0 + 短间隔近似负载均衡
+      g['type'] = 'urltest';
+      if (typeof g['url'] !== 'string' || !g['url']) g['url'] = URLTEST_DEFAULT_URL;
+      if (t === 'balance') {
+        g['interval'] = '1m';
+        g['tolerance'] = 0;
+      } else {
+        if (typeof g['interval'] !== 'string' || !g['interval']) g['interval'] = URLTEST_DEFAULT_INTERVAL;
+        if (typeof g['tolerance'] !== 'number' || g['tolerance'] === 0) g['tolerance'] = URLTEST_DEFAULT_TOLERANCE;
+      }
+      delete g['default']; // urltest 按延迟自动选，没有手动 default
     });
   }
 

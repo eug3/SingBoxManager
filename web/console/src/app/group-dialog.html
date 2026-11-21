@@ -15,12 +15,16 @@
       } @else {
         <div class="row">
           <span>类型</span>
-          <select [value]="type()" (change)="setType($any($event.target).value)">
+          <select [value]="typeSelect()" (change)="setType($any($event.target).value)">
             <option value="selector">selector（手动选择）</option>
-            <option value="urltest">urltest（按延迟自动）</option>
+            <option value="urltest">urltest（按延迟自动·最快）</option>
+            <option value="balance">负载均衡（urltest 严格最快·1m）</option>
           </select>
         </div>
 
+        @if (isBalance()) {
+          <div class="hint dim">sing-box 无原生轮询负载均衡；此预设 = urltest + tolerance 0 + 1m 间隔（严格最快/故障切换近似）。</div>
+        }
         @if (type() === 'urltest') {
           <div class="row">
             <span>测试 URL</span>
