@@ -1,7 +1,7 @@
 <div class="modal-mask" (click)="close()">
   <div class="modal" (click)="$event.stopPropagation()">
     <div class="modal-hd">
-      <b>存储与公网入口配置</b>
+      <b>存储与规则路径配置</b>
       <span class="dim small">保存后立即生效（服务端热替换，无需重启服务）</span>
       <button class="x" (click)="close()">✕</button>
     </div>
@@ -109,7 +109,7 @@
       @if (probeResult(); as p) {
         <div class="probe">
           <div>文件通道 {{ p.file.ok ? '✓' : '✗' }} <span class="dim">{{ p.file.mode }}</span> · {{ p.file.detail || p.file.error }}（{{ p.file.ms }}ms）</div>
-          <div>公网 {{ p.http.ok ? '✓' : '✗' }} <span class="dim">{{ p.http.url }}</span> · {{ p.http.status }} {{ p.http.size }}B（{{ p.http.ms }}ms）</div>
+          <div>规则URL {{ p.http.ok ? '✓' : '✗' }} <span class="dim">{{ p.http.url }}</span> · {{ p.http.status }} {{ p.http.size }}B（{{ p.http.ms }}ms）</div>
         </div>
       }
     </div>
