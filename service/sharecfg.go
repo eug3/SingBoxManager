@@ -93,7 +93,7 @@ func defaultShareConfig() ShareConfig {
 		Local: LocalConfig{
 			Dir: env("SHARE_LOCAL_DIR", "/usr/local/share/vault-edit/rule-set"),
 		},
-		PublicBase:  strings.TrimRight(env("PUBLIC_BASE", "https://router.guaishoudejia.com"), "/"),
+		PublicBase:  normalizePublicBase(env("PUBLIC_BASE", "https://router.guaishoudejia.com/rule-set/")),
 		FilesListen: defaultFilesListen(),
 		Sample:      env("HEALTH_SAMPLE", "rs-tg.srs"),
 	}
@@ -121,7 +121,7 @@ func normalizeShareConfig(c ShareConfig) ShareConfig {
 	if c.Local.Dir == "" {
 		c.Local.Dir = d.Local.Dir
 	}
-	c.PublicBase = strings.TrimRight(c.PublicBase, "/")
+	c.PublicBase = normalizePublicBase(c.PublicBase)
 	if c.FilesListen == "" {
 		c.FilesListen = d.FilesListen
 	}
@@ -212,7 +212,7 @@ func publicMasked(c ShareConfig) map[string]any {
 			"key": c.SFTP.Key, "passSet": c.SFTP.Pass != "",
 		},
 		"local":       map[string]any{"dir": c.Local.Dir},
-		"publicBase":  c.PublicBase,
+		"publicBase":  normalizePublicBase(c.PublicBase),
 		"filesListen": c.FilesListen,
 		"sample":      c.Sample,
 		"file":        dbFile(),

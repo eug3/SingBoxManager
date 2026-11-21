@@ -3,7 +3,7 @@
 > 目标读者：拿到开发机与内网权限的人。所有命令都在**本仓库根目录**执行。
 > 密钥只走环境变量，**任何一步都不要把口令写进仓库文件**。
 >
-> 本文主机名 / IP / 域名均为**示例占位**：`console.lan`（管理机）、`nas.lan`（NAS）、`router-a.lan` / `router-b.lan`（各路由）、`dash.lan:888`（NAS 上的看板入口）、`rules.example.com`（公网只读入口）。真实地址只记录在内部运维资料，不进本仓库。
+> 本文主机名 / IP / 域名均为**示例占位**：`console.lan`（管理机）、`nas.lan`（NAS）、`router-a.lan` / `router-b.lan`（各路由）、`dash.lan:888`（NAS 上的看板入口）、`rules.example.com`（规则路径）。真实地址只记录在内部运维资料，不进本仓库。
 
 ## 0. 拓扑与角色
 

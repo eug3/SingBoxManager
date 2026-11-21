@@ -42,7 +42,7 @@
           <button (click)="importLocal()" [disabled]="busy()">把当前共享的文件复制到本机</button>
         </div>
         <div class="dim small">
-          切到本机目录后，规则桶只存在 99；对外请反代上面的「只读文件端口」到公网，再把公网入口填成那个域名，
+          切到本机目录后，规则桶只存在 99；对外请反代上面的「只读文件端口」，再把「规则路径」填成对外可达的全路径（不带文件名），
           控制台（9099）保持只在内网可达。
         </div>
       }
@@ -57,15 +57,19 @@
       </div>
 
       <label class="row">
-        <span>公网只读入口</span>
-        <input [value]="form().publicBase" (input)="patch('publicBase', $any($event.target).value)" placeholder="https://rules.example.com" />
+        <span>规则路径</span>
+        <input [value]="form().publicBase" (input)="patch('publicBase', $any($event.target).value)" placeholder="https://router.guaishoudejia.com/rule-set/" />
       </label>
+      <div class="dim small" style="margin-left: 160px">
+        不带文件名的全路径；url = 规则路径 + tag + <code>.srs</code>。点「测试」会实际请求
+        <code>规则路径 + 样本</code> 确认能否访问（下方显示状态码/字节/耗时）。
+      </div>
       <div class="row">
         <span></span>
         <div style="display: flex; gap: 6px; flex-wrap: wrap">
           <button (click)="previewRules()" [disabled]="busy()">预览规则改写</button>
           <button (click)="applyRules()" [disabled]="busy() || !rulesPreview()">写入路由器规则</button>
-          <span class="dim small">把 route.rule_set[].url 换到这个入口（会重启 sing-box）</span>
+          <span class="dim small">url = 规则路径 + tag + .srs；写入会重启 sing-box</span>
         </div>
       </div>
       @if (rulesPreview(); as hosts) {

@@ -29,8 +29,35 @@ func urlBase(u string) string {
 	return parsed.Scheme + "://" + parsed.Host
 }
 
-// rewriteRuleSetURLs 把 config 里 type=remote 且 url 指向 /rule-set/ 的条目换成新入口。
-// 返回改写后的 JSON 文本、改动明细、以及改动条数。
+// normalizePublicBase 规整「规则路径」：不带文件名的全路径，结尾带 /。
+// 兼容旧配置只写域名（无路径）的情况，自动补 /rule-set/。
+// 例：https://x.com/rule-set/ → 原样；https://x.com → https://x.com/rule-set/。
+func normalizePublicBase(base string) string {
+	base = strings.TrimSpace(base)
+	if base == "" {
+		return ""
+	}
+	parsed, err := url.Parse(base)
+	if err != nil {
+		return strings.TrimRight(base, "/") + "/"
+	}
+	if parsed.Path == "" || parsed.Path == "/" {
+		parsed.Path = "/rule-set/"
+	}
+	out := parsed.String()
+	return strings.TrimRight(out, "/") + "/"
+}
+
+// ruleSetFilename 取 url 的最后一段文件名；缺失时用 tag.srs
+func ruleSetFilename(u, tag string) string {
+	if i := strings.LastIndex(u, "/"); i >= 0 && i+1 < len(u) {
+		return u[i+1:]
+	}
+	return tag + ".srs"
+}
+
+// rewriteRuleSetURLs 把 config 里 type=remote 的 rule_set url 换成「规则路径 + 文件名」。
+// newBase 为不带文件名的全路径（normalizePublicBase 规整）。返回改写文本/明细/条数。
 func rewriteRuleSetURLs(configText, newBase string) (string, []map[string]string, int, error) {
 	var cfg map[string]any
 	if err := json.Unmarshal([]byte(configText), &cfg); err != nil {
@@ -38,25 +65,25 @@ func rewriteRuleSetURLs(configText, newBase string) (string, []map[string]string
 	}
 	route, _ := cfg["route"].(map[string]any)
 	sets, _ := route["rule_set"].([]any)
-	newBase = strings.TrimRight(newBase, "/")
+	newBase = normalizePublicBase(newBase)
 	var changes []map[string]string
 	for _, item := range sets {
 		rs, ok := item.(map[string]any)
 		if !ok {
 			continue
 		}
-		u, _ := rs["url"].(string)
-		if u == "" || !strings.Contains(u, "/rule-set/") {
-			continue
+		if t, _ := rs["type"].(string); t != "remote" {
+			continue // local/inline 不动
 		}
-		tail := u[strings.Index(u, "/rule-set/"):]
-		next := newBase + tail
+		u, _ := rs["url"].(string)
+		tag := fmt.Sprint(rs["tag"])
+		next := newBase + ruleSetFilename(u, tag)
 		if next == u {
 			continue
 		}
 		rs["url"] = next
 		changes = append(changes, map[string]string{
-			"tag": fmt.Sprint(rs["tag"]), "from": u, "to": next,
+			"tag": tag, "from": u, "to": next,
 		})
 	}
 	out, err := json.MarshalIndent(cfg, "", "  ")
@@ -79,7 +106,7 @@ func handlePublicRulesPreview(w http.ResponseWriter, r *http.Request) {
 		base = currentShareCfg().PublicBase
 	}
 	if base == "" {
-		fail(w, 400, "缺少 base（公网只读入口）")
+		fail(w, 400, "缺少 base（规则路径）")
 		return
 	}
 	all, err := loadRouters()
@@ -111,7 +138,7 @@ func handlePublicRulesPreview(w http.ResponseWriter, r *http.Request) {
 		}
 		hosts = append(hosts, item)
 	}
-	writeJSON(w, 200, map[string]any{"ok": true, "base": strings.TrimRight(base, "/"), "hosts": hosts})
+	writeJSON(w, 200, map[string]any{"ok": true, "base": normalizePublicBase(base), "hosts": hosts})
 }
 
 // handlePublicRulesApply POST /public/rules/apply {base, hosts?, confirm}
@@ -135,7 +162,7 @@ func handlePublicRulesApply(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, "需要 confirm=true 才会写路由器配置")
 		return
 	}
-	base := strings.TrimRight(strings.TrimSpace(req.Base), "/")
+	base := normalizePublicBase(req.Base)
 	if base == "" {
 		base = currentShareCfg().PublicBase
 	}

@@ -94,10 +94,10 @@ NAS 侧共享是 `sec=none`（guest），所以零凭据即可读写；若以后
 首次启动若库为空，会自动把旧的 `share.json` / `routers.json` 导入（一次性迁移，旧文件保留）。
 `GET /db/info` 回显表名与行数 + 最近 5 次发布，页面与体检脚本都用它。
 
-### 2.5 公网只读入口 → 自动写进路由器规则
+### 2.5 规则路径 → 自动写进路由器规则
 
 两台路由 `config.json` 的 `route.rule_set` 里有 24 条 `type=remote` 规则，`url` 形如
-`https://<公网入口>/rule-set/<桶>.srs`。换入口时用：
+`<规则路径>/<桶>.srs`（规则路径=不带文件名的全路径）。换入口时用：
 
 - `GET /public/rules/preview?base=` —— 每台路由会改几条 + 样例 old→new（只读，不动配置）
 - `POST /public/rules/apply {base, confirm:true}` —— 真正改写并走既有

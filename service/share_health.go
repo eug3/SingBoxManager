@@ -17,7 +17,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"time"
 )
 
@@ -28,7 +27,7 @@ func probeShare(fs ShareFS, publicBase, sample string) map[string]any {
 	if sample == "" {
 		sample = "rs-tg.srs"
 	}
-	publicBase = strings.TrimRight(publicBase, "/")
+	publicBase = normalizePublicBase(publicBase)
 
 	type filePart struct {
 		Mode    string `json:"mode"`
@@ -72,7 +71,7 @@ func probeShare(fs ShareFS, publicBase, sample string) map[string]any {
 	// —— 3. 公网 URL ——
 	var h httpPart
 	if publicBase != "" {
-		h.URL = publicBase + "/rule-set/" + sample
+		h.URL = publicBase + sample
 		t1 := time.Now()
 		req, _ := http.NewRequest(http.MethodGet, h.URL+"?probe="+fmt.Sprint(t1.UnixNano()), nil)
 		req.Header.Set("Cache-Control", "no-cache")
