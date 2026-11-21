@@ -63,6 +63,21 @@
   </button>
 </div>
 
+@if (pending()) {
+  <div class="cfgpending">
+    <span class="dot"></span>
+    <b>已暂存变更</b>
+    <span>+{{ diff().adds }} / -{{ diff().dels }} 行 · 尚未写回路由</span>
+    <span class="spacer"></span>
+    <button class="acc" (click)="apply()" [disabled]="busy()">应用并重启</button>
+    <button (click)="check()" [disabled]="busy()">校验</button>
+    <button (click)="revert()" [disabled]="busy()">撤销</button>
+    @if (!editing()) {
+      <button (click)="toggleEdit()" [disabled]="busy()">查看 diff</button>
+    }
+  </div>
+}
+
 @if (!loaded() && !busy() && !err()) {
   <div class="dim small" style="padding: 10px 0">
     读取中… 顶部「发布密钥」是 99 服务的鉴权（X-Vault-Key），与路由 SSH 凭据是两回事；
@@ -360,7 +375,7 @@
         {{ formMode() === 'add' ? '生成新配置' : '保存修改' }}
       </button>
       <button (click)="cancelForm()">取消</button>
-      <span class="dim small">生成后先看 diff，再点「应用并重启」</span>
+      <span class="dim small">保存只是暂存，页面顶部会出现「已暂存变更」，点「应用并重启」才写回路由</span>
     </div>
   </div>
 }

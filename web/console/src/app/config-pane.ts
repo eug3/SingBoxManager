@@ -162,6 +162,9 @@ export class ConfigPane {
     return d ? groups(d).map((g) => String(g['tag'])) : [];
   });
 
+  /** 有暂存未应用的改动 */
+  readonly pending = computed(() => this.raw() !== this.original() && this.raw() !== '');
+
   readonly issues = computed(() => {
     const d = this.doc();
     return d ? validateDoc(d) : [];
@@ -506,7 +509,7 @@ export class ConfigPane {
       return;
     }
     const lines = [
-      `删除节点 ${tag}？`,
+      `删除节点 ${tag}？（先暂存，点「应用并重启」才会写回路由）`,
       info.groups.length ? `· 会从 ${info.groups.length} 个分组中移除：${info.groups.join('、')}` : '· 没有被任何分组引用',
       info.isDefault.length ? `· 这些组的 default 会改成第一个成员：${info.isDefault.map((x) => x.group).join('、')}` : '',
       '· 生成后先看 diff，再点「应用并重启」',

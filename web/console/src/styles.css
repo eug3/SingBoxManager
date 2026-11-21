@@ -713,3 +713,10 @@ td.nowrap { white-space: nowrap; }
 .cfggatesub { font-size: 11px; color: var(--dim); line-height: 1.7; margin-bottom: 12px; }
 .cfggateerr { font-size: 11px; color: var(--bad); background: #fdf1f3; border: 1px solid #f2cfd5; padding: 6px 8px; margin-bottom: 10px; }
 .cfgformgate { grid-template-columns: 1fr 1fr; }
+
+/* 暂存变更提示条 */
+.cfgpending { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; border: 1px solid #f0d9b5; background: #fff8e9; color: #8a5a12; font-size: 11px; padding: 8px 12px; margin: 4px 0 8px; }
+.cfgpending b { color: #7a4a08; }
+.cfgpending .dot { width: 8px; height: 8px; border-radius: 50%; background: #d68a12; box-shadow: 0 0 0 3px rgba(214,138,18,.18); }
+.cfgpending .spacer { flex: 1 1 auto; }
+.cfgpending button { white-space: nowrap; }
