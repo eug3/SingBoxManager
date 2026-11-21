@@ -104,6 +104,13 @@ export class ConfigPane {
   // —— 删除 ——
   readonly deleteTag = signal('');
 
+  // —— 连接门禁（连不上时像登录页一样要求填凭据）——
+  readonly gate = signal(false);
+  readonly gateError = signal('');
+  readonly gateKey = signal('');
+  readonly gateUser = signal('root');
+  readonly gatePass = signal('');
+
   // —— 路由 SSH 凭据（只提交给 99 落盘，不存浏览器）——
   readonly credsOpen = signal(false);
   readonly credsUser = signal('root');
@@ -115,7 +122,13 @@ export class ConfigPane {
     effect(() => {
       const b = this.backend();
       const vaultKey = this.bsvc.globalKey();
-      if (!b.api || !vaultKey) return;
+      if (!b.api) return;
+      if (!vaultKey) {
+        // 还没填发布密钥：直接进连接页，别停在"读取中"
+        this.gateError.set('请先填写发布密钥（X-Vault-Key）与路由 SSH 账号');
+        this.gate.set(true);
+        return;
+      }
       void this.reload();
     });
   }
@@ -216,13 +229,47 @@ export class ConfigPane {
     } catch (e) {
       const m = this.msg(e);
       this.err.set(m);
-      if (m.includes('未配置路由凭据')) {
-        this.credsOpen.set(true);
+      // 认不出 / 连不上 / 没凭据 / 密钥错 → 弹连接页（像登录）
+      if (/未配置路由凭据|bad key|401|ssh|Permission denied|超时|失败/i.test(m)) {
+        this.gateError.set(m);
+        this.gate.set(true);
+        this.gateKey.set(this.bsvc.globalKey());
         void this.loadCreds();
       }
     } finally {
       this.busy.set(false);
     }
+  }
+
+  /** 连接页提交：先存发布密钥（如有），再存 SSH 凭据（如有），然后重读配置 */
+  async connect(): Promise<void> {
+    this.busy.set(true);
+    this.err.set('');
+    try {
+      const key = this.gateKey().trim();
+      if (key) this.bsvc.setGlobalKey(key);
+      const user = this.gateUser().trim();
+      const pass = this.gatePass();
+      if (user && pass) {
+        await this.router.setCredentials(this.host(), user, pass, this.backend().name);
+        this.gatePass.set('');
+      }
+      await this.reload();
+      if (this.loaded()) {
+        this.gate.set(false);
+        this.gateError.set('');
+        this.log.set(`已连接 ${this.host()}，配置可编辑`);
+      }
+    } catch (e) {
+      this.gate.set(true);
+      this.gateError.set(this.msg(e));
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  closeGate(): void {
+    this.gate.set(false);
   }
 
   onEdit(v: string): void {

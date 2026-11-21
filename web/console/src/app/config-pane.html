@@ -1,3 +1,46 @@
+@if (gate()) {
+  <div class="cfggate">
+    <div class="cfggatehd">连接 {{ host() }}</div>
+    <div class="cfggatesub">
+      需要两样东西才能读写这台路由的配置：99 服务的发布密钥（X-Vault-Key）与路由的 SSH 账号。
+      填完点「连接」，成功后会直接进入配置编辑。
+    </div>
+    @if (gateError()) {
+      <div class="cfggateerr">✗ {{ gateError() }}</div>
+    }
+    <div class="cfgform cfgformgate">
+      <label class="wide">
+        <span>发布密钥（99 服务鉴权，留空=沿用顶部已填的）</span>
+        <input
+          type="password"
+          [value]="gateKey()"
+          (input)="gateKey.set($any($event.target).value)"
+          placeholder="X-Vault-Key"
+          autocomplete="off"
+        />
+      </label>
+      <label>
+        <span>路由 SSH 用户名</span>
+        <input [value]="gateUser()" (input)="gateUser.set($any($event.target).value)" placeholder="root" />
+      </label>
+      <label>
+        <span>路由 SSH 口令</span>
+        <input
+          type="password"
+          [value]="gatePass()"
+          (input)="gatePass.set($any($event.target).value)"
+          placeholder="路由 root 口令"
+          autocomplete="off"
+        />
+      </label>
+    </div>
+    <div class="cfgactions">
+      <button class="acc" (click)="connect()" [disabled]="busy()">{{ busy() ? '连接中…' : '连接' }}</button>
+      <button (click)="closeGate()" [disabled]="busy()">取消</button>
+      <span class="dim small">口令只提交给 99 落盘（0600），页面不保存、不回显</span>
+    </div>
+  </div>
+} @else {
 @if (err()) {
   <div class="banner show">✗ {{ err() }}</div>
 }
@@ -324,4 +367,5 @@
 
 @if (log()) {
   <pre class="cfglog">{{ log() }}</pre>
+}
 }

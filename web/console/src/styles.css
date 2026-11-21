@@ -706,3 +706,10 @@ button.win.on { color: var(--acc); border-color: var(--acc); background: #eefaf4
 button.mini { padding: 1px 7px; font-size: 10px; }
 button.mini.danger { color: var(--bad); border-color: #efc9cf; }
 td.nowrap { white-space: nowrap; }
+
+/* 连接门禁（像登录页） */
+.cfggate { max-width: 620px; margin: 18px auto; border: 1px solid var(--line); background: var(--panel); padding: 18px 20px; box-shadow: 0 2px 6px rgba(23,43,77,.06); }
+.cfggatehd { font-size: 14px; color: var(--ink); margin-bottom: 6px; }
+.cfggatesub { font-size: 11px; color: var(--dim); line-height: 1.7; margin-bottom: 12px; }
+.cfggateerr { font-size: 11px; color: var(--bad); background: #fdf1f3; border: 1px solid #f2cfd5; padding: 6px 8px; margin-bottom: 10px; }
+.cfgformgate { grid-template-columns: 1fr 1fr; }

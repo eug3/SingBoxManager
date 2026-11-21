@@ -154,7 +154,7 @@ sing-box 没有 reload/写配置 API，所以「改节点配置 → 生效」由
 
 要点：
 - **路由上不需要预装任何脚本**（早期版本的 `/usr/local/sbin/singbox-apply` 已废弃并清理）；用到的都是路由既有命令：`/opt/sing-box/sing-box`、`/etc/init.d/sing-box`、`netstat`、`sha256sum`、`cp/mv`。可用环境变量覆盖：`ROUTER_CONFIG` / `ROUTER_SINGBOX` / `ROUTER_INIT`。
-- **两套凭据要分清**：顶部「发布密钥」= 99 服务鉴权（`X-Vault-Key`）；**路由 SSH 用户名/口令**只存在 99 的 `/etc/vault-edit/routers.json`（0600 root），浏览器不保存。没配时页面会提示，点 `路由凭据` 可现场填写（只提交一次给 99 落盘，页面立即清空口令，列表接口也不回显）。
+- **两套凭据要分清**：顶部「发布密钥」= 99 服务鉴权（`X-Vault-Key`）；**路由 SSH 用户名/口令**只存在 99 的 `/etc/vault-edit/routers.json`（0600 root），浏览器不保存。**打开「配置」时若连不上（缺发布密钥 / 缺 SSH 凭据 / 密钥错 / SSH 失败），会直接弹「连接 <host>」页**：填发布密钥 + SSH 用户名 + 口令 → `连接` → 成功即进入可编辑视图并把发布密钥写进 localStorage（口令不落地）。也可随时点 `路由凭据` 更新。
 - **并发保护**：apply 带 `expectSha`，配置被别人改过返回 **409 STALE**；内容没变返回 `NO_CHANGE`（不重启）。
 - **实测**：apply 约 1.3s、restart 约 1.1–2.4s，`downtime_s=1~2`。
 - **凭据接口**：`GET/POST/DELETE /router/credentials`；host 必须在 `ROUTER_HOSTS` 白名单（默认两台路由）。
