@@ -44,10 +44,18 @@
       <app-rule-editor />
     }
 
-    <footer class="foot">
-    发布链路：浏览器 → 99 号机编译（sing-box）→ 写入 NAS → 两台路由 60s 内自动拉取，全程零重启<br />
-    管理台两个入口等价：http://192.168.31.99:9099/edit/（LAN）· http://10.1.1.99:9099/edit/（EasyTier）<br />
-    公网 https://router.guaishoudejia.com/ 只读规则与 zashboard，不含本页
-    </footer>
   </div>
+
+  <footer class="foot">
+    <span class="fp">VAULT CONSOLE</span>
+    <span>v{{ version }}</span>
+    <span class="sep"></span>
+    <span>{{ sbVersion() || 'sing-box —' }}</span>
+    <span class="sep"></span>
+    <span>发布链路 浏览器 → 99 编译 → NAS → 路由 60s 自拉（零重启）</span>
+    <span class="sep"></span>
+    <span>入口 192.168.31.99:9099 · 10.1.1.99:9099</span>
+    <span class="sep"></span>
+    <span>公网只读</span>
+  </footer>
 </div>

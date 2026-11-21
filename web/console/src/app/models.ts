@@ -66,6 +66,8 @@ export interface PublishResp {
 }
 
 /** 桶清单（与 NAS rule-set 目录一致） */
+export const CONSOLE_VERSION = '2026.11.21';
+
 export const BUCKETS: [string, number][] = [
   ['rs-node', 13], ['rs-direct', 17], ['rs-fcm', 5], ['rs-custom', 12], ['rs-openai', 9],
   ['rs-custom-2', 1], ['rs-balance', 1], ['rs-openai-2', 1], ['rs-iplc', 1], ['rs-custom-3', 1],

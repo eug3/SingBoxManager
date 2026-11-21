@@ -58,7 +58,7 @@ app-root {
   overflow-x: hidden;
   overscroll-behavior: contain;
   scrollbar-gutter: stable; /* 滚动条出现/消失不再挤动内容与顶栏 */
-  padding: 0 20px 20px;
+  padding: 0 20px 14px;
 }
 
 /* 细滚动条（gutter 已预留，不会造成横向跳动） */
@@ -615,14 +615,23 @@ select:focus {
   font-size: 10px;
   line-height: 2;
 }
+/* 底部信息条：固定在页面尾部，不随内容滚动 */
 .foot {
-  margin-top: 24px;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  row-gap: 2px;
+  margin: 0 20px;
+  padding: 6px 0 8px;
+  border-top: 1px dashed var(--line);
   color: #8b98a8;
   font-size: 10px;
-  line-height: 2;
-  border-top: 1px dashed var(--line);
-  padding-top: 12px;
+  line-height: 1.6;
 }
+.foot .fp { color: var(--acc); letter-spacing: 0.08em; }
+.foot .sep { width: 1px; height: 10px; background: var(--line); flex: 0 0 auto; }
 /* 概览面板 */
 .ovgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 12px; }
 .ovcard { border: 1px solid var(--line); background: var(--panel); padding: 12px 14px; box-shadow: 0 1px 2px rgba(23,43,77,.04); }
