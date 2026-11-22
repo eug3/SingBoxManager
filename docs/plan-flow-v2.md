@@ -17,7 +17,7 @@
 | 列 | key | 内容 | 来源 |
 |---|---|---|---|
 | ① | `pc` | 每个 `metadata.sourceIP` 一台小电脑（无则 `本机`），显示 IP 与连接数 | 实时 connections |
-| ② | `router` | 单个路由器节点，标签用后端 host（如 `192.168.31.32`）+ 引擎版本 | 后端 + `/version` |
+| ② | `router` | 单个路由器节点，标签用后端 host（如 `router-a.lan`）+ 引擎版本 | 后端 + `/version` |
 | ③ | `rule` | `分组名[规则 tagname]`：由 config `route.rules[]` 的 `rule_set[].tag` 与 `outbound` 组合；`final` 规则显示 `分组名[final]`；`DIRECT/block` 显示 `DIRECT[直连]` / `block[拦截]` | **config 解析**（静态全量），按实时命中数排序 |
 | ④ | `group` | config 里 `outbounds[]` 的 selector/urltest（badge：`手动`/`延迟排序`/`BALANCE`），无流量也显示 | **config 解析** |
 | ⑤ | `node` | config 里代理型 outbounds（ss/vmess/vless/trojan/hy2/tuic/anytls/socks/masque…），显示协议徽章 | **config 解析** |

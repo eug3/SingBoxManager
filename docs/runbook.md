@@ -20,7 +20,7 @@
   │ /usr/local/share/vault-edit/edit/        管理台前端（Angular 产物；deploy_console.sh 部署，不重编 Go）
   │ /usr/local/share/vault-edit/static/      静态资源（Monaco min/vs，走 /static/）
   │ /usr/local/bin/sing-box                  编译器
-  │ /mnt/hdd ← cifs → //nas.lan/<share>      fstab 持久挂载
+  │ SMB2 直连 //nas.lan/<share>（默认，纯 Go 无需挂载；local 模式=本地目录/cifs）
   ▼
 NAS nas.lan
   │ <规则共享目录>/index.html                 首页（脱敏）

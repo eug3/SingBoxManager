@@ -9,7 +9,7 @@
 
 | 角色 | 机器 | 说明 |
 |---|---|---|
-| 控制台/写通道 | 管理机 `console.lan`（Debian） | `vault-edit` Go 服务（`:9099`，systemd）；挂载 NAS 到 `/mnt/hdd`；带 `sing-box` 编译器 |
+| 控制台/写通道 | 管理机 `console.lan`（Debian） | `vault-edit` Go 服务（`:9099`，systemd）；默认经纯 Go SMB2 直连 NAS 规则目录（无需挂载，也支持 SFTP/本地目录，见 §6.6）；带 `sing-box` 编译器 |
 | 规则仓库 | NAS `nas.lan` 的 `<规则共享目录>` | `rule-set/*.json|*.srs`、`index.html`（公网首页）、`zashboard/` |
 | 路由 A | `router-a.lan` | sing-box 1.15，TUN 分流，remote rule-set 每 60s 拉取 |
 | 路由 B（可继续扩展） | `router-b.lan` … | 同上；新路由配置同一批 rule-set URL 即可接入 |
@@ -26,12 +26,12 @@ npm -v
 which sshpass
 ```
 
-管理机需要：可用 sudo、`/mnt/hdd` 已挂 NAS、`/usr/local/bin/sing-box` 可执行：
+管理机需要：可用 sudo、能访问 NAS 的 SMB(`445`) 或 SFTP(`22`) 端口（默认纯 Go SMB2 直连，**无需挂载**）、`/usr/local/bin/sing-box` 可执行：
 
 ```bash
 ssh <user>@console.lan
 sudo -n true && echo sudo-ok
-mount | grep /mnt/hdd          # 应为 cifs 挂载
+nc -z nas.lan 445 && echo smb-ok   # smb 模式；sftp 模式改探 22；local 模式才检查挂载点
 /usr/local/bin/sing-box version | head -1
 sudo systemctl status vault-edit --no-pager
 ```
@@ -48,7 +48,8 @@ sudo install -d -m 0755 /usr/local/share/vault-edit/edit /usr/local/share/vault-
 sudo sh -c 'printf "VAULT_KEY=%s\n" "<clash_api secret>" > /etc/vault-edit.env'
 sudo chmod 600 /etc/vault-edit.env
 
-# 2.3 NAS 挂载（fstab 持久；guest 只读+写目录）
+# 2.3 存储接线：默认 SHARE_MODE=smb 纯 Go 直连 NAS，**无需挂载**（参数见 §6.6）
+#    仅 SHARE_MODE=local 才需要 cifs 挂载（fstab 持久）：
 #    //<nas-host>/<share> /mnt/hdd cifs guest,uid=<user>,gid=users,iocharset=utf8,nofail 0 0
 
 # 2.4 systemd：unit 随仓库 service/vault-edit.service 一起由 deploy_service.sh 安装
@@ -60,8 +61,13 @@ sudo ss -ltnp | grep 9099
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| `LISTEN` | `:9099` | 监听地址（只在内网暴露，别改成 `0.0.0.0` 供公网） |
-| `SHARE_DIR` | `/mnt/hdd/WebEdit/rule-set` | rule-set 桶目录（NAS 挂载点下的路径） |
+| `LISTEN` | `:9099` | 管理台监听地址（只在内网暴露，别改成 `0.0.0.0` 供公网） |
+| `SHARE_MODE` | `smb` | 存储模式：`smb`（默认，纯 Go SMB2 直连 NAS）/ `sftp` / `local`（本地目录或挂载点） |
+| `SMB_ADDR` / `SMB_SHARE` / `SMB_PATH` | 见 §6.6 | smb 模式参数（NAS 地址:445 / 共享名 / 共享内子目录） |
+| `SHARE_DIR` | `/mnt/hdd/WebEdit/rule-set` | **仅 local 模式**：rule-set 桶目录（本地路径或挂载点） |
+| `FILES_LISTEN` | `:9098` | 只读文件端口（仅 `/rule-set/*` 与 `/health`；对外反代这个，别暴露 9099） |
+| `DB_FILE` | `/etc/vault-edit/sbm.db` | SQLite 状态库（存储配置、路由凭据、发布记录） |
+| `PUBLIC_BASE` | — | 公网规则 URL 前缀，`/share/health` 体检用 |
 | `PAGE_DIR` | `/usr/local/share/vault-edit/edit` | Angular 前端产物目录 |
 | `STATIC_DIR` | `/usr/local/share/vault-edit/static` | Monaco 等静态资源 |
 | `SINGBOX` | `/usr/local/bin/sing-box` | 编译 `.srs` 用 |
@@ -108,7 +114,7 @@ scripts/deploy_console.sh
 ## 5. 发布公网首页（NAS 静态）
 
 ```bash
-scripts/deploy_web.sh      # 只上传 web/index.html → NAS WebEdit/index.html
+scripts/deploy_web.sh      # 只上传 web/index.html → NAS <规则共享目录>/index.html
 ```
 
 注意：NAS 的 nginx 有约 1 分钟的句柄缓存，发布后可能短暂拿到旧页面；CDN 侧另有缓存，必要时 purge。
@@ -219,16 +225,16 @@ curl -s -X POST -H "X-Vault-Key: $VAULT_KEY" -H 'Content-Type: application/json'
 
 ```bash
 SHARE_MODE=smb        # smb(默认) | sftp | local
-SMB_ADDR=192.168.31.8:445
-SMB_SHARE=HddShare
-SMB_PATH=WebEdit/rule-set
+SMB_ADDR=nas.lan:445
+SMB_SHARE=<share>            # NAS 上的共享名
+SMB_PATH=<share内子目录>/rule-set
 SMB_USER=             # 留空=guest（NAS 共享是 sec=none 时无需账号）
 SMB_PASS=
 # SFTP 备用通道
 SFTP_ADDR=nas.lan:22
 SFTP_USER=
 SFTP_PASS=            # 或 SFTP_KEY=/path/to/id_ed25519
-SFTP_PATH=/volume1/WebEdit/rule-set
+SFTP_PATH=<NAS上的规则目录>   # 如 /volume1/<share>/WebEdit/rule-set
 PUBLIC_BASE=https://rules.example.com   # 体检时拉取公网 URL 用
 ```
 
@@ -236,11 +242,11 @@ PUBLIC_BASE=https://rules.example.com   # 体检时拉取公网 URL 用
 `/health`；管理台仍在 `:9099`（`/edit`、`/router/*`、`/publish`）。要对外提供规则桶，
 反代 `9098` 即可，**不要把 9099 暴露出去**。端口改完保存即时热重启监听，不用重启服务。
 
-存储配置也可在管理台顶栏状态点后的 ⚙ 里改（保存即热生效），落盘 `/etc/vault-edit/share.json`（0600）。
+存储配置也可在管理台顶栏状态点后的 ⚙ 里改（保存即热生效），持久化在 SQLite 库的 kv 表；旧部署的 `/etc/vault-edit/share.json`（0600）只在首次启动且库为空时一次性迁移导入（旧文件保留不动）。
 
 **数据库**：状态都在 `/etc/vault-edit/sbm.db`（0600，SQLite/WAL）——存储配置、路由 SSH 凭据、
 发布与配置应用记录。可用 `DB_FILE` 改位置；首次启动会自动迁移旧的 `share.json` / `routers.json`
-（旧文件保留不动）。查看：`curl -s -H "X-Vault-Key: $VAULT_KEY" localhost:9099/db/info`。
+（旧文件保留不动，之后只读写库）。查看：`curl -s -H "X-Vault-Key: $VAULT_KEY" localhost:9099/db/info`。
 
 **公网入口写进路由规则**：`GET /public/rules/preview?base=…` 预览会改多少条，
 `POST /public/rules/apply {"base":…,"confirm":true}` 写入（会重启 sing-box，约 1s）。
@@ -264,7 +270,7 @@ VAULT_KEY='<clash_api secret>' scripts/check.sh
 - 管理台：`/health` 200、`/edit/` 200（LAN + 虚拟内网两个入口）、`/rule-set/*.json` 200、Monaco loader 200、首页 `main-*.js` 200、`/publish` 无 key 401
 - 公网：`/edit/` **404**、`/` 200、三个桶 `*.srs` 200
 - 路由：`/proxies` 200（带 key），各页面来源预检均回 `Access-Control-Allow-Origin`，未知来源无
-- NAS 挂载：管理机的 `SHARE_DIR` 可读
+- 文件通道：管理机 `GET /share/health` 全绿（存储模式连通 + 公网样本桶可拉取）
 
 浏览器侧抽查（管理台 → 任一路由）：「概览」曲线有数据、「分组与节点」有组、「连接」有行、`🧩 规则编辑` 能打开 Monaco 且底部显示「✓ 合法 …」。
 
