@@ -38,7 +38,7 @@ ARCH_RAW=$(R "uname -m" | tr -d '\r')
 case "$ARCH_RAW" in
   x86_64)         ARCH=amd64 ;;
   aarch64|armv8l) ARCH=arm64 ;;
-  armv7l|armv6l)  ARCH=armv7 ;;
+  armv7l)         ARCH=armv7 ;;
   *) echo "不支持的架构: $ARCH_RAW(sing-box 官方 release 无对应包),到"
      echo "  https://github.com/SagerNet/sing-box/releases 自行确认后改本脚本的映射"; exit 1 ;;
 esac
@@ -56,10 +56,10 @@ if R "test -x /opt/sing-box/sing-box" 2>/dev/null; then
   echo "   已有安装: $OLD_VER → 会备份为 sing-box.bak-<ts> 后覆盖(配置不动)"
 fi
 
-echo "== 2/7 本机下载 sing-box ${SINGBOX_VERSION} (linux_${ARCH})"
+echo "== 2/7 本机下载 sing-box ${SINGBOX_VERSION} (linux_${ARCH}, musl 变体——OpenWrt 是 musl libc)"
 TEMP="$ROOT/.temp"; mkdir -p "$TEMP"
-TARBALL="$TEMP/sing-box-${SINGBOX_VERSION}-linux-${ARCH}.tar.gz"
-URL="https://github.com/SagerNet/sing-box/releases/download/v${SINGBOX_VERSION}/sing-box-${SINGBOX_VERSION}-linux-${ARCH}.tar.gz"
+TARBALL="$TEMP/sing-box-${SINGBOX_VERSION}-linux-${ARCH}-musl.tar.gz"
+URL="https://github.com/SagerNet/sing-box/releases/download/v${SINGBOX_VERSION}/sing-box-${SINGBOX_VERSION}-linux-${ARCH}-musl.tar.gz"
 if [ ! -s "$TARBALL" ]; then
   DL="${GH_PROXY:+$GH_PROXY/}$URL"
   echo "   下载 $DL"

@@ -45,13 +45,15 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o /out/vault-edit .
 
 # ————————————————— 4. sing-box 二进制（/publish 编译 .srs 用，版本可钉死） —————————————————
+# 运行时是 Alpine(musl)：官方默认构建链接 glibc 会报 no such file or directory，
+# 必须用 -musl 变体（包内目录 strip 后二进制名就是 sing-box）
 FROM alpine:3.22 AS singbox
 ARG SINGBOX_VERSION
 ARG GH_PROXY
 ARG TARGETARCH
 RUN apk add --no-cache curl \
  && curl -fL --retry 3 -o /tmp/sb.tar.gz \
-      "${GH_PROXY:+$GH_PROXY/}https://github.com/SagerNet/sing-box/releases/download/v${SINGBOX_VERSION}/sing-box-${SINGBOX_VERSION}-linux-${TARGETARCH}.tar.gz" \
+      "${GH_PROXY:+$GH_PROXY/}https://github.com/SagerNet/sing-box/releases/download/v${SINGBOX_VERSION}/sing-box-${SINGBOX_VERSION}-linux-${TARGETARCH}-musl.tar.gz" \
  && tar xzf /tmp/sb.tar.gz -C /tmp --strip-components=1 \
  && install -m 0755 /tmp/sing-box /usr/local/bin/sing-box \
  && /usr/local/bin/sing-box version | head -1

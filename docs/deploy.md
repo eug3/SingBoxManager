@@ -369,7 +369,9 @@ docker compose up -d --build
 1. **`.srs` 兼容性**：编译器版本新于路由 sing-box 时可能产出路由加载不了的 rule-set——
    `SINGBOX_VERSION` 务必 ≤ 路由侧版本（路由为 1.15 内测线，镜像默认 1.14.4 稳定版，
    产物向下兼容）。官方 ghcr 镜像只有 `latest` 无法钉版本，所以 Dockerfile 改为从
-   GitHub Releases 下载固定版本（注意资产命名是连字符：`sing-box-1.14.4-linux-amd64.tar.gz`）。
+   GitHub Releases 下载固定版本，注意两点：资产命名是连字符
+   （`sing-box-1.14.4-linux-amd64-musl.tar.gz`）；**必须用 `-musl` 变体**（镜像运行时
+   是 Alpine，官方默认构建链接 glibc，会报 `no such file or directory`）。
 2. **CORS 白名单**：容器端口与裸机一致（9099/9098）时无需动路由配置；改端口则要同步
    路由 `access_control_allow_origin` 与 `service/config.go` 的 `allowOrigins`。
 3. **local 模式公网入口**：容器默认 `SHARE_MODE=local`，公网只读要靠反代指到 `:9098`，
