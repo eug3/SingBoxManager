@@ -13,3 +13,8 @@ web/console/.angular/
 *.bak-*
 *.log
 /tmp/
+.temp/
+
+# 容器运行时数据 / 本地环境（.env.example 保留作模板）
+.env
+data/

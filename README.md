@@ -39,7 +39,8 @@
 | `web/edit/index.html` | 原生 HTML/JS（**已退役**） | 上一代单文件管理台，仅作回滚参考，不参与部署 |
 | `web/index.html` | 原生 HTML/JS | 公网首页（脱敏：只有桶卡片与体积/时间，无 IP/节点/拓扑） |
 | `service/router_*.go` | Go（在管理机上运行） | 路由配置通道：`router_store`（SSH 凭据 0600 存储）/ `router_ssh`（SSH 编排：读/check/备份/替换/重启/健康/回滚，**路由无需预装脚本**）/ `router_http`（鉴权与接口） |
-| `scripts/` | Bash | 部署（`deploy_service.sh` / `deploy_console.sh` / `deploy_web.sh`）、体检（`check.sh`）、CLI 发布（`publish.sh`） |
+| `scripts/` | Bash | 部署（`deploy_service.sh` / `deploy_console.sh` / `deploy_web.sh`）、新路由一键装 sing-box（`install_openwrt_singbox.sh`）、体检（`check.sh`）、CLI 发布（`publish.sh`） |
+| `Dockerfile` + `docker-compose.yml` | Docker（多阶段） | 一键构建运行整包（Go 服务 + 管理台 + Monaco + sing-box 编译器），见 [docs/deploy.md](docs/deploy.md) §11 |
 | `docs/architecture.md` | 文档 | 代码架构：模块划分、两条写通道、凭据分层、前端状态流 |
 | `docs/runbook.md` | 文档 | 运维手册：桶清单、路由配置口径、坑位、回滚表 |
 | `docs/deploy.md` | 文档 | 从零部署与升级的完整步骤 |
@@ -85,7 +86,14 @@ scripts/deploy_web.sh
 VAULT_KEY="$VAULT_KEY" scripts/check.sh
 ```
 
-详细步骤（管理机一次性初始化、路由侧 CORS 与重启口径、回滚、FAQ）见 **[docs/deploy.md](docs/deploy.md)**。
+也可用 **Docker 一键构建运行**（Go 服务 + Angular 管理台 + Monaco + sing-box 编译器打进一个镜像）：
+
+```bash
+cp .env.example .env   # 填 VAULT_KEY
+docker compose up -d --build
+```
+
+详细步骤（管理机一次性初始化、路由侧 CORS 与重启口径、回滚、FAQ、Docker）见 **[docs/deploy.md](docs/deploy.md)**。
 
 ## 日常操作
 
@@ -137,6 +145,7 @@ web/console/        Angular 22 管理台
 web/edit/           已退役的单文件管理台（回滚参考）
 web/index.html      公网只读首页
 scripts/            deploy_service.sh / deploy_console.sh / deploy_web.sh / check.sh / publish.sh
+                    install_openwrt_singbox.sh（新 OpenWrt 路由一键装 sing-box，路径与 /router/* 默认一致）
 docs/               architecture.md（代码架构）· runbook.md（运维手册）· deploy.md（部署手册）
 HANDOFF.md          交接摘要
 ```

@@ -1,0 +1,30 @@
+# 构建缓存与运行产物
+**/node_modules/
+**/dist/
+**/.angular/
+web/console/npm-debug.log*
+
+# 版本库与本地环境
+.git/
+.gitignore
+.env
+.env.*
+!.env.example
+
+# 文档与脚本（不进镜像层）
+docs/
+HANDOFF.md
+README.md
+scripts/
+
+# 已退役的旧管理台（不参与构建）
+web/edit/
+
+# macOS / 编辑器 / 临时
+.DS_Store
+.idea/
+.vscode/
+*.bak
+*.bak-*
+*.log
+*.swp

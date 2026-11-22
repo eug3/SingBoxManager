@@ -1,0 +1,32 @@
+# vault-edit 容器编排（与 scripts/deploy_service.sh + deploy_console.sh 的裸机部署二选一）
+# 首次：cp .env.example .env，填 VAULT_KEY 等真实值（.env 已被 .gitignore 忽略，绝不入库）
+# 日常：docker compose up -d --build
+# 说明见 docs/deploy.md §11。
+services:
+  vault-edit:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      # 覆盖构建参数示例（默认值见 Dockerfile ARG）：
+      # args:
+      #   SINGBOX_VERSION: 1.14.4   # ≤ 路由侧版本即可（.srs 向下兼容）
+      #   GH_PROXY: ""              # 国内网络下载 sing-box 的镜像前缀
+      #   MONACO_VERSION: "0.57.0"
+    image: sbm/vault-edit:latest
+    container_name: vault-edit
+    restart: unless-stopped
+    env_file: .env            # VAULT_KEY 必填；SMB/SFTP/公网入口等按需追加
+    environment:
+      LISTEN: :9099           # 管理台 + /publish + /router/*（只应对内网暴露）
+      FILES_LISTEN: :9098     # 独立只读文件端口（/rule-set + /health）
+    ports:
+      - "9099:9099"           # 管理台（内网）
+      - "9098:9098"           # 只读规则源（可对外反代）
+    volumes:
+      - vault-data:/var/lib/vault-edit   # SQLite、routers.json、share.json
+      - ./data/rule-set:/usr/local/share/vault-edit/rule-set  # local 模式规则桶（改用 SMB/SFTP 可删掉这行）
+    extra_hosts:
+      - "nas.lan:192.168.31.8"   # SMB/SFTP 模式直连 NAS 时按需启用（示例占位）
+
+volumes:
+  vault-data:
