@@ -7,6 +7,10 @@
 
 > 本文所有主机名 / IP / 域名均为**示例占位**（`console.lan`、`router-a.lan`、`rules.example.com` 等），部署时替换为自己的真实地址；真实拓扑只记录在内部运维文档，不进本仓库。
 
+首页：
+
+![1795328056666](image/README/1795328056666.png)
+
 ---
 
 ## 架构
@@ -32,28 +36,27 @@
 
 ## 组件
 
-| 路径 | 技术栈 | 作用 |
-|---|---|---|
-| `service/` | Go 1.27（单二进制，单包多文件） | `vault-edit`：静态页面 + `/rule-set/*` + `/publish` + `/router/*`；模块划分见 [docs/architecture.md](docs/architecture.md) |
-| `web/console/` | Angular 22 + TypeScript 6（signals、zoneless） | 内网管理台：概览曲线、分组/节点、连接、日志、规则、Monaco 规则编辑 |
-| `web/edit/index.html` | 原生 HTML/JS（**已退役**） | 上一代单文件管理台，仅作回滚参考，不参与部署 |
-| `web/index.html` | 原生 HTML/JS | 公网首页（脱敏：只有桶卡片与体积/时间，无 IP/节点/拓扑） |
-| `service/router_*.go` | Go（在管理机上运行） | 路由配置通道：`router_store`（SSH 凭据 0600 存储）/ `router_ssh`（SSH 编排：读/check/备份/替换/重启/健康/回滚，**路由无需预装脚本**）/ `router_http`（鉴权与接口） |
-| `scripts/` | Bash | 部署（`deploy_service.sh` / `deploy_console.sh` / `deploy_web.sh`）、新路由一键装 sing-box（`install_openwrt_singbox.sh`）、体检（`check.sh`）、CLI 发布（`publish.sh`） |
-| `Dockerfile` + `docker-compose.yml` | Docker（多阶段） | 一键构建运行整包（Go 服务 + 管理台 + Monaco + sing-box 编译器），见 [docs/deploy.md](docs/deploy.md) §11 |
-| `docs/architecture.md` | 文档 | 代码架构：模块划分、两条写通道、凭据分层、前端状态流 |
-| `docs/runbook.md` | 文档 | 运维手册：桶清单、路由配置口径、坑位、回滚表 |
-| `docs/deploy.md` | 文档 | 从零部署与升级的完整步骤 |
+| 路径                     | 技术栈                                         | 作用                                                                                                                                                                           |
+| ------------------------ | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `service/`             | Go 1.27（单二进制，单包多文件）                | `vault-edit`：静态页面 + `/rule-set/*` + `/publish` + `/router/*`；模块划分见 [docs/architecture.md](docs/architecture.md)                                              |
+| `web/console/`         | Angular 22 + TypeScript 6（signals、zoneless） | 内网管理台：概览曲线、分组/节点、连接、日志、规则、Monaco 规则编辑                                                                                                             |
+| `web/edit/index.html`  | 原生 HTML/JS（**已退役**）               | 上一代单文件管理台，仅作回滚参考，不参与部署                                                                                                                                   |
+| `web/index.html`       | 原生 HTML/JS                                   | 公网首页（脱敏：只有桶卡片与体积/时间，无 IP/节点/拓扑）                                                                                                                       |
+| `service/router_*.go`  | Go（在管理机上运行）                           | 路由配置通道：`router_store`（SSH 凭据 0600 存储）/ `router_ssh`（SSH 编排：读/check/备份/替换/重启/健康/回滚，**路由无需预装脚本**）/ `router_http`（鉴权与接口） |
+| `scripts/`             | Bash                                           | 部署（`deploy_service.sh` / `deploy_console.sh` / `deploy_web.sh`）、体检（`check.sh`）、CLI 发布（`publish.sh`）                                                    |
+| `docs/architecture.md` | 文档                                           | 代码架构：模块划分、两条写通道、凭据分层、前端状态流                                                                                                                           |
+| `docs/runbook.md`      | 文档                                           | 运维手册：桶清单、路由配置口径、坑位、回滚表                                                                                                                                   |
+| `docs/deploy.md`       | 文档                                           | 从零部署与升级的完整步骤                                                                                                                                                       |
 
 ## 关键地址（示例占位）
 
-| 用途 | 地址 |
-|---|---|
-| 管理台（内网 LAN） | `http://console.lan:9099/edit/` |
-| 管理台（虚拟内网，可选） | `http://console-vpn.lan:9099/edit/` |
-| 公网只读首页 | `https://rules.example.com/` |
-| zashboard（备选看板） | `http://dash.lan:888/zashboard/` |
-| 各路由 clash_api | `http://router-a.lan:9090` / `http://router-b.lan:9090` … |
+| 用途                     | 地址                                                           |
+| ------------------------ | -------------------------------------------------------------- |
+| 管理台（内网 LAN）       | `http://console.lan:9099/edit/`                              |
+| 管理台（虚拟内网，可选） | `http://console-vpn.lan:9099/edit/`                          |
+| 公网只读首页             | `https://rules.example.com/`                                 |
+| zashboard（备选看板）    | `http://dash.lan:888/zashboard/`                             |
+| 各路由 clash_api         | `http://router-a.lan:9090` / `http://router-b.lan:9090` … |
 
 管理台两个入口等价；浏览器会**直连**路由的 `clash_api`，所以每台路由的
 `access_control_allow_origin` 必须包含页面来源（精确 origin，不能写网段）：
@@ -86,14 +89,7 @@ scripts/deploy_web.sh
 VAULT_KEY="$VAULT_KEY" scripts/check.sh
 ```
 
-也可用 **Docker 一键构建运行**（Go 服务 + Angular 管理台 + Monaco + sing-box 编译器打进一个镜像）：
-
-```bash
-cp .env.example .env   # 填 VAULT_KEY
-docker compose up -d --build
-```
-
-详细步骤（管理机一次性初始化、路由侧 CORS 与重启口径、回滚、FAQ、Docker）见 **[docs/deploy.md](docs/deploy.md)**。
+详细步骤（管理机一次性初始化、路由侧 CORS 与重启口径、回滚、FAQ）见 **[docs/deploy.md](docs/deploy.md)**。
 
 ## 日常操作
 
@@ -114,14 +110,14 @@ docker compose up -d --build
 
 ## 故障排查（最常见的 6 个坑）
 
-| 现象 | 原因与处理 |
-|---|---|
-| 管理台后端页底部提示 401 | 该后端密钥未填 → 顶部「发布密钥」或后端配置里填 `clash_api` secret |
-| `Failed to fetch` / 无 ACAO | 路由 `access_control_allow_origin` 没含**精确**页面来源（如 `http://console.lan:9099`，不能只写网段） |
-| `/edit/` 白屏或 `main-*.js` 404 | 只覆盖了 `index.html`；必须整目录替换（`deploy_console.sh` 已处理，Go 侧 `/edit/` 有 SPA 回落） |
-| Monaco 编辑器不出来 | 管理机上缺 `<STATIC_DIR>/monaco/vs`（`deploy_console.sh` 会自动铺） |
-| 虚拟内网（如 EasyTier）peer 表正常但 ping 不通 | 数据面被中间转发（如 Socat 的 `udp → tcp4` 误配）毒化，修法见 runbook |
-| 规则改了不生效 | 桶内容没变（按 hash 判定）/ 未过 60s 拉取窗口 / NAS 写回失败，看路由日志 `update rule-set <桶>` |
+| 现象                                           | 原因与处理                                                                                                      |
+| ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| 管理台后端页底部提示 401                       | 该后端密钥未填 → 顶部「发布密钥」或后端配置里填 `clash_api` secret                                           |
+| `Failed to fetch` / 无 ACAO                  | 路由 `access_control_allow_origin` 没含**精确**页面来源（如 `http://console.lan:9099`，不能只写网段） |
+| `/edit/` 白屏或 `main-*.js` 404            | 只覆盖了 `index.html`；必须整目录替换（`deploy_console.sh` 已处理，Go 侧 `/edit/` 有 SPA 回落）           |
+| Monaco 编辑器不出来                            | 管理机上缺 `<STATIC_DIR>/monaco/vs`（`deploy_console.sh` 会自动铺）                                         |
+| 虚拟内网（如 EasyTier）peer 表正常但 ping 不通 | 数据面被中间转发（如 Socat 的 `udp → tcp4` 误配）毒化，修法见 runbook                                        |
+| 规则改了不生效                                 | 桶内容没变（按 hash 判定）/ 未过 60s 拉取窗口 / NAS 写回失败，看路由日志 `update rule-set <桶>`               |
 
 更多坑位与回滚见 [docs/runbook.md](docs/runbook.md)。
 
@@ -145,7 +141,6 @@ web/console/        Angular 22 管理台
 web/edit/           已退役的单文件管理台（回滚参考）
 web/index.html      公网只读首页
 scripts/            deploy_service.sh / deploy_console.sh / deploy_web.sh / check.sh / publish.sh
-                    install_openwrt_singbox.sh（新 OpenWrt 路由一键装 sing-box，路径与 /router/* 默认一致）
 docs/               architecture.md（代码架构）· runbook.md（运维手册）· deploy.md（部署手册）
 HANDOFF.md          交接摘要
 ```

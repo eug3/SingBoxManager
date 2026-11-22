@@ -117,29 +117,6 @@ scripts/deploy_web.sh      # 只上传 web/index.html → NAS WebEdit/index.html
 
 ## 6. 路由侧配置（路由 A / 路由 B / …）
 
-### 6.0 新路由一键安装 sing-box（OpenWrt）
-
-新 OpenWrt 路由从零接入,在**开发机**上跑(路由上无需预装任何东西):
-
-```bash
-ROUTER=192.168.31.32 ROUTER_PW='<路由口令>' scripts/install_openwrt_singbox.sh
-```
-
-脚本做的事:探测 CPU 架构(x86_64/aarch64/armv7l → 官方 release 对应包)→ 本机下载
-sing-box(`SINGBOX_VERSION` 控版本,默认最新稳定版 1.14.4,≤ 路由侧版本即可,`.srs` 向下
-兼容;国内可 `GH_PROXY=` 走镜像)→ 装依赖 `kmod-tun` → 二进制装到 `/opt/sing-box/sing-box`
-(旧版自动备份 `.bak-<ts>`)→ 写 procd init `/etc/init.d/sing-box` → 装初始配置(路由已有
-config.json 则**不动**,新的留在 `config.json.new`)→ enable + restart + 自检(进程/版本/
-`sing-box check`/clash_api 9090 监听/开机自启)。
-
-装完的路径与 §6.5 管理机 `/router/*` 的默认完全一致(`ROUTER_SINGBOX`/`ROUTER_INIT`),
-管理台「添加后端 + 配置 tab 填 SSH 凭据」即可接管。可选环境变量:`CONFIG_JSON=`(推
-本地生产配置上去)、`RULES_BASE=`(内置模板的远程 rule-set 地址)、`PORT=`、`ROUTER_USER=`。
-
-> 兜底模板只保证服务能起 + clash_api + 两个示例远程桶;secret 是占位符,务必按 §6.1/§6.2
-> 换生产配置与 CORS 白名单后再切流量。升级同样跑这个脚本(`SINGBOX_VERSION=1.16.0` 之类),
-> 配置不动、二进制自动备份。
-
 ### 6.1 remote rule-set 指向 NAS
 
 各路由 `config.json` 的 `route.rule_set[]` 均为 `type: remote`、`format: binary`、`url: https://rules.example.com/rule-set/<桶>.srs`、`update_interval: 1m`。换域名/NAS 时改这里，**改完必须 `sing-box check` + 重启**。
@@ -322,57 +299,3 @@ VAULT_KEY='<clash_api secret>' scripts/check.sh
 7. **`sshpass` 连续握手被掐**：脚本统一「一次 scp 上传全部 + 单次 ssh 安装」，sudo 口令走 `0600` 临时文件喂 `sudo -S`，不要放 argv。
 
 更多细节（桶清单、出站映射、路由版本、回滚表）见 [runbook.md](runbook.md)。
-
-## 11. Docker 部署（可选，与脚本裸机部署二选一）
-
-> 仓库根目录的 `Dockerfile`（多阶段）+ `docker-compose.yml` + `.env.example` 把三个单元
-> 打成**一个镜像**：Angular 管理台、Monaco 静态、Go 服务、`sing-box` 编译器（从 GitHub
-> Releases 拉固定版本，`/publish` 编译 `.srs` 用，版本可钉死并与路由侧对齐）。
-> 适合新机器快速拉起或不想在管理机铺 Go/Node 工具链的场景；日常改页面仍推荐
-> `deploy_console.sh`（静态替换不重启）。
-
-### 11.1 构建
-
-```bash
-# 构建上下文必须是仓库根目录
-docker build -t sbm/vault-edit .
-# 可覆盖参数：sing-box 版本（≤ 路由侧版本即可，.srs 向下兼容）、下载镜像、Monaco 版本
-docker build --build-arg SINGBOX_VERSION=1.14.4 --build-arg MONACO_VERSION=0.57.0 \
-             -t sbm/vault-edit .
-# 国内网络拉 GitHub 困难时：--build-arg GH_PROXY=https://ghproxy.com
-```
-
-### 11.2 运行（compose）
-
-```bash
-cp .env.example .env     # 填 VAULT_KEY（必填）；存储默认 local，改 SMB/SFTP 见文件内注释
-mkdir -p data/rule-set   # local 模式的规则桶目录（compose 已挂进容器）
-docker compose up -d --build
-```
-
-- 管理台 `http://<主机>:9099/edit/`；只读规则源 `:9098`（只挂 `/rule-set/` 与 `/health`）
-- 数据落在 named volume `vault-data`（SQLite / routers.json / share.json），重建容器不丢
-- 密钥只经 `.env`（已 gitignore）注入容器，不进镜像、不进仓库——与 §2 的裸机口径一致
-
-### 11.3 与脚本部署的对照
-
-| 事项 | 脚本裸机（默认） | Docker |
-|---|---|---|
-| 后端发版 | `scripts/deploy_service.sh`（交叉编译 + scp + systemd） | `docker compose up -d --build`（整镜像重建） |
-| 前端发版 | `scripts/deploy_console.sh`（静态替换，不重启） | 同上（镜像里前端与后端一起换） |
-| sing-box 编译器 | 管理机 `/usr/local/bin/sing-box`（手动维护） | 镜像内置，`SINGBOX_VERSION` 构建参数控版本 |
-| 数据/凭据 | `/etc/vault-edit*`（0600 root） | volume `vault-data` + `.env` |
-| 回滚 | 备份目录/二进制（§9） | `docker tag` 留旧镜像或镜像 tag 固定版本号 |
-
-### 11.4 坑
-
-1. **`.srs` 兼容性**：编译器版本新于路由 sing-box 时可能产出路由加载不了的 rule-set——
-   `SINGBOX_VERSION` 务必 ≤ 路由侧版本（路由为 1.15 内测线，镜像默认 1.14.4 稳定版，
-   产物向下兼容）。官方 ghcr 镜像只有 `latest` 无法钉版本，所以 Dockerfile 改为从
-   GitHub Releases 下载固定版本，注意两点：资产命名是连字符
-   （`sing-box-1.14.4-linux-amd64-musl.tar.gz`）；**必须用 `-musl` 变体**（镜像运行时
-   是 Alpine，官方默认构建链接 glibc，会报 `no such file or directory`）。
-2. **CORS 白名单**：容器端口与裸机一致（9099/9098）时无需动路由配置；改端口则要同步
-   路由 `access_control_allow_origin` 与 `service/config.go` 的 `allowOrigins`。
-3. **local 模式公网入口**：容器默认 `SHARE_MODE=local`，公网只读要靠反代指到 `:9098`，
-   并在管理台「⚙ 存储配置」里把 `PUBLIC_BASE` 改成对外地址。
