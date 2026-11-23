@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -97,13 +98,41 @@ func compileRuleSet(jtxt []byte) ([]byte, error) {
 	return srs, nil
 }
 
+// publishAllowedOrigin 请求是否来自管理台页面本身（同源/白名单来源）。
+// 只看 Origin（现代浏览器同源 POST 会带），退而看 Referer；两者都没有就是脚本直连，走密钥。
+func publishAllowedOrigin(r *http.Request) bool {
+	if o := r.Header.Get("Origin"); o != "" {
+		return originAllowed(o)
+	}
+	if ref := r.Header.Get("Referer"); ref != "" {
+		if u, err := url.Parse(ref); err == nil && u.Scheme != "" && u.Host != "" {
+			return originAllowed(u.Scheme + "://" + u.Host)
+		}
+	}
+	return false
+}
+
+// originAllowed 是否在管理台页面白名单（allowOrigins）里
+func originAllowed(origin string) bool {
+	for _, o := range allowOrigins {
+		if o == origin {
+			return true
+		}
+	}
+	return false
+}
+
 // handlePublish 发布一个规则桶（.json + .srs 成对写回，编译失败不落盘）。
 // 错误语义：401=密钥错；400=body/桶名/规则结构不合法；503=共享不可用；500=编译或写回失败。
 func handlePublish(w http.ResponseWriter, r *http.Request) {
 	if preflight(w, r) {
 		return
 	}
-	if r.Header.Get("X-Vault-Key") != vaultKey {
+	// 鉴权：规则桶只管「谁能改 NAS 上的规则文件」，与路由 clash_api 无关。
+	//  · 页面同源调用（Origin 或 Referer 在管理台白名单里）：页面本身已能打开 = 有操作权，直接放行；
+	//  · 脚本/无浏览器场景：仍用 X-Vault-Key（= VAULT_KEY）。
+	// 这样「规则编辑」不再要求用户手填 clash 密钥（那本来就不该是它的前提）。
+	if !publishAllowedOrigin(r) && r.Header.Get("X-Vault-Key") != vaultKey {
 		fail(w, 401, "bad key")
 		return
 	}

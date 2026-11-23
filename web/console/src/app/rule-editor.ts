@@ -91,7 +91,11 @@ export class RuleEditor implements OnInit {
     }
   }
 
-  /** 发布：校验+密钥前置检查 → /publish → 刷新 HEAD */
+  /**
+   * 发布：校验 → /publish → 刷新 HEAD。
+   * 规则桶的写权限与路由无关（只动 NAS 上的文件）：页面同源调用由服务端按 Origin 放行，
+   * 不需要任何手填密钥；密钥仅留给脚本/无浏览器场景。
+   */
   async publish(): Promise<void> {
     const c = this.check();
     if (!c.ok) {
@@ -102,17 +106,6 @@ export class RuleEditor implements OnInit {
         srs: 0,
         sha256: '',
         error: '校验没通过：' + c.msg,
-      });
-      return;
-    }
-    if (!this.key()) {
-      this.result.set({
-        ok: false,
-        bucket: this.bucket(),
-        json: 0,
-        srs: 0,
-        sha256: '',
-        error: '还没有密钥',
       });
       return;
     }
@@ -149,8 +142,8 @@ export class RuleEditor implements OnInit {
       if (e.includes('json 语法错误')) return '编辑器里的 JSON 括号/逗号不完整：点「格式化」会指出位置，修好后再发布。';
       return '内容不通过前端校验（版本号、rules[] 结构或字段名）：按上面校验条的提示逐条修。';
     }
-    if (e.includes('没有密钥')) return '还没有密钥：到任一后端的「配置」页填 clash 密钥，或在「⚙ 后端配置」里填密钥后再发布。';
-    if (e.includes('bad key') || e.includes('401')) return '密钥不对或已轮换：到任一后端的「配置」页重填 clash 密钥后再发布。';
+    if (e.includes('没有密钥')) return '页面同源发布不需要密钥；若从脚本调用，需要在请求头带 X-Vault-Key。';
+    if (e.includes('bad key') || e.includes('401')) return '服务端拒绝了这次发布请求：从管理台页面重试通常即可（同源放行）；脚本调用请核对 X-Vault-Key。';
     if (e.includes('bad bucket')) return '桶名不合法：从下拉里选一个桶，不要手动改文件名。';
     if (e.includes('bad body') || e.includes('非法') || e.includes('invalid')) {
       return '内容被服务端拒收：多为 rules[] 结构或字段名不合法，看上面校验条的提示逐条修。';
