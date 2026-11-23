@@ -9,6 +9,9 @@ package main
 //   GET  /                           302 → /edit/              main.go
 //   GET  /edit/                      Angular 管理台（SPA）     files.go
 //   GET  /static/                    Monaco 等本地静态资源     files.go
+//   GET  /rule-set/index             规则桶清单（名字+大小/时间）  buckets.go
+//   POST /rule-set/create            新建空桶（只写 .json，需密钥） buckets.go
+//   POST /rule-set/rename            重命名桶（.json+.srs 一起搬） buckets.go
 //   GET  /rule-set/<桶>.{json,srs}   NAS 规则桶只读源（SMB/SFTP）files.go
 //   DELETE /rule-set/<桶>.json       删桶（.json+.srs，需密钥）files.go
 //   GET  /share/health               文件通道+公网 URL 体检     share_health.go
@@ -95,6 +98,9 @@ func main() {
 	mux.HandleFunc("GET /edit/", servePage)
 	mux.HandleFunc("GET /edit/index.html", servePage)
 	mux.HandleFunc("GET /static/", serveStatic)
+	mux.HandleFunc("GET /rule-set/index", handleRuleSetIndex)
+	mux.HandleFunc("POST /rule-set/create", handleRuleSetCreate)
+	mux.HandleFunc("POST /rule-set/rename", handleRuleSetRename)
 	mux.HandleFunc("GET /rule-set/", serveRuleSet)
 	mux.HandleFunc("DELETE /rule-set/", handleRuleSetDelete)
 

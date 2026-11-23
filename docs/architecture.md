@@ -27,6 +27,7 @@ main.go           入口 + 路由表 + /health（每个接口的实现位置都�
 config.go         环境变量与常量（密钥只从 env 读；桶名/来源白名单）
 httpx.go          writeJSON / fail / setCors / preflight / safeJoin / trunc / sha256Hex
 files.go          /edit/（SPA 回退） /static/（Monaco） /rule-set/（只读+DELETE）
+buckets.go        GET /rule-set/index（列 NAS 桶目录）+ POST /rule-set/create（新建空桶）+ POST /rule-set/rename（改名，.json/.srs 一起搬）
 files_server.go   独立只读文件端口（默认 :9098）：只挂 /rule-set/+/health，管理台不外露
 publish.go        POST /publish：规则校验 → sing-box 编译 .srs → 成对写回存储
 share.go          ShareFS 抽象：smb(纯Go SMB2)/sftp/local 三实现，会话复用+临时名rename
@@ -132,13 +133,13 @@ Angular 22，standalone + signals + zoneless，无路由库（主 tab 是信号�
 
 ```
 app.ts / app.html          根壳：顶栏（存储状态点+齿轮）+ 主 tab（规则编辑顶右）+ 页脚
-backend-pane.ts / .html    一台路由的面板：概览/分组/连接/流向/日志/规则/配置 子页 + 待保存条 + 编辑弹窗宿主
-connections.ts / .html     「连接」子页：活跃/已关闭/全部三档 + 搜索/筛选/排序/分组/列设置 + 详情抽屉（自持轮询）
+backend-pane.ts / .html    一台路由的面板：概览/分组/连接/流向/日志/规则/配置 子页 + 待保存条 + 编辑弹窗宿主；头部统计条读 LiveStatService 的共享快照
+connections.ts / .html     「连接」子页：活跃/已关闭/全部三档 + 搜索/筛选/排序/分组/列设置 + 详情抽屉（订阅共享连接快照做差分）
 connections-model.ts       连接纯函数：快照差分(速率/空转/已关闭)/搜索正则/排序/筛选/分组/列定义
 overview.ts / .html        概览：速率/连接数/内存曲线 + 模式切换 + 网络信息（hist 缓存 localStorage）
 config-pane.ts / .html     「配置」子页：门禁→读取→暂存→校验→应用 + 分流规则/分组看板面板
-rule-editor.ts / .html     「规则编辑」主 tab：规则桶读取/校验/发布
-flow-anim.ts / .html       「流向」子页：六列 band 流向图组件（数据加载/rAF 鱼/交互/全屏/缩放/微型图）
+rule-editor.ts / .html     「规则编辑」主 tab：左侧文件树（可新建/重命名/删除 JSON，支持右键菜单）+ 右侧 Monaco 读取/校验/格式化/发布
+flow-anim.ts / .html       「流向」子页：六列 band 流向图组件（数据加载/rAF 鱼/交互/全屏/缩放/普通·强调视图/微型图）
 flow-model.ts              流向纯函数引擎：buildStatic/buildFlow/stepActivity/buildLayout/切线/延时分级
 
 —— 编辑弹窗（点 ③/④ 卡片或保存缺凭据时弹出）——
@@ -149,12 +150,19 @@ share-config.ts / .html    顶栏齿轮：存储模式/SMB/SFTP/本机目录/规
 group-board.ts / .html     分组看板：未分组+各分组列，拖 chip 改成员（=改 config，需重启）
 rule-selector.ts / .html   分流规则选择器：route.rules 启用/停用（=改 config，需重启）
 
+—— 全局交互（取代原生 confirm()/alert()，浏览器拦截原生对话框时不会静默）——
+confirm-dialog.ts          页内确认框：原生 <dialog> + showModal（顶层/焦点约束/ESC），外观复用 .modal
+toast.ts                   右下角提示条堆叠：可叠多条、点击即关、到点自动消失
+
 —— 服务层（Injectable，全部 providedIn: 'root'）——
 backends.service.ts        后端列表 + 全局密钥（localStorage；草稿只在内存）
 clash.service.ts           clash_api 客户端（浏览器直连路由；REST + WebSocket）
-vault.service.ts           规则桶读写（同源 /rule-set/ 与 /publish）+ 前端预校验
+vault.service.ts           规则桶读写（/rule-set/<桶>.json、/rule-set/index 清单、/publish）+ 前端预校验
 router.service.ts          /router/* 客户端（X-Vault-Key = 该后端 clash 密钥）
 config-draft.service.ts    配置草稿：baseDoc/draft/dirty/stage/cancel/save（凭据预检+乐观锁）
+live-stat.service.ts       连接快照唯一轮询者：subscribe(backend, ms)→snap 信号（at 去重），末位退订即停、隐藏页跳过
+confirm.service.ts         确认框状态机：ask({title,body,details,danger})→Promise<boolean>，队列逐个显示
+toast.service.ts           提示条状态机：show/ok/error + 自动消失（取代 alert）
 share-health.service.ts    /share/health 周期体检 + /share/config|probe|import 客户端
 
 —— 纯函数模块（不碰组件状态，可单测）——
@@ -167,7 +175,7 @@ line-diff.ts               LCS 行级 diff（暂存变更预览）
 util.ts                    字节/速率格式化、延迟分级、错误文案、并发池 runPool
 area-chart.ts              轻量 SVG 图表（曲线/柱形，固定格数窗口，non-scaling-stroke 细线）
 monaco-editor.ts           Monaco 受控封装（本站 AMD loader，离线可用）
-models.ts                  接口类型 + 常量（桶清单/页面来源/延迟阈值/版本号）
+models.ts                  接口类型 + 常量（页面来源/延迟阈值/版本号）
 ```
 
 ### 3.0 「连接」子页（connections + connections-model）

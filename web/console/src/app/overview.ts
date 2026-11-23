@@ -25,6 +25,8 @@ import { Backend, ProxyNode } from './models';
 import { ClashService } from './clash.service';
 import { RouterApiStatus, RouterService } from './router.service';
 import { fmtBytes, fmtMib, fmtRate, latClass, latText, mibToBytes, runPool } from './util';
+import { ConfirmService } from './confirm.service';
+import { ToastService } from './toast.service';
 
 const MAX_POINTS = 600; // 原始 1s 采样缓冲 = 10 分钟
 const BUCKET_SECONDS = 2; // 图形窗口按 2 秒一格填充（10 分钟 = 300 格）
@@ -53,6 +55,10 @@ export class OverviewPane implements OnInit, OnDestroy {
 
   /** clash_api 客户端：WebSocket 采样与 REST 读写 */
   private readonly clash = inject(ClashService);
+  /** 页内确认框（取代原生 confirm） */
+  private readonly ui = inject(ConfirmService);
+  /** 页内提示条（取代原生 alert） */
+  private readonly toast = inject(ToastService);
 
   /** 下载速率原始采样（1s 一点，环形保留最近 MAX_POINTS 个） */
   readonly downPts = signal<number[]>([]);
@@ -359,12 +365,17 @@ export class OverviewPane implements OnInit, OnDestroy {
   /** 切换路由模式（PATCH /configs）：需确认；失败弹窗提示且保持原模式 */
   async setMode(mode: string): Promise<void> {
     if (mode === this.mode()) return;
-    if (!confirm(`把路由模式切到 ${mode}？（影响整台路由的全局分流，可随时切回）`)) return;
+    const ok = await this.ui.ask({
+      title: `把路由模式切到 ${mode}？`,
+      body: '影响整台路由的全局分流，可随时切回。',
+      okText: '切换',
+    });
+    if (!ok) return;
     try {
       await this.clash.setMode(this.backend(), mode);
       this.mode.set(mode);
     } catch (e) {
-      alert('切换失败：' + ((e as Error)?.message ?? e));
+      this.toast.error('切换失败：' + ((e as Error)?.message ?? e));
     }
   }
 

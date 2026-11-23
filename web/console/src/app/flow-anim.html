@@ -22,6 +22,19 @@
     <span class="fbarbtns">
       <button
         type="button"
+        class="fscale fmode"
+        [class.on]="emphasis()"
+        [attr.title]="
+          emphasis()
+            ? '切回普通视图：全部链路按原浓度显示'
+            : '强调视图：只亮有流量的连线与节点，其余压暗'
+        "
+        (click)="toggleEmphasis()"
+      >
+        {{ emphasis() ? '强调视图' : '普通视图' }}
+      </button>
+      <button
+        type="button"
         class="fscale"
         [attr.title]="
           scaleMode() === 'fit' ? '切到 100%（原像素，画布内滚动）' : '切到自适应（整图等比缩放，不滚动）'
@@ -155,11 +168,12 @@
             (e.stat ? ' stat' : '') +
             (e.active ? ' active' : '') +
             (e.hi ? ' hi' : '') +
-            (e.dim ? ' dim' : '')
+            (e.dim ? ' dim' : '') +
+            (e.emp ? ' emp' : '')
           "
           [attr.d]="e.d"
-          [attr.stroke-opacity]="e.dim ? 0.08 : e.opacity"
-          [attr.stroke-width]="e.hi ? e.width + 0.8 : e.width"
+          [attr.stroke-opacity]="e.opacity"
+          [attr.stroke-width]="e.width"
         />
       }
 
@@ -174,6 +188,7 @@
             (n.count > 0 ? ' live' : '') +
             (n.active ? ' active' : '') +
             (n.hi ? ' hi' : n.dim ? ' dim' : '') +
+            (n.emp ? ' emp' : '') +
             (n.edit ? ' editable' : '')
           "
           (mouseenter)="onEnter(n.key, $event)"

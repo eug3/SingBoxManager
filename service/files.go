@@ -102,7 +102,7 @@ func handleRuleSetDelete(w http.ResponseWriter, r *http.Request) {
 	if preflight(w, r) {
 		return
 	}
-	if !routerAuth(w, r, "") {
+	if !bucketWriteAuth(w, r) {
 		return
 	}
 	name := strings.TrimPrefix(r.URL.Path, "/rule-set/")

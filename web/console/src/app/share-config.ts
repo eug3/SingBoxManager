@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, inject, output, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ShareHealthService, PublicRulesApplyHost, PublicRulesPreviewHost, ShareConfigPayload, ShareProbe } from './share-health.service';
+import { ConfirmService } from './confirm.service';
 
 /**
  * 存储配置弹窗（顶栏状态点后面的小齿轮）——
@@ -21,6 +22,8 @@ export class ShareConfigDialog {
   readonly closed = output<{ changed: boolean }>();
 
   private readonly svc = inject(ShareHealthService);
+  /** 页内确认框（取代原生 confirm） */
+  private readonly ui = inject(ConfirmService);
 
   readonly busy = signal(false);
   readonly err = signal('');
@@ -97,7 +100,13 @@ export class ShareConfigDialog {
 
   /** 把当前共享的桶文件复制到本机 local 目录（切 local 之前跑一次） */
   async importLocal(): Promise<void> {
-    if (!confirm('把当前共享里的桶文件复制到本机目录？（已存在的同名文件会被覆盖）')) return;
+    const ok = await this.ui.ask({
+      title: '把当前共享里的桶文件复制到本机目录？',
+      body: '已存在的同名文件会被覆盖。',
+      okText: '开始复制',
+      danger: true,
+    });
+    if (!ok) return;
     this.busy.set(true);
     this.err.set('');
     try {
@@ -133,7 +142,13 @@ export class ShareConfigDialog {
       this.err.set('没有需要改写的 url（先用「预览改写」确认）');
       return;
     }
-    if (!confirm(`把 ${hosts.length} 台路由的 rule_set url 改到 ${this.form().publicBase}？（共 ${total} 条，会重启 sing-box，约 1 秒断流，失败自动回滚）`)) return;
+    const ok = await this.ui.ask({
+      title: `把 ${hosts.length} 台路由的 rule_set url 改到 ${this.form().publicBase}？`,
+      body: `共 ${total} 条，会重启 sing-box，约 1 秒断流，失败自动回滚。`,
+      okText: '改写并重启',
+      danger: true,
+    });
+    if (!ok) return;
     this.busy.set(true);
     this.err.set('');
     try {

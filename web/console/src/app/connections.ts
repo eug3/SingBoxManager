@@ -6,10 +6,11 @@
  *  - 次行：存活档位、空转过滤、快速隐藏正则（默认 direct|dns-out）与命中统计；
  *  - 表格：列头点击排序、列显隐与顺序可配、命中片段高亮、右键复制单元格、点行开右侧详情抽屉；
  *  - 底部状态条：总数 / 命中 / 隐藏 / 老连接与空转候选 / 累计与实时速率 / 最后更新 / 拉取错误；
- *  - 数据：2s 轮询 clash_api /connections（暂停即停轮询），相邻快照做差得到速率、空转与「已关闭」。
+ *  - 数据：订阅 LiveStatService 的连接快照（全站唯一轮询者，2s 一拍；暂停只停「应用新快照」），
+ *    相邻快照做差得到速率、空转与「已关闭」。
  *
- * 与后端面板的分工：本组件自持连接数据与全部视图状态，只把「活跃条数 + 累计流量」用 stats 事件回传，
- * 供面板头部的统计条复用（面板不再自己轮询连接）。
+ * 与其它消费者的分工：本组件只管列表/差分/视图状态；快照与「活跃条数 + 累计流量」由共享服务统一供给，
+ * 头部统计条与流向图读的是同一份数据。
  */
 import {
   ChangeDetectionStrategy,
@@ -20,7 +21,6 @@ import {
   effect,
   inject,
   input,
-  output,
   signal,
 } from '@angular/core';
 import { Backend, Connection } from './models';
@@ -55,9 +55,9 @@ import {
   sumStat,
 } from './connections-model';
 import { ageClass, ageText, errMsg, fmtBytes, fmtRate } from './util';
+import { ConfirmService } from './confirm.service';
+import { LiveStatService, LiveSnapshot } from './live-stat.service';
 
-/** 轮询间隔（与 zashboard 的实时刷新体感对齐；LAN 上 100KB 级别的应答毫无压力） */
-const POLL_MS = 2000;
 /** 年龄 / 空转的走秒间隔 */
 const TICK_MS = 1000;
 
@@ -124,13 +124,14 @@ export class Connections implements OnInit, OnDestroy {
   /** 当前后端（clash_api 地址与密钥都由它决定；地址/密钥改动会自动重拉） */
   readonly backend = input.required<Backend>();
 
-  /** 活跃条数 + 累计流量：回传给后端面板头部统计条 */
-  readonly stats = output<{ count: number; down: number; up: number }>();
-
-  /** clash_api 客户端（/connections 轮询 + 断开） */
+  /** clash_api 客户端（断开连接；快照轮询已交给 LiveStatService） */
   private readonly clash = inject(ClashService);
   /** 后端服务（取该路由实际生效的密钥，密钥变更时触发重拉） */
   private readonly bsvc = inject(BackendsService);
+  /** 页内确认框（取代原生 confirm） */
+  private readonly ui = inject(ConfirmService);
+  /** 全站唯一的连接快照轮询服务（本组件按快照做差更新列表） */
+  private readonly live = inject(LiveStatService);
 
   /** 快照追踪器（速率 / 空转 / 已关闭的差分状态） */
   private readonly tracker = new ConnTracker();
@@ -195,18 +196,17 @@ export class Connections implements OnInit, OnDestroy {
   readonly groupKeys = GROUP_KEYS;
   readonly groupLabels = GROUP_LABELS;
 
-  /** 快照轮询定时器 / 走秒定时器 / 轻提示定时器 */
-  private pollTimer: ReturnType<typeof setInterval> | null = null;
+  /** 走秒定时器 / 轻提示定时器 */
   private tickTimer: ReturnType<typeof setInterval> | null = null;
   private toastTimer: ReturnType<typeof setTimeout> | null = null;
   /** 上一次的 api|key 指纹：地址或密钥变了就清空重拉 */
   private lastKey = '';
-  /** 防重入：上一发还没回来就跳过这一轮 */
-  private busy = false;
-  /** 页面可见性变化的事件处理器（回到前台立刻补一拉） */
-  private readonly onVisible = (): void => {
-    if (!document.hidden && this.auto()) void this.poll();
-  };
+  /** 已应用快照的时间戳（同一份快照只做一次差分） */
+  private lastApplied = 0;
+  /** 手动刷新 / 切后端时绕过「暂停」闸门，只生效一次 */
+  private force = false;
+  /** LiveStatService 的退订函数 */
+  private unsubLive: (() => void) | null = null;
 
   constructor() {
     // 视图偏好落盘：任何一个持久化信号变化就整体写一遍（键少，开销可忽略）
@@ -231,7 +231,7 @@ export class Connections implements OnInit, OnDestroy {
       if (fresh && fresh !== d) this.detail.set(fresh);
     });
 
-    // 后端（地址 / 密钥）变化：丢掉上一个后端的连接与差分基线，立即重拉
+    // 后端（地址 / 密钥）变化：丢掉上一个后端的连接与差分基线，等下一份快照重建
     effect(() => {
       const b = this.backend();
       const key = `${b.api}|${this.bsvc.keyFor(b)}`;
@@ -242,79 +242,67 @@ export class Connections implements OnInit, OnDestroy {
       this.detail.set(null);
       this.srcSel.set(new Set());
       this.outSel.set('');
-      void this.poll();
+      this.lastApplied = 0;
+      this.force = true;
+    });
+
+    // 全站共享的连接快照：新快照就做一次差分（「暂停」只停应用新快照，不影响头部统计条）
+    effect(() => {
+      const s = this.live.snap();
+      const e = this.live.err();
+      if (e) this.err.set(e);
+      if (!s || s.api !== this.backend().api) return;
+      if (s.at === this.lastApplied) return;
+      if (!this.auto() && !this.force) return;
+      this.applySnap(s);
     });
   }
 
   ngOnInit(): void {
-    this.pollTimer = setInterval(() => {
-      if (document.hidden || !this.auto()) return;
-      void this.poll();
-    }, POLL_MS);
+    this.unsubLive = this.live.subscribe(this.backend());
     this.tickTimer = setInterval(() => {
       if (document.hidden) return;
       this.now.set(Date.now()); // 存活 / 空转的读数与速率衰减
     }, TICK_MS);
-    document.addEventListener('visibilitychange', this.onVisible);
   }
 
   ngOnDestroy(): void {
-    if (this.pollTimer) clearInterval(this.pollTimer);
+    this.unsubLive?.();
+    this.unsubLive = null;
     if (this.tickTimer) clearInterval(this.tickTimer);
     if (this.toastTimer) clearTimeout(this.toastTimer);
-    this.pollTimer = this.tickTimer = null;
+    this.tickTimer = null;
     this.toastTimer = null;
-    document.removeEventListener('visibilitychange', this.onVisible);
   }
 
   /* ── 数据 ── */
 
-  /** 拉一次连接快照并更新差分状态（失败只记错误，保留上一次列表） */
-  async poll(): Promise<void> {
-    if (this.busy) return;
-    const b = this.backend();
-    if (!this.bsvc.valid(b)) return;
-    this.busy = true;
-    this.loading.set(true);
-    try {
-      const resp = await this.clash.connections(b);
-      const now = Date.now();
-      this.rows.set(this.tracker.apply(resp?.connections ?? [], now));
-      this.lastAt.set(now);
-      this.err.set('');
-      this.emitStats();
-    } catch (e) {
-      const x = e as { status?: number };
-      this.err.set(x?.status === 401 ? '密钥未填或错误（401）' : errMsg(e));
-    } finally {
-      this.busy = false;
-      this.loading.set(false);
-    }
+  /** 把一份快照交给差分追踪器并整体替换行（at 是服务的采样时间戳，天然去重） */
+  private applySnap(s: LiveSnapshot): void {
+    this.lastApplied = s.at;
+    this.force = false;
+    this.rows.set(this.tracker.apply(s.conns, s.at));
+    this.lastAt.set(s.at);
+    this.err.set('');
   }
 
-  /** 手动刷新（暂停时也允许拉一发） */
+  /** 手动刷新（暂停时也允许拉一发）：直接拉服务并同步应用，不等下一拍 */
   refresh(): void {
-    void this.poll();
+    this.loading.set(true);
+    void this.pullNow().finally(() => this.loading.set(false));
+  }
+
+  /** 立刻拉一次并同步应用（刷新按钮、断开后的重算都走这里） */
+  private async pullNow(): Promise<void> {
+    await this.live.refresh();
+    const s = this.live.snap();
+    if (s && s.api === this.backend().api) this.applySnap(s);
   }
 
   /** 自动刷新开关：打开立刻补一拉 */
   setAuto(v: boolean): void {
     this.auto.set(v);
-    if (v) void this.poll();
-  }
-
-  /** 面板头部统计条要的活跃条数与累计流量 */
-  private emitStats(): void {
-    let count = 0;
-    let down = 0;
-    let up = 0;
-    for (const r of this.rows()) {
-      if (r.closed) continue;
-      count++;
-      down += r.dl;
-      up += r.ul;
-    }
-    this.stats.emit({ count, down, up });
+    if (v) this.refresh();
   }
 
   /* ── 视图派生 ── */
@@ -638,7 +626,13 @@ export class Connections implements OnInit, OnDestroy {
     const msg = noFilter
       ? `当前没有任何筛选条件，会断开全部 ${targets.length} 条活跃连接，确定？`
       : `断开当前筛选出的 ${targets.length} 条连接？`;
-    if (!confirm(msg)) return;
+    const ok = await this.ui.ask({
+      title: msg,
+      body: noFilter ? '设备通常会被动重连，断开后列表会立刻出现新连接。' : undefined,
+      okText: '断开',
+      danger: true,
+    });
+    if (!ok) return;
     const ids = new Set<string>();
     for (const r of targets) {
       try {
@@ -665,13 +659,19 @@ export class Connections implements OnInit, OnDestroy {
    */
   async killAll(): Promise<void> {
     const before = this.rows().filter((r) => !r.closed).length;
-    if (!confirm(`断开全部 ${before} 条连接？（会立刻断开当前所有代理连接）`)) return;
+    const ok = await this.ui.ask({
+      title: `断开全部 ${before} 条连接？`,
+      body: '会立刻断开当前所有代理连接；设备通常会马上重连。',
+      okText: '全部断开',
+      danger: true,
+    });
+    if (!ok) return;
     try {
       const killedIds = this.rows().filter((r) => !r.closed).map((r) => r.c.id);
       await this.clash.killAll(this.backend());
       // 先标红淡出，再刷新：若先 poll，新快照会立刻替换 rows，动画根本来不及播
       await this.killAnimate(killedIds);
-      await this.poll();
+      await this.pullNow();
       const after = this.rows().filter((r) => !r.closed).length;
       // 断开后仍有余量 = 已经涌入新连接；把两个数字都说清楚
       this.flash(
@@ -695,7 +695,6 @@ export class Connections implements OnInit, OnDestroy {
   private drop(ids: string[]): void {
     const set = new Set(ids);
     this.rows.update((list) => list.filter((r) => !set.has(r.c.id)));
-    this.emitStats();
   }
 
   /** 复制单元格 / 详情里的值（右键或按钮） */

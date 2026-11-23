@@ -22,7 +22,7 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
-import { Backend, ConnectionsResp, PAGE_ORIGINS, ProxyNode, RuleEntry } from './models';
+import { Backend, PAGE_ORIGINS, ProxyNode, RuleEntry } from './models';
 import { BackendsService } from './backends.service';
 import { OverviewPane } from './overview';
 import { ConfigPane } from './config-pane';
@@ -32,6 +32,9 @@ import { RuleSetDialog } from './rule-set-dialog';
 import { GroupDialog } from './group-dialog';
 import { SshCredDialog } from './ssh-cred-dialog';
 import { ConfigDraftService } from './config-draft.service';
+import { LiveStatService } from './live-stat.service';
+import { ConfirmService } from './confirm.service';
+import { ToastService } from './toast.service';
 import { groups, validateDoc, serializeConfig } from './config-ops';
 import { ClashService } from './clash.service';
 import { fmtBytes, latClass, latText, runPool } from './util';
@@ -111,6 +114,12 @@ export class BackendPane implements OnDestroy {
   private readonly clash = inject(ClashService);
   /** 流向图编辑的全局配置草稿（待保存条 + ③④ 弹窗共用） */
   readonly draft = inject(ConfigDraftService);
+  /** 页内确认框（取代原生 confirm：浏览器拦截对话框时点击不会静默） */
+  private readonly ui = inject(ConfirmService);
+  /** 页内提示条（取代原生 alert） */
+  private readonly toast = inject(ToastService);
+  /** 全站唯一的连接快照轮询服务（头部统计条、连接页、流向图共用一条轮询链） */
+  private readonly live = inject(LiveStatService);
 
   /** ③ 规则集弹窗正在编辑的分组 tag（null = 弹窗关闭） */
   readonly editRuleTag = signal<string | null>(null);
@@ -134,6 +143,8 @@ export class BackendPane implements OnDestroy {
   readonly saveChanged = signal<boolean | undefined>(undefined);
   private saveT0 = 0;
   private saveTimer: ReturnType<typeof setInterval> | null = null;
+  /** 头部统计条的连接快照订阅（后端/密钥变化时重建） */
+  private unsubLive: (() => void) | null = null;
 
   /** 当前激活的子 tab（挂载后按 App 记住的子页同步一次：input 在构造时还没赋值） */
   readonly tab = signal<PaneTab>('overview');
@@ -152,8 +163,12 @@ export class BackendPane implements OnDestroy {
   readonly version = signal('');
   /** 全量代理表：名称 → 节点（分组与节点子页的数据源） */
   readonly proxyMap = signal<Record<string, ProxyNode>>({});
-  /** 活跃连接条数与累计流量（头部统计条；由连接子页的 stats 事件与首屏加载共同更新） */
-  readonly liveStat = signal({ count: 0, down: 0, up: 0 });
+  /** 活跃连接条数与累计流量（头部统计条）：直接读全站共享的连接快照，按后端 api 过滤防串 */
+  readonly liveStat = computed(() => {
+    const s = this.live.snap();
+    if (!s || s.api !== this.backend().api) return { count: 0, down: 0, up: 0 };
+    return { count: s.count, down: s.down, up: s.up };
+  });
   /** 实际生效的规则表（规则子页，进入时才拉取） */
   readonly rules = signal<RuleEntry[]>([]);
   /** 首屏加载错误文案（横幅展示） */
@@ -208,7 +223,11 @@ export class BackendPane implements OnDestroy {
       this.editRuleTag.set(null);
       this.editGroupTag.set(null);
       this.credOpen.set(false);
+      // 头部统计条只认这一个订阅：后端/密钥变了就退旧订新（连接页/流向图各自另订，服务内部合并成一条轮询）
+      this.unsubLive?.();
+      this.unsubLive = null;
       if (this.bsvc.valid(b)) {
+        this.unsubLive = this.live.subscribe(b);
         void this.load();
         void this.draft.load(b);
       }
@@ -224,14 +243,11 @@ export class BackendPane implements OnDestroy {
   /** 清理：断开日志 WebSocket（连接子页的定时器归它自己管） */
   ngOnDestroy(): void {
     this.stopLogs();
+    this.unsubLive?.();
+    this.unsubLive = null;
   }
 
-  /** 连接子页回传的活跃条数与累计流量 → 头部统计条 */
-  onConnStats(ev: { count: number; down: number; up: number }): void {
-    this.liveStat.set(ev);
-  }
-
-  /** 首屏三连拉：版本 / 分组节点 / 连接（401 单独提示填密钥） */
+  /** 首屏两连拉：版本 / 分组节点（连接快照由 LiveStatService 统一轮询） */
   async load(): Promise<void> {
     this.loadErr.set('');
     this.unauthorized.set(false);
@@ -242,15 +258,12 @@ export class BackendPane implements OnDestroy {
       return;
     }
     try {
-      const [ver, proxies, cons] = await Promise.all([
+      const [ver, proxies] = await Promise.all([
         this.clash.version(this.backend()),
         this.clash.proxies(this.backend()),
-        this.clash.connections(this.backend()),
       ]);
       this.version.set(ver?.version ?? '');
       this.proxyMap.set(proxies?.proxies ?? {});
-      // 首屏先给头部统计条一个数；之后由连接子页每 2s 的 stats 事件接管
-      this.applyLiveStat(cons);
     } catch (e) {
       const err = e as { status?: number; message?: string };
       if (err?.status === 401) this.unauthorized.set(true);
@@ -258,21 +271,10 @@ export class BackendPane implements OnDestroy {
     }
   }
 
-  /** 首屏连接快照 → 头部统计条（活跃条数 / 累计上下行） */
-  private applyLiveStat(resp: ConnectionsResp | undefined): void {
-    const list = resp?.connections ?? [];
-    let down = 0;
-    let up = 0;
-    for (const c of list) {
-      down += c.download ?? 0;
-      up += c.upload ?? 0;
-    }
-    this.liveStat.set({ count: list.length, down, up });
-  }
-
-  /** 头部「刷新」：整体重拉；停在规则子页时顺带刷新规则表 */
+  /** 头部「刷新」：整体重拉；停在规则子页时顺带刷新规则表（连接快照也立刻补一发） */
   async refreshAll(): Promise<void> {
     await this.load();
+    void this.live.refresh();
     if (this.tab() === 'rules') await this.loadRules();
   }
 
@@ -321,7 +323,7 @@ export class BackendPane implements OnDestroy {
       await this.clash.select(this.backend(), group.name, member);
       this.proxyMap.update((m) => ({ ...m, [group.name]: { ...group, now: member } }));
     } catch (e) {
-      alert('切换失败：' + ((e as Error)?.message ?? e));
+      this.toast.error('切换失败：' + ((e as Error)?.message ?? e));
     }
   }
 
@@ -446,7 +448,7 @@ export class BackendPane implements OnDestroy {
       this.rules.set(res?.rules ?? []);
     } catch (e) {
       this.rules.set([]);
-      alert('规则拉取失败：' + ((e as Error)?.message ?? e));
+      this.toast.error('规则拉取失败：' + ((e as Error)?.message ?? e));
     }
   }
 
@@ -470,15 +472,27 @@ export class BackendPane implements OnDestroy {
     return !!doc && groups(doc).some((g) => String(g['tag']) === tag);
   }
 
-  /** 待保存条「保存并重启」：结构预检 + 确认后走草稿服务（内部备份/check/替换/重启/回滚） */
-  saveDraft(): void {
+  /** 待保存条「保存并重启」：结构预检 + 页内确认后走草稿服务（内部备份/check/替换/重启/回滚） */
+  async saveDraft(): Promise<void> {
     const doc = this.draft.draft();
     if (!doc || this.draft.saving()) return;
     const issues = validateDoc(doc);
-    const msg = issues.length
-      ? `结构校验有 ${issues.length} 条问题，仍要保存并重启？\n\n` + issues.slice(0, 8).join('\n')
-      : `把修改写回 ${this.backend().name}（${this.backend().api}）并重启 sing-box？\n断流约 1 秒，失败会自动回滚。`;
-    if (!confirm(msg)) return;
+    const ok = await this.ui.ask(
+      issues.length
+        ? {
+            title: `结构校验有 ${issues.length} 条问题，仍要保存并重启？`,
+            body: '这些引用/默认成员问题不会在这里被拦下，但可能让 sing-box 启动异常。',
+            details: issues.slice(0, 8),
+            okText: '仍然保存',
+            danger: true,
+          }
+        : {
+            title: `把修改写回 ${this.backend().name}（${this.backend().api}）并重启 sing-box？`,
+            body: '断流约 1 秒，失败会自动回滚。',
+            okText: '保存并重启',
+          },
+    );
+    if (!ok) return;
     void this.runSave();
   }
 
@@ -614,9 +628,17 @@ export class BackendPane implements OnDestroy {
   }
 
   /** 删除本后端：已保存的需确认，草稿直接删；删除后通知根组件切 tab */
-  delCfg(): void {
+  async delCfg(): Promise<void> {
     const b = this.backend();
-    if (!b.draft && !confirm(`删除后端「${b.name}」？（只影响本浏览器配置）`)) return;
+    if (!b.draft) {
+      const ok = await this.ui.ask({
+        title: `删除后端「${b.name}」？`,
+        body: '只影响本浏览器保存的后端清单，不会改动路由上的任何配置。',
+        okText: '删除',
+        danger: true,
+      });
+      if (!ok) return;
+    }
     this.bsvc.remove(this.index());
     this.removed.emit();
   }

@@ -844,9 +844,60 @@ button.chip.on { border-color: var(--acc); color: var(--acc); background: #eef7f
 }
 
 /* 规则编辑主 tab：整页 flex 列，编辑区吃满剩余高度（Monaco 自适应窗口尺寸） */
-.ra-page { display: flex; flex-direction: column; height: 100%; min-height: 0; gap: 10px; }
-.ra-page > .bar { flex: 0 0 auto; margin-bottom: 0; }
+/* 规则编辑：左侧文件树 + 右侧编辑区（网格布局，编辑器撑满剩余高度） */
+.ra-page { display: grid; grid-template-columns: 300px minmax(0, 1fr); height: 100%; min-height: 0; gap: 10px; }
+.ra-main { display: flex; flex-direction: column; min-height: 0; min-width: 0; gap: 10px; }
+.ra-main > .bar { flex: 0 0 auto; margin-bottom: 0; }
 .ra-editor { flex: 1 1 auto; min-height: 180px; }
+.ra-curfile { font-family: var(--mono); font-size: 11.5px; color: var(--ink); }
+
+/* 左侧文件树：根节点 rule-set/ + 桶 JSON 文件行 */
+.ra-side { display: flex; flex-direction: column; min-height: 0; border: 1px solid var(--line); background: #fff; }
+.ra-sidehd { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-bottom: 1px solid var(--line); font-size: 11px; }
+.ra-sidetitle { color: var(--ink); font-size: 11.5px; }
+.ra-spacer { flex: 1 1 auto; }
+.ra-sidehd .mini { padding: 1px 7px; font-size: 10px; }
+.ra-newrow { display: flex; gap: 4px; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+.ra-newrow input {
+  flex: 1 1 auto; min-width: 0; padding: 3px 6px; font-size: 11px; font-family: var(--mono);
+  border: 1px solid var(--line); background: #fff; color: var(--ink);
+}
+.ra-operr { padding: 6px 8px; font-size: 10.5px; line-height: 1.5; color: var(--bad); background: #fdeef0; border-bottom: 1px solid #f0c0c6; }
+.ra-tree { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 4px 0 8px; }
+.ra-root {
+  display: flex; align-items: center; gap: 5px; padding: 4px 8px;
+  font-size: 11.5px; color: var(--dim); cursor: pointer; user-select: none;
+}
+.ra-root:hover { background: #f6f9fd; }
+.ra-caret { width: 10px; color: var(--dim); }
+.ra-file {
+  display: flex; align-items: center; gap: 5px; padding: 4px 8px 4px 22px;
+  font-size: 11px; color: var(--ink); cursor: pointer; border-left: 2px solid transparent;
+}
+.ra-file:hover { background: #f6f9fd; }
+.ra-file.on { background: #eefaf4; border-left-color: var(--acc); }
+.ra-file .ra-fico { flex: 0 0 auto; font-size: 10px; }
+.ra-file .ra-fname { flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); }
+.ra-file .ra-dot { flex: 0 0 auto; color: var(--warn); font-size: 9px; }
+.ra-file .ra-fmeta { margin-left: auto; flex: 0 0 auto; color: #9aa7b6; font-size: 9.5px; font-family: var(--mono); }
+.ra-empty { padding: 10px; font-size: 10.5px; color: var(--dim); line-height: 1.6; }
+.ra-sideft { flex: 0 0 auto; padding: 8px; border-top: 1px solid var(--line); }
+
+/* 目录树右键菜单：空白/根节点 → 新建；文件 → 重命名/删除 */
+.ra-menu-mask { position: fixed; inset: 0; z-index: 60; }
+.ra-menu {
+  position: fixed; z-index: 61; min-width: 148px;
+  background: #fff; border: 1px solid var(--line);
+  box-shadow: 0 8px 22px rgba(16, 30, 48, .18); padding: 3px 0;
+}
+.ra-menu button {
+  display: block; width: 100%; text-align: left;
+  padding: 6px 10px; border: none; background: none;
+  font-family: var(--mono); font-size: 11px; color: var(--ink); cursor: pointer;
+}
+.ra-menu button:hover { background: #f2f7ff; color: var(--acc2); }
+.ra-menu button.danger { color: var(--bad); }
+.ra-menu button.danger:hover { background: #fdf2f3; }
 .ra-dirty { font-size: 11px; color: var(--warn); white-space: nowrap; }
 /* 发布结果条：成功绿 / 失败红，带图标、标题、可核对信息与建议 */
 .ra-result { flex: 0 0 auto; display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border: 1px solid; font-size: 11px; }
@@ -1132,6 +1183,11 @@ button.chip.on { border-color: var(--acc); color: var(--acc); background: #eef7f
 .fn.hi .fnname { fill: #0c3f6d; }
 .fn.hi .fncount { fill: var(--acc2); }
 .fn.dim { opacity: .28; }
+
+/* 强调视图（普通/强调切换）：有流量的节点/连线加粗提亮，其余压暗（连线 opacity 与线宽在组件里算好） */
+.fn.emp .fnbox { stroke: #2f9e5f; stroke-width: 2; fill: #eafaf0; }
+.fn.emp .fnname { fill: #1c6b45; }
+.flowbar .fscale.on { color: var(--acc2); border-color: var(--acc2); background: #f2f7ff; }
 
 /* 自绘 tooltip：HTML 层叠在 SVG 上，不吃鼠标事件，\n 走 pre-line 换行 */
 .flowtip {
@@ -1487,3 +1543,42 @@ button.chip.on { border-color: var(--acc); color: var(--acc); background: #eef7f
 
 /* 轻提示（复制成功 / 断开结果） */
 .cn-toast { position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%); z-index: 70; background: #22303f; color: #fff; font-size: 11.5px; padding: 7px 14px; box-shadow: 0 6px 18px rgba(16, 30, 48, .25); }
+
+/* ==========================================================================
+   页内确认框 + 提示条（取代原生 confirm() / alert()）
+   确认框用原生 <dialog> 承载（自动进顶层、焦点约束、ESC 取消），外观复用 .modal 体系
+   ========================================================================== */
+
+dialog.cfm-dialog {
+  /* 不依赖浏览器 UA 的居中规则：显式 fixed + inset:0 + margin:auto */
+  position: fixed; inset: 0; margin: auto; width: fit-content; height: fit-content;
+  padding: 0; border: none; background: transparent; color: inherit;
+  max-width: none; max-height: none; overflow: visible;
+}
+dialog.cfm-dialog::backdrop { background: rgba(20, 32, 48, .35); }
+.modal.cfm { width: min(480px, calc(100vw - 40px)); max-height: calc(100vh - 80px); }
+.cfm-body { font-size: 12px; line-height: 1.7; color: var(--ink); white-space: pre-wrap; }
+.cfm-list {
+  margin: 2px 0 0 16px; padding: 0; font-size: 11px; line-height: 1.8;
+  color: #5b6b7c; max-height: 220px; overflow: auto;
+}
+.cfm-list li { margin: 0 0 2px; }
+.cfm-spacer { flex: 1 1 auto; }
+
+/* 右下角提示条：成功 / 失败 / 普通，点一下立即关掉 */
+.toast-stack {
+  position: fixed; right: 16px; bottom: 16px; z-index: 80;
+  display: flex; flex-direction: column; gap: 8px;
+  max-width: min(440px, calc(100vw - 32px));
+}
+.toast {
+  display: flex; align-items: flex-start; gap: 8px;
+  padding: 9px 12px; background: #22303f; color: #fff;
+  font-size: 11.5px; line-height: 1.6; cursor: pointer;
+  border-left: 3px solid var(--acc2);
+  box-shadow: 0 8px 22px rgba(16, 30, 48, .28);
+}
+.toast.ok { border-left-color: #37c98f; }
+.toast.bad { border-left-color: #ff8a97; background: #6f1f2a; }
+.toast-ico { flex: 0 0 auto; }
+.toast-text { white-space: pre-wrap; word-break: break-word; }

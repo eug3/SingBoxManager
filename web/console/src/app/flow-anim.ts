@@ -19,6 +19,7 @@ import { firstValueFrom } from 'rxjs';
 import type { Backend, Connection } from './models';
 import { BackendsService } from './backends.service';
 import { ClashService } from './clash.service';
+import { LiveStatService } from './live-stat.service';
 import { RouterService } from './router.service';
 import { errMsg, fmtBytes, fmtRate } from './util';
 import { AreaChartComponent } from './area-chart';
@@ -124,10 +125,12 @@ interface RouterClientsResp {
   ms?: number;
 }
 
-/** 模板里用的节点块（几何 + hover 派生状态 + 是否可点开编辑弹窗） */
+/** 模板里用的节点块（几何 + hover/强调派生状态 + 是否可点开编辑弹窗） */
 interface NodeView extends FlowNodeGeom {
   hi: boolean;
   dim: boolean;
+  /** 强调视图里「有流量」的节点：额外加粗发光 */
+  emp: boolean;
   /** ③④ 卡片且指向 config 里真实分组 → 可点击编辑（DIRECT/block 带不可编辑） */
   edit: boolean;
 }
@@ -139,10 +142,12 @@ function ruleGroupTag(key: string): string {
   return i > 0 ? name.slice(0, i) : name;
 }
 
-/** 模板里用的连线（几何 + hover 派生状态） */
+/** 模板里用的连线（几何 + hover/强调派生状态；opacity/width 已是最终渲染值） */
 interface EdgeView extends FlowEdgeGeom {
   hi: boolean;
   dim: boolean;
+  /** 强调视图里「有流量」的连线：额外加粗提亮 */
+  emp: boolean;
 }
 
 /** 一帧里的一条小鱼（模板用）：位置 + 朝向角度 + 缩放 + 摆尾相位 */
@@ -205,6 +210,8 @@ export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
   readonly editGroup = output<string>();
 
   private readonly clash = inject(ClashService);
+  /** 全站唯一的连接快照轮询服务（本组件按 1.5s 订阅，取到就重排流向图） */
+  private readonly live = inject(LiveStatService);
   private readonly router = inject(RouterService);
   private readonly http = inject(HttpClient);
   private readonly backends = inject(BackendsService);
@@ -240,7 +247,10 @@ export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
   private destroyed = false;
   private rafId = 0;
   private cfgTimer: ReturnType<typeof setInterval> | null = null;
-  private connTimer: ReturnType<typeof setInterval> | null = null;
+  /** LiveStatService 的退订函数（reset 时换订） */
+  private unsubLive: (() => void) | null = null;
+  /** 已应用快照的时间戳（同一份快照只重排一次） */
+  private lastApplied = 0;
   private ro: ResizeObserver | null = null;
   /** ① 列名册：ip → {mac,name}（拿不到就是空表，① 回落到按源 IP） */
   private clients: ClientMap = new Map<string, ClientInfo>();
@@ -263,6 +273,12 @@ export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
    *  · 'fit' ＝ 整幅图（含全部 band）等比缩放进可视容器，不滚动
    */
   readonly scaleMode = signal<'fit' | '100'>('100');
+  /**
+   * 视图模式：
+   *  · false（普通视图，默认）＝ 全部链路按原浓度画，仅 hover 时高亮相关链路；
+   *  · true（强调视图）＝ 有流量的连线/节点加粗提亮、其余压暗，hover 仍然优先。
+   */
+  readonly emphasis = signal(false);
   /** 微型图的两条 WebSocket 及其重连定时器 */
   private miniSockets: { ws: WebSocket | null; path: string; timer: ReturnType<typeof setTimeout> | null }[] = [];
   /** ⑤ 节点延时：tag → 末次测速 delay（ms）；拿不到就是空表，方格不画点 */
@@ -301,19 +317,38 @@ export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
     return `0 0 ${g.w} ${g.h}`;
   });
 
-  /** 连线：hover 时只保留与该节点相关的线（其余降到 0.08） */
+  /**
+   * 连线：普通视图按原浓度画；强调视图里有流量的线提亮加粗、其余压暗；
+   * hover 时一律以 hover 为准（相关线亮、其余 0.08）。
+   */
   readonly edgesView = computed<EdgeView[]>(() => {
     const h = this.hover();
-    return this.geom().edges.map((e) => ({
-      ...e,
-      hi: !!h && (e.from === h || e.to === h),
-      dim: !!h && e.from !== h && e.to !== h,
-    }));
+    const emp = this.emphasis();
+    return this.geom().edges.map((e) => {
+      const hovered = !!h;
+      const related = hovered && (e.from === h || e.to === h);
+      const on = !hovered && emp && !!e.active;
+      const off = !hovered && emp && !e.active;
+      let opacity = e.opacity;
+      let width = e.width;
+      if (hovered) {
+        // hover 一律优先：相关线正常浓度、其余压到 0.08
+        opacity = related ? e.opacity : 0.08;
+        if (related) width = e.width + 0.8;
+      } else if (on) {
+        opacity = Math.min(1, Math.max(e.opacity, 0.55) * 1.35);
+        width = e.width + 0.45;
+      } else if (off) {
+        opacity = 0.18;
+      }
+      return { ...e, hi: related, dim: hovered && !related, emp: on, opacity, width };
+    });
   });
 
-  /** 节点块：hover 的节点与它的邻居高亮，其余变淡；③④ 真实分组卡片标记可编辑 */
+  /** 节点块：hover 的节点与它的邻居高亮，其余变淡；强调视图里只亮有流量的节点；③④ 真实分组卡片标记可编辑 */
   readonly nodesView = computed<NodeView[]>(() => {
     const h = this.hover();
+    const emp = this.emphasis();
     const near = new Set<string>();
     if (h) {
       near.add(h);
@@ -327,7 +362,8 @@ export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
     return this.geom().nodes.map((n) => ({
       ...n,
       hi: n.key === h,
-      dim: !!h && !near.has(n.key),
+      dim: h ? !near.has(n.key) : emp ? !n.active : false,
+      emp: !h && emp && !!n.active,
       edit:
         n.mode === 'card' &&
         ((n.col === 'rule' && groupTags.has(ruleGroupTag(n.key))) ||
@@ -363,6 +399,19 @@ export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
         if (this.started && !this.destroyed) this.reset(b);
       });
     });
+    // 共享连接快照：新快照就重排流向图（轮询由 LiveStatService 统一做，这里按 1.5s 订阅）
+    effect(() => {
+      const s = this.live.snap();
+      const e = this.live.err();
+      if (this.destroyed) return;
+      if (e) this.err.set(e);
+      if (!s || s.api !== this.backend()?.api) return;
+      if (s.at === this.lastApplied) return;
+      this.lastApplied = s.at;
+      this.err.set('');
+      this.lastConns = s.conns;
+      this.apply(s.conns);
+    });
   }
 
   ngOnInit(): void {
@@ -380,13 +429,13 @@ export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.destroyed = true;
+    this.unsubLive?.();
+    this.unsubLive = null;
     if (this.cfgTimer) clearInterval(this.cfgTimer);
-    if (this.connTimer) clearInterval(this.connTimer);
     if (this.clientsTimer) clearInterval(this.clientsTimer);
     if (this.delayTimer) clearInterval(this.delayTimer);
     this.closeMini();
     this.cfgTimer = null;
-    this.connTimer = null;
     this.clientsTimer = null;
     this.delayTimer = null;
     if (this.rafId) cancelAnimationFrame(this.rafId);
@@ -423,7 +472,9 @@ export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
     void this.loadClients(b);
     void this.loadDelays(b);
     void this.loadConfig(b);
-    void this.sample(b);
+    this.unsubLive?.();
+    this.lastApplied = 0;
+    this.unsubLive = this.live.subscribe(b, SAMPLE_MS);
   }
 
   /** 全屏开关（⛶ / ✕ / Esc 都走这里） */
@@ -434,6 +485,11 @@ export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
   /** 图缩放模式切换：100% ⇄ 自适应（按钮点击） */
   toggleScale(): void {
     this.scaleMode.update((m) => (m === 'fit' ? '100' : 'fit'));
+  }
+
+  /** 视图模式切换：普通视图 ⇄ 强调视图 */
+  toggleEmphasis(): void {
+    this.emphasis.update((v) => !v);
   }
 
   /** 退出全屏（Esc 用；已经在嵌入态就什么都不做） */
@@ -569,12 +625,6 @@ export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
         void this.loadDelays(this.backend());
       }, PROXIES_MS);
     }
-    if (!this.connTimer) {
-      this.connTimer = setInterval(() => {
-        if (document.hidden || this.destroyed) return;
-        void this.sample(this.backend());
-      }, SAMPLE_MS);
-    }
     if (!this.rafId) {
       this.lastFrame = 0;
       const step = (ts: number): void => {
@@ -678,26 +728,6 @@ export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
   /** ②列次行文案：sing-box + 引擎版本（版本没拿到就只写 sing-box） */
   private versionLabel(): string {
     return this.version ? `sing-box ${this.version}` : 'sing-box';
-  }
-
-  /** 采样一次连接列表并刷新布局/粒子 */
-  private async sample(b: Backend): Promise<void> {
-    if (!b?.api) {
-      this.err.set('该后端还没配置地址（在「⚙ 后端配置」里填 http(s)://主机:9090）');
-      return;
-    }
-    try {
-      const resp = await this.clash.connections(b);
-      if (this.destroyed) return;
-      this.err.set('');
-      const conns = resp?.connections ?? [];
-      this.lastConns = conns;
-      this.apply(conns);
-    } catch (e) {
-      if (this.destroyed) return;
-      const x = e as { status?: number };
-      this.err.set(x?.status === 401 ? '密钥未填或错误（401）' : errMsg(e));
-    }
   }
 
   /** 归并布局 + 给「第一次见到」的连接生成粒子 */

@@ -90,6 +90,7 @@ scripts/deploy_service.sh
 ✓ /edit/ 页面 → 200
 ✓ /static/monaco → 200        # 首次部署前端之前这里是 404，正常
 ✓ /rule-set/<桶>.json → 200
+✓ /rule-set/index → 200（桶清单；管理台规则编辑下拉的数据源）
 ✓ 无 key 发布应被拒 → 401
 ```
 

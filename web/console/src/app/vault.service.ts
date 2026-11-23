@@ -6,7 +6,7 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
-import { BUCKETS, PublishResp } from './models';
+import { PublishResp } from './models';
 import { fmtBytes } from './util';
 
 /** 预校验结果：ok + 概要 msg + 明细 detail */
@@ -31,12 +31,58 @@ const ALLOWED = new Set([
   'protocol',
 ]);
 
+/** 一个规则桶的元信息（GET /rule-set/index；缺 .json 或 .srs 时对应字段省略） */
+export interface BucketInfo {
+  name: string;
+  jsonSize?: number;
+  jsonTime?: string;
+  srsSize?: number;
+  srsTime?: string;
+}
+
 /** 规则桶读写：拉 /rule-set/<桶>.json、发布 /publish（同源，99 上的 Go 服务） */
 @Injectable({ providedIn: 'root' })
 export class VaultService {
   private readonly http = inject(HttpClient);
 
-  bucketLabels = BUCKETS.map(([name, rules]) => ({ name, rules }));
+  /** 拉 NAS 上的桶清单（服务端直接列目录，桶增删后自动跟上）；失败抛错由调用方回退内置清单 */
+  async listBuckets(): Promise<BucketInfo[]> {
+    const r = await firstValueFrom(
+      this.http.get<{ ok: boolean; buckets?: BucketInfo[] }>('/rule-set/index', {
+        headers: new HttpHeaders({ 'Cache-Control': 'no-cache' }),
+      }),
+    );
+    return r?.buckets ?? [];
+  }
+
+  /** 新建空桶（只写 .json，rules 为空；编辑后点发布才会编译 .srs） */
+  async createBucket(bucket: string, key: string): Promise<void> {
+    await firstValueFrom(
+      this.http.post(
+        '/rule-set/create',
+        { bucket },
+        { headers: new HttpHeaders({ 'Content-Type': 'application/json', 'X-Vault-Key': key }) },
+      ),
+    );
+  }
+
+  /** 重命名桶（服务端把 .json 与 .srs 一起搬；需要密钥或页面同源） */
+  async renameBucket(from: string, to: string, key: string): Promise<void> {
+    await firstValueFrom(
+      this.http.post(
+        '/rule-set/rename',
+        { from, to },
+        { headers: new HttpHeaders({ 'Content-Type': 'application/json', 'X-Vault-Key': key }) },
+      ),
+    );
+  }
+
+  /** 删除桶（服务端同时删 .json 与 .srs；需要密钥） */
+  async deleteBucket(bucket: string, key: string): Promise<void> {
+    await firstValueFrom(
+      this.http.delete(`/rule-set/${bucket}.json`, { headers: new HttpHeaders({ 'X-Vault-Key': key }) }),
+    );
+  }
 
   /** 拉某桶的 .json 源文本（no-cache） */
   async fetch(bucket: string): Promise<string> {

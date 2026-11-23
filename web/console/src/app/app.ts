@@ -16,11 +16,13 @@ import { Backend, CONSOLE_VERSION, PAGE_ORIGINS } from './models';
 import type { PaneTab } from './backend-pane';
 import { ShareHealthService } from './share-health.service';
 import { ShareConfigDialog } from './share-config';
+import { ConfirmDialog } from './confirm-dialog';
+import { Toast } from './toast';
 
 @Component({
   selector: 'app-root',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [BackendPane, RuleEditor, ShareConfigDialog],
+  imports: [BackendPane, RuleEditor, ShareConfigDialog, ConfirmDialog, Toast],
   templateUrl: './app.html',
 })
 /** 根组件：组装顶栏 / 主 tab / 内容区 / 页脚，并驱动存储体检与 sing-box 版本探测 */

@@ -1,74 +1,163 @@
-<!-- 规则编辑主 tab：工具条 → 编辑区（撑满剩余高度）→ 校验条 → 发布结果条 → 底部说明 -->
-<div class="ra-page">
-  <div class="bar">
-    <select (change)="pickBucket($any($event.target).value)">
-      @for (b of buckets; track b.name) {
-        <option [value]="b.name" [selected]="b.name === bucket()">{{ b.name }}（{{ b.rules }} 条规则）</option>
-      }
-    </select>
-    <button (click)="load()" [disabled]="loading()">{{ loading() ? '拉取中…' : '重新拉取' }}</button>
-    <button (click)="format()">格式化</button>
-    <button class="acc" (click)="publish()" [disabled]="publishing()">
-      {{ publishing() ? '发布中…' : '保存并发布 →' }}
-    </button>
-    @if (head()) {
-      <span class="dim small">线上：{{ fmtBytes(head()?.size) }} · {{ head()?.time }}</span>
-    }
-    @if (dirty()) {
-      <span class="ra-dirty" title="编辑器内容与最近一次拉取/发布的不同">● 未发布改动</span>
-    }
-  </div>
+<!-- 规则编辑主 tab：左侧文件树（NAS 桶）＋ 右侧编辑器（工具条 → 编辑区 → 校验条 → 发布结果条 → 说明） -->
+<div class="ra-page" (document:keydown.escape)="closeMenu()">
+  <aside class="ra-side">
+    <div class="ra-sidehd">
+      <span class="ra-sidetitle">📁 rule-set</span>
+      <span class="dim small">{{ bucketSource() === 'nas' ? buckets().length + ' 个文件' : '清单未取到' }}</span>
+      <span class="ra-spacer"></span>
+      <button class="mini" title="新建 JSON 桶（只写 .json，填好规则后再发布）" (click)="startCreate()" [disabled]="acting()">
+        ＋ 新建
+      </button>
+    </div>
 
-  <!-- 编辑区：fill 模式撑满剩余高度；容器尺寸变化由 Monaco 内部 ResizeObserver 同步 -->
-  <app-monaco-editor class="ra-editor" [value]="source()" [fill]="true" (valueChange)="onValueChange($event)" />
-
-  <!-- 校验条：绿色=合法 / 红色=不合法 -->
-  <div class="vstat" [class.bad]="!check().ok">
-    @if (check().ok) {
-      ✓ {{ check().msg }}
-      @if (check().detail) {
-        <span class="dim"> · {{ check().detail }}</span>
-      }
-    } @else {
-      ✗ {{ check().msg }}
-      @if (check().detail) {
-        <span class="dim"> —— {{ check().detail }}</span>
-      }
-    }
-  </div>
-
-  <!-- 发布结果：成功（绿，带可核对信息与自动拉取说明）/ 失败（红，带原因与建议） -->
-  @if (result(); as r) {
-    @if (r.ok) {
-      <div class="ra-result ok" role="status" aria-live="polite">
-        <span class="ra-ico">✓</span>
-        <div class="ra-body">
-          <div class="ra-title">
-            已发布 <b>{{ r.bucket }}</b>
-            <span class="dim small">{{ publishedAt() }}</span>
-          </div>
-          <div class="ra-detail">
-            json {{ fmtB(r.json) }} → srs {{ fmtB(r.srs) }} · sha256 <span class="mono cd">{{ r.sha256 }}</span>
-          </div>
-          <div class="ra-hint">{{ r.hint || '两台路由 60s 内自动拉取，无需重启' }}</div>
-        </div>
-        <button class="ra-close" (click)="dismissResult()" title="关闭">✕</button>
-      </div>
-    } @else {
-      <div class="ra-result bad" role="alert" aria-live="assertive">
-        <span class="ra-ico">✗</span>
-        <div class="ra-body">
-          <div class="ra-title">发布失败：{{ r.error || '服务端未返回原因' }}</div>
-          <div class="ra-hint">{{ failHint(r.error) }}</div>
-        </div>
-        <button class="ra-retry" (click)="publish()" [disabled]="publishing()">重试</button>
-        <button class="ra-close" (click)="dismissResult()" title="关闭">✕</button>
+    @if (creating()) {
+      <div class="ra-newrow">
+        <input
+          [value]="newName()"
+          (input)="newName.set($any($event.target).value)"
+          (keydown.enter)="createBucket()"
+          (keydown.escape)="cancelCreate()"
+          placeholder="rs-new（小写/数字/-）"
+          [disabled]="acting()"
+          aria-label="新桶名称"
+        />
+        <button class="mini acc" (click)="createBucket()" [disabled]="acting()">建</button>
+        <button class="mini" (click)="cancelCreate()" [disabled]="acting()">✕</button>
       </div>
     }
+
+    @if (renaming(); as oldName) {
+      <div class="ra-newrow">
+        <input
+          [value]="renameName()"
+          (input)="renameName.set($any($event.target).value)"
+          (keydown.enter)="renameBucket()"
+          (keydown.escape)="cancelRename()"
+          placeholder="新桶名"
+          [disabled]="acting()"
+          aria-label="新桶名"
+        />
+        <button class="mini acc" (click)="renameBucket()" [disabled]="acting()">改</button>
+        <button class="mini" (click)="cancelRename()" [disabled]="acting()">✕</button>
+        <span class="dim small">旧：{{ oldName }}</span>
+      </div>
+    }
+
+    @if (opErr()) {
+      <div class="ra-operr">{{ opErr() }}</div>
+    }
+
+    <div class="ra-tree" (contextmenu)="onTreeContext($event)">
+      <div class="ra-root" (click)="folded.set(!folded())" [attr.title]="folded() ? '展开文件列表' : '收起文件列表'">
+        <span class="ra-caret">{{ folded() ? '▸' : '▾' }}</span>
+        <span class="ra-fname">rule-set/</span>
+      </div>
+      @if (!folded()) {
+        @for (b of buckets(); track b.name) {
+          <div class="ra-file" [class.on]="b.name === bucket()" (click)="openBucket(b.name)"
+               (contextmenu)="onTreeContext($event, b.name)" [attr.title]="b.name + '.json'">
+            <span class="ra-fico">📄</span>
+            <span class="ra-fname">{{ b.name }}.json</span>
+            @if (b.name === bucket() && dirty()) {
+              <span class="ra-dot" title="未发布改动">●</span>
+            }
+            @if (b.meta) {
+              <span class="ra-fmeta">{{ b.meta }}</span>
+            }
+          </div>
+        } @empty {
+          <div class="ra-empty">
+            {{ bucketSource() === 'nas' ? '还没有桶，点「＋ 新建」' : '清单未取到（/rule-set/index 未响应）' }}
+          </div>
+        }
+      }
+    </div>
+
+    <div class="ra-sideft">
+      <button class="mini danger" (click)="deleteBucket()" [disabled]="acting() || !bucket()">删除当前桶</button>
+    </div>
+  </aside>
+
+  <section class="ra-main">
+    <div class="bar">
+      <span class="ra-curfile">📄 {{ bucket() || '未选择' }}.json</span>
+      <button (click)="load()" [disabled]="loading()">{{ loading() ? '拉取中…' : '重新拉取' }}</button>
+      <button (click)="format()">格式化</button>
+      <button class="acc" (click)="publish()" [disabled]="publishing()">
+        {{ publishing() ? '发布中…' : '保存并发布 →' }}
+      </button>
+      @if (head()) {
+        <span class="dim small">线上 srs：{{ fmtBytes(head()?.size) }} · {{ head()?.time }}</span>
+      }
+      @if (dirty()) {
+        <span class="ra-dirty" title="编辑器内容与最近一次拉取/发布的不同">● 未发布改动</span>
+      }
+    </div>
+
+    <!-- 编辑区：fill 模式撑满剩余高度；容器尺寸变化由 Monaco 内部 ResizeObserver 同步 -->
+    <app-monaco-editor class="ra-editor" [value]="source()" [fill]="true" (valueChange)="onValueChange($event)" />
+
+    <!-- 校验条：绿色=合法 / 红色=不合法 -->
+    <div class="vstat" [class.bad]="!check().ok">
+      @if (check().ok) {
+        ✓ {{ check().msg }}
+        @if (check().detail) {
+          <span class="dim"> · {{ check().detail }}</span>
+        }
+      } @else {
+        ✗ {{ check().msg }}
+        @if (check().detail) {
+          <span class="dim"> —— {{ check().detail }}</span>
+        }
+      }
+    </div>
+
+    <!-- 发布结果：成功（绿，带可核对信息与自动拉取说明）/ 失败（红，带原因与建议） -->
+    @if (result(); as r) {
+      @if (r.ok) {
+        <div class="ra-result ok" role="status" aria-live="polite">
+          <span class="ra-ico">✓</span>
+          <div class="ra-body">
+            <div class="ra-title">
+              已发布 <b>{{ r.bucket }}</b>
+              <span class="dim small">{{ publishedAt() }}</span>
+            </div>
+            <div class="ra-detail">
+              json {{ fmtB(r.json) }} → srs {{ fmtB(r.srs) }} · sha256 <span class="mono cd">{{ r.sha256 }}</span>
+            </div>
+            <div class="ra-hint">{{ r.hint || '两台路由 60s 内自动拉取，无需重启' }}</div>
+          </div>
+          <button class="ra-close" (click)="dismissResult()" title="关闭">✕</button>
+        </div>
+      } @else {
+        <div class="ra-result bad" role="alert" aria-live="assertive">
+          <span class="ra-ico">✗</span>
+          <div class="ra-body">
+            <div class="ra-title">发布失败：{{ r.error || '服务端未返回原因' }}</div>
+            <div class="ra-hint">{{ failHint(r.error) }}</div>
+          </div>
+          <button class="ra-retry" (click)="publish()" [disabled]="publishing()">重试</button>
+          <button class="ra-close" (click)="dismissResult()" title="关闭">✕</button>
+        </div>
+      }
+    }
+
+    <div class="hint small dim">
+      语义提醒：桶内条目是「或」关系；同名序号桶（-2/-3）是在原位保序的影子桶，改它们不影响主桶<br />
+      服务端会拒绝：非法桶名 / 非 rules[] 结构 / 未知字段 —— 校验通过才会写盘
+    </div>
+  </section>
+
+  <!-- 右键菜单：空白/根节点 → 新建；文件 → 重命名/删除（点遮罩或 Esc 关闭） -->
+  @if (menu(); as m) {
+    <div class="ra-menu-mask" (click)="closeMenu()" (contextmenu)="$event.preventDefault(); closeMenu()"></div>
+    <div class="ra-menu" [style.left.px]="m.x" [style.top.px]="m.y" (click)="$event.stopPropagation()">
+      @if (m.target === 'blank') {
+        <button type="button" (click)="startCreate(); closeMenu()">新建 JSON 文件</button>
+      } @else {
+        <button type="button" (click)="startRename(m.name); closeMenu()">重命名 {{ m.name }}.json</button>
+        <button type="button" class="danger" (click)="deleteBucket(m.name); closeMenu()">删除 {{ m.name }}.json</button>
+      }
+    </div>
   }
-
-  <div class="hint small dim">
-    语义提醒：桶内条目是「或」关系；同名序号桶（-2/-3）是在原位保序的影子桶，改它们不影响主桶<br />
-    服务端会拒绝：非法桶名 / 非 rules[] 结构 / 未知字段 —— 校验通过才会写盘
-  </div>
 </div>

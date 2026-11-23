@@ -136,12 +136,16 @@
   <!-- 连接子页：独立组件（三档视图 / 搜索 / 筛选 / 排序 / 分组 / 列设置 / 详情抽屉），
        活跃条数与累计流量回传给上面头部统计条 -->
   @case ('connections') {
-    <app-connections [backend]="backend()" (stats)="onConnStats($event)" />
+    <app-connections [backend]="backend()" />
   }
 
   <!-- 流向子页：流向动画组件，点 ③ 规则集 / ④ 分组卡片触发编辑弹窗 -->
   @case ('flow') {
-    <app-flow-anim [backend]="backend()" (editRule)="openRule($event)" (editGroup)="openGroup($event)" />
+    <app-flow-anim
+      [backend]="backend()"
+      (editRule)="openRule($event)"
+      (editGroup)="openGroup($event)"
+    />
   }
 
   <!-- 日志子页：级别选择 / 暂停 / 清空；切走即断开 WebSocket；日志窗口撑满剩余高度 -->

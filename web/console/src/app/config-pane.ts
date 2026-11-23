@@ -10,6 +10,7 @@ import { ParsedNode, parseShareLinks } from './share-link';
 import { NodeForm, NODE_TYPES, buildNode, emptyForm, formFromNode } from './node-form';
 import { lineDiff } from './line-diff';
 import { errMsg } from './util';
+import { ConfirmService } from './confirm.service';
 
 /** 节点表单状态机：none=关闭 / add=新增 / edit=编辑既有节点 */
 type FormMode = 'none' | 'add' | 'edit';
@@ -42,6 +43,8 @@ export class ConfigPane {
 
   private readonly router = inject(RouterService); // 99 的路由配置/凭据/校验/重启接口
   private readonly bsvc = inject(BackendsService); // 全局 clash 密钥与后端清单
+  /** 页内确认框（取代原生 confirm） */
+  private readonly ui = inject(ConfirmService);
 
   // —— 配置文本与元信息 ——
   /** 当前路由 host（工具栏/确认弹窗/凭据面板展示用） */
@@ -236,9 +239,15 @@ export class ConfigPane {
   }
 
   /** 切换 Monaco 编辑视图；退出时若有暂存先确认，放弃则还原为原文 */
-  toggleEdit(): void {
+  async toggleEdit(): Promise<void> {
     if (this.editing() && this.raw() !== this.original()) {
-      if (!confirm('放弃未应用的修改？')) return;
+      const ok = await this.ui.ask({
+        title: '放弃未应用的修改？',
+        body: '退出编辑会丢弃编辑器里尚未写回路由的文本改动。',
+        okText: '放弃修改',
+        danger: true,
+      });
+      if (!ok) return;
       this.raw.set(this.original());
     }
     this.editing.set(!this.editing());
@@ -280,9 +289,20 @@ export class ConfigPane {
       return;
     }
     if (this.issues().length) {
-      if (!confirm(`结构校验有 ${this.issues().length} 条问题，仍要应用？\n\n` + this.issues().slice(0, 8).join('\n'))) return;
-    } else if (!confirm(`把配置写回 ${this.host()} 并重启 sing-box？\n断流约 1 秒，失败会自动回滚。`)) {
-      return;
+      const ok = await this.ui.ask({
+        title: `结构校验有 ${this.issues().length} 条问题，仍要应用并重启？`,
+        details: this.issues().slice(0, 8),
+        okText: '仍然应用',
+        danger: true,
+      });
+      if (!ok) return;
+    } else {
+      const ok = await this.ui.ask({
+        title: `把配置写回 ${this.host()} 并重启 sing-box？`,
+        body: '断流约 1 秒，失败会自动回滚。',
+        okText: '应用并重启',
+      });
+      if (!ok) return;
     }
     this.busy.set(true);
     this.err.set('');
@@ -301,7 +321,12 @@ export class ConfigPane {
 
   /** 只重启 sing-box（不写配置）：断流约 1 秒，先确认 */
   async restart(): Promise<void> {
-    if (!confirm(`重启 ${this.host()} 上的 sing-box？断流约 1 秒。`)) return;
+    const ok = await this.ui.ask({
+      title: `重启 ${this.host()} 上的 sing-box？`,
+      body: '断流约 1 秒，配置不改动。',
+      okText: '重启',
+    });
+    if (!ok) return;
     this.busy.set(true);
     this.err.set('');
     try {
@@ -395,7 +420,7 @@ export class ConfigPane {
 
   /** 删除前先看引用影响（deleteImpact）：被 route 引用等情形直接拒绝；
    *  可删时列出分组移除/default 联动后果，确认后 deleteNode 并进暂存复核 */
-  askDelete(tag: string): void {
+  async askDelete(tag: string): Promise<void> {
     const d = this.doc();
     if (!d) return;
     const info = deleteImpact(d, tag);
@@ -403,13 +428,19 @@ export class ConfigPane {
       this.err.set(`不能删除 ${tag}：` + info.reasons.join('；'));
       return;
     }
-    const lines = [
-      `删除节点 ${tag}？（先暂存，点「应用并重启」才会写回路由）`,
-      info.groups.length ? `· 会从 ${info.groups.length} 个分组中移除：${info.groups.join('、')}` : '· 没有被任何分组引用',
-      info.isDefault.length ? `· 这些组的 default 会改成第一个成员：${info.isDefault.map((x) => x.group).join('、')}` : '',
-      '· 生成后先看 diff，再点「应用并重启」',
+    const details = [
+      info.groups.length ? `会从 ${info.groups.length} 个分组中移除：${info.groups.join('、')}` : '没有被任何分组引用',
+      info.isDefault.length ? `这些组的 default 会改成第一个成员：${info.isDefault.map((x) => x.group).join('、')}` : '',
+      '生成后先看 diff，再点「应用并重启」',
     ].filter(Boolean);
-    if (!confirm(lines.join('\n'))) return;
+    const ok = await this.ui.ask({
+      title: `删除节点 ${tag}？`,
+      body: '先暂存到本页，点「应用并重启」才会写回路由。',
+      details,
+      okText: '删除（暂存）',
+      danger: true,
+    });
+    if (!ok) return;
     try {
       deleteNode(d, tag);
       this.log.set(`已从配置中移除节点 ${tag}（尚未应用）`);
@@ -509,7 +540,13 @@ export class ConfigPane {
   }
 
   async removeCreds(host: string): Promise<void> {
-    if (!confirm(`删除 ${host} 的 SSH 凭据？`)) return;
+    const ok = await this.ui.ask({
+      title: `删除 ${host} 的 SSH 凭据？`,
+      body: '99 上这台路由的账号会被清掉，之后「应用并重启」会要求重新填写。',
+      okText: '删除',
+      danger: true,
+    });
+    if (!ok) return;
     try {
       await this.router.deleteCredentials(this.backend(), host);
       await this.loadCreds();
