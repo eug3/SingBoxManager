@@ -4,6 +4,36 @@ import { firstValueFrom } from 'rxjs';
 import { Backend } from './models';
 import { BackendsService } from './backends.service';
 
+/** GET /router/apistatus 响应：sing-box API 服务（gRPC 9092）里的运行时信息 */
+export interface RouterApiStatus {
+  ok: boolean;
+  host?: string;
+  /** started / stopped */
+  state?: string;
+  /** 原样串，如 1h53m3s */
+  uptime?: string;
+  /** 解析后的秒数 */
+  uptimeSec?: number;
+  memoryMB?: number;
+  /** Go 协程数（clash_api 没有） */
+  goroutines?: number;
+  /** 入站 / 出站连接数（clash_api 只有合并值） */
+  connIn?: number;
+  connOut?: number;
+  upRate?: string;
+  downRate?: string;
+  upTotal?: string;
+  downTotal?: string;
+  groups?: number;
+  nodes?: number;
+  /** 分组 tag → 当前选中成员 */
+  selected?: Record<string, string>;
+  version?: string;
+  mode?: string;
+  /** 能力不可用时的原因（如路由未启用 service/api） */
+  err?: string;
+}
+
 /** GET /router/config 响应：整份 config.json 文本 + 大小 + sha256（乐观锁基准） */
 export interface RouterConfigResp {
   ok: boolean;
@@ -77,6 +107,16 @@ export class RouterService {
   config(b: Backend): Promise<RouterConfigResp> {
     return firstValueFrom(
       this.http.get<RouterConfigResp>('/router/config', {
+        headers: this.headers(b),
+        params: { host: this.host(b) },
+      }),
+    );
+  }
+
+  /** sing-box API 服务的运行状态（运行时长 / 协程 / 入出连接数；clash_api 无法提供） */
+  apiStatus(b: Backend): Promise<RouterApiStatus> {
+    return firstValueFrom(
+      this.http.get<RouterApiStatus>('/router/apistatus', {
         headers: this.headers(b),
         params: { host: this.host(b) },
       }),

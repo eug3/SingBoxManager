@@ -824,6 +824,28 @@ button.chip.on { border-color: var(--acc); color: var(--acc); background: #eef7f
 .gbchip.dragging { opacity: .45; }
 .gbempty { padding: 8px 6px; font-size: 10px; color: var(--dim); border: 1px dashed var(--line); text-align: center; }
 
+/* 概览 · 分组当前出口卡：两列网格，分组名 → 当前成员 */
+.selgrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 4px 14px;
+  padding: 2px 0;
+}
+.selrow {
+  display: flex; align-items: baseline; gap: 6px;
+  min-width: 0; font-size: 11px;
+}
+.selrow .selg {
+  flex: 0 1 auto; min-width: 0;
+  color: var(--dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.selrow .selm {
+  flex: 0 0 auto;
+  color: var(--acc2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
 /* 规则编辑主 tab：整页 flex 列，编辑区吃满剩余高度（Monaco 自适应窗口尺寸） */
 .ra-page { display: flex; flex-direction: column; height: 100%; min-height: 0; gap: 10px; }
 .ra-page > .bar { flex: 0 0 auto; margin-bottom: 0; }

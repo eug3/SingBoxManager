@@ -23,6 +23,7 @@ import {
 import { AreaChartComponent, ChartSeries } from './area-chart';
 import { Backend, ProxyNode } from './models';
 import { ClashService } from './clash.service';
+import { RouterApiStatus, RouterService } from './router.service';
 import { fmtBytes, fmtMib, fmtRate, latClass, latText, mibToBytes, runPool } from './util';
 
 const MAX_POINTS = 600; // 原始 1s 采样缓冲 = 10 分钟
@@ -44,6 +45,11 @@ const WINDOW_OPTIONS = [1, 5, 10];
 export class OverviewPane implements OnInit, OnDestroy {
   /** 当前后端（曲线数据源，也是 hist 缓存的隔离依据） */
   readonly backend = input.required<Backend>();
+  private readonly router = inject(RouterService);
+  /** sing-box API 服务（gRPC 9092）的运行时状态：运行时长 / 协程 / 入出连接数。null=未取到，err 里有原因 */
+  readonly apiStatus = signal<RouterApiStatus | null>(null);
+  /** 该能力是否可用（路由没启用 service/api 时不显示卡片，不打扰） */
+  readonly apiOk = computed(() => !!this.apiStatus()?.ok);
 
   /** clash_api 客户端：WebSocket 采样与 REST 读写 */
   private readonly clash = inject(ClashService);
@@ -101,6 +107,7 @@ export class OverviewPane implements OnInit, OnDestroy {
   private readonly sockets: WebSocket[] = [];
   /** 分组轮询定时器（5s 一次） */
   private timer: ReturnType<typeof setInterval> | null = null;
+  private apiTimer: ReturnType<typeof setInterval> | null = null;
   /** hist 落盘定时器（2s 一次） */
   private histTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -192,12 +199,15 @@ export class OverviewPane implements OnInit, OnDestroy {
       this.totals.set({ down: m.downloadTotal ?? 0, up: m.uploadTotal ?? 0 });
       this.push(this.connPts, n);
     });
+    void this.loadApiStatus();
+    this.apiTimer = setInterval(() => void this.loadApiStatus(), 30000); // 运行时长/协程是慢变量，30s 足够
     this.timer = setInterval(() => void this.loadGroups(), 5000);
     this.histTimer = setInterval(() => this.saveHist(), 2000); // 每 2s 落盘一次历史
   }
 
   /** 清理：再落盘一次 hist，停两个定时器，关闭全部 WebSocket 并解绑回调 */
   ngOnDestroy(): void {
+    if (this.apiTimer) clearInterval(this.apiTimer);
     this.saveHist(); // 离开前再存一次，保证切 tab 时是最新的
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
@@ -290,6 +300,40 @@ export class OverviewPane implements OnInit, OnDestroy {
     } catch (e) {
       this.err.set((e as Error)?.message ?? String(e));
     }
+  }
+
+  /**
+   * 拉 sing-box API 服务的运行状态（30s 一次）：运行时长 / Goroutine / 入出连接数。
+   * 失败静默降级（路由可能没启用 services.api）——概览的主体数据来自 clash_api，不受影响。
+   */
+  async loadApiStatus(): Promise<void> {
+    try {
+      this.apiStatus.set(await this.router.apiStatus(this.backend()));
+    } catch {
+      this.apiStatus.set(null);
+    }
+  }
+
+  /** 运行时长：秒 → "1 天 2 小时" / "1 小时 48 分" / "7 分 12 秒" */
+  uptimeText(sec: number | undefined): string {
+    const s = Math.max(0, Math.floor(sec ?? 0));
+    if (!s) return '—';
+    const d = Math.floor(s / 86400);
+    const h = Math.floor((s % 86400) / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const ss = s % 60;
+    if (d) return `${d} 天 ${h} 小时`;
+    if (h) return `${h} 小时 ${m} 分`;
+    if (m) return `${m} 分 ${ss} 秒`;
+    return `${ss} 秒`;
+  }
+
+  /** 分组当前选中成员的紧凑列表（按分组名排序，前 n 个 + 剩余计数） */
+  selectedEntries(): { tag: string; member: string }[] {
+    const sel = this.apiStatus()?.selected ?? {};
+    return Object.entries(sel)
+      .map(([tag, member]) => ({ tag, member }))
+      .sort((a, b) => a.tag.localeCompare(b.tag, 'zh'));
   }
 
   /** 拉分组与各节点最新延迟（5s 轮询 + 手动刷新）；失败静默，不打断曲线 */

@@ -131,6 +131,7 @@ func main() {
 	mux.HandleFunc("GET /router/config", handleRouterConfig)
 	mux.HandleFunc("GET /router/rules", handleRouterRules)
 	mux.HandleFunc("GET /router/clients", handleRouterClients)
+	mux.HandleFunc("GET /router/apistatus", handleRouterAPIStatus)
 	mux.HandleFunc("POST /router/restart", handleRouterRestart)
 	mux.HandleFunc("POST /router/check", handleRouterCheck)
 	mux.HandleFunc("POST /router/apply", handleRouterApply)

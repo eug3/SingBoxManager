@@ -97,6 +97,53 @@
     <div class="dim small" style="margin-top:6px">模式切换是 sing-box 唯一开放的运行时写操作（PATCH /configs）</div>
   </div>
 
+
+  <!-- 运行状态卡：来自 sing-box API 服务（gRPC 9092，经 99 中转）——clash_api 拿不到的字段 -->
+  @if (apiOk()) {
+    @let st = apiStatus()!;
+    <div class="ovcard">
+      <div class="ovhd">
+        <span title="来自 sing-box API 服务（services.api，gRPC 9092）：运行时长、Goroutine 数、入/出连接数拆分。clash_api 不提供这些字段。">运行状态 ⓘ</span>
+        <span class="ovvals">
+          <b>{{ uptimeText(st.uptimeSec) }}</b>
+          <span class="dim small">连续运行</span>
+        </span>
+      </div>
+      <table class="kv">
+        <tr><td>进程状态</td><td>{{ st.state === 'started' ? '运行中' : (st.state || '—') }}</td></tr>
+        <tr>
+          <td>连接（入/出）</td>
+          <td>{{ st.connIn ?? 0 }} 入 · {{ st.connOut ?? 0 }} 出
+            <span class="dim small">（clash_api 只给合并值）</span>
+          </td>
+        </tr>
+        <tr><td>Goroutine</td><td>{{ st.goroutines ?? 0 }} <span class="dim small">（协程数，突增常意味着连接积压）</span></td></tr>
+        <tr><td>API 服务内存</td><td>{{ st.memoryMB ?? 0 }} MB <span class="dim small">（API 侧口径）</span></td></tr>
+        <tr><td>出站/分组</td><td>{{ st.nodes ?? 0 }} 个节点 · {{ st.groups ?? 0 }} 个分组</td></tr>
+        <tr><td>API 速率</td><td>↓{{ st.downRate || '—' }} · ↑{{ st.upRate || '—' }}</td></tr>
+        <tr><td>API 累计</td><td>↓{{ st.downTotal || '—' }} · ↑{{ st.upTotal || '—' }}</td></tr>
+      </table>
+    </div>
+  }
+
+  <!-- 当前选中成员卡：每个分组此刻用的节点（group list，比 /proxies 更轻） -->
+  @if (apiOk() && selectedEntries().length) {
+    <div class="ovcard">
+      <div class="ovhd">
+        <span>分组当前出口</span>
+        <span class="ovvals"><span class="dim small">{{ selectedEntries().length }} 个分组</span></span>
+      </div>
+      <div class="selgrid">
+        @for (e of selectedEntries(); track e.tag) {
+          <span class="selrow">
+            <span class="selg">{{ e.tag }}</span>
+            <span class="selm">{{ e.member }}</span>
+          </span>
+        }
+      </div>
+    </div>
+  }
+
   <!-- 分组延时速览卡：各分组当前节点与延迟，全部测速 / 刷新 -->
   <div class="ovcard wide">
     <div class="ovhd">
