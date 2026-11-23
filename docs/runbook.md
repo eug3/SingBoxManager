@@ -181,6 +181,8 @@ sing-box 没有 reload/写配置 API，所以「改节点配置 → 生效」由
 15. **表单控件的坑**：`<select [value]>` 在选项是 `@for` 动态渲染时可能显示成第一个选项（值其实是对的）——用 `<option [selected]="…">` 绑定，`deploy_console.sh` 之后实测 `rs-tg` 显示正确
 16. **CORS origin 只能写精确来源**：`access_control_allow_origin` 不接受网段，写 `协议://主机:端口`；页面换入口要同步所有路由
 17. **`deploy_console.sh` 在 macOS 自带 `/bin/bash 3.2` + UTF-8 语言环境下必中止**：报 `scripts/deploy_console.sh: line 31: MONACO_VERSION…: unbound variable`。根因是脚本开了 `set -u`，而第 31 行 `（$MONACO_VERSION）` 里变量名紧贴全角括号——bash 3.2 在 UTF-8 locale 下会把「）」的首字节吸进变量名，于是去找一个不存在的变量；`LC_ALL=C` 下正常。agent / cron 常注入 `LANG=C.UTF-8`，所以在这些环境里必现，交互终端里则不一定。**规避**：运行时加 `LC_ALL=C LANG=C`（脚本只处理 ASCII，C locale 不影响中文输出与校验）。根治是把 `$MONACO_VERSION` 写成 `${MONACO_VERSION}`（一行），属发布链脚本改动，待拍板后再改。
+18. **`sshpass` 打 OpenWrt 主路由（192.168.31.32）会偶发 `Permission denied`**：同一口令连续成功几次后，下一次可能被拒（2026-11-23 两次），而路由器那边 bearDropper 在给失败计数（阈值 5 次/12h，只挂 WAN 链，局域网来源不会被封）。改走 OpenSSH 的 askpass、一次连接只提交一次口令即稳定：`SSH_ASKPASS_REQUIRE=force SSH_ASKPASS=<只读助手脚本> ssh …`，口令只经环境变量传入、不落盘。判断某来源是否被封，用 `ssh-keyscan -T 5 <host>` 看 22 端口能否握手（被封则超时），不要再用口令去试。
+19. **sing-box 被内核 OOM 杀掉后 procd 不会自己再拉起**：`procd_set_param respawn` 只在进程「异常退出后的等待期」内生效，一旦有人显式 `stop` 或崩溃循环超过 procd 的耐心，实例就停在 `running:false`（`ubus call service list '{"name":"sing-box"}'` 可见 `exit_code:137`），路由会悄悄裸奔。查法 `logread | grep -i "Out of memory\|crash loop"`。**现场很容易丢**：主路由 `logd` 只留 64K（约 14 行/秒 → 20 秒），内核环形缓冲也会被覆盖——要复盘就在故障当下 `logread -f` 抓走，或调大 `logd -S`。
 
 ## 6. 凭据指路（仓库与页面不落密钥）
 
