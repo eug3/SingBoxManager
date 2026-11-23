@@ -270,6 +270,25 @@ const server = createServer(async (req, res) => {
     const text = JSON.stringify(cfg, null, 2);
     return json(res, { ok: true, host: '127.0.0.1', name: 'mock', config: text, size: text.length, sha256: 'mock', mtime: '' });
   }
+  // 「保存并重启」链路：凭据清单 + apply（MOCK_APPLY=fail 可模拟失败，默认成功）
+  if (path === '/router/credentials') {
+    const need = process.env.MOCK_NOCRED === '1';
+    return json(res, { ok: true, hosts: [{ host: '127.0.0.1', user: need ? '' : 'root', configured: !need }] });
+  }
+  if (path === '/router/apply') {
+    const mode = process.env.MOCK_APPLY || 'ok';
+    if (mode === 'fail') {
+      return json(res, { ok: false, error: 'sing-box check 未通过：level: unknown field "levelz"' }, 400);
+    }
+    if (mode === 'slow') {
+      // 让前端看得到完整进度推进
+      const until = Date.now() + 9000;
+      while (Date.now() < until) {
+        /* 阻塞模拟长耗时 */
+      }
+    }
+    return json(res, { ok: true, changed: true, log: 'APPLIED' });
+  }
   if (path === '/configs') return json(res, CONFIGS);
   if (path === '/connections' && req.method === 'GET') {
     step();

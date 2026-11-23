@@ -32,9 +32,10 @@ import { RuleSetDialog } from './rule-set-dialog';
 import { GroupDialog } from './group-dialog';
 import { SshCredDialog } from './ssh-cred-dialog';
 import { ConfigDraftService } from './config-draft.service';
-import { groups, validateDoc } from './config-ops';
+import { groups, validateDoc, serializeConfig } from './config-ops';
 import { ClashService } from './clash.service';
 import { fmtBytes, latClass, latText, runPool } from './util';
+import { SaveProgressDialog } from './save-progress';
 
 /** 后端子页签（App 也用它记住每个后端的当前子页） */
 export type PaneTab = 'overview' | 'groups' | 'connections' | 'flow' | 'logs' | 'rules' | 'config';
@@ -47,7 +48,7 @@ interface LogLine {
 @Component({
   selector: 'app-backend-pane',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [
+  imports: [SaveProgressDialog, 
     OverviewPane,
     ConfigPane,
     Connections,
@@ -117,6 +118,22 @@ export class BackendPane implements OnDestroy {
   readonly editGroupTag = signal<string | null>(null);
   /** SSH 凭据弹窗（save 发现缺凭据时打开；saved 后自动重试保存） */
   readonly credOpen = signal(false);
+
+  /** 保存进度弹窗：null = 未打开 */
+  readonly saveState = signal<'running' | 'ok' | 'fail' | 'needCreds' | null>(null);
+  /** 当前进行到第几步（0-based，对应 save-progress 的 SAVE_STEPS） */
+  readonly saveStep = signal(0);
+  /** 保存已用时（毫秒，弹窗里显示） */
+  readonly saveElapsed = signal(0);
+  /** 失败原文 / 标题 / 建议 */
+  readonly saveError = signal('');
+  readonly saveFailTitle = signal('保存失败');
+  readonly saveFailHint = signal('');
+  /** 成功摘要：写入字节数、是否实际变更 */
+  readonly saveSize = signal(0);
+  readonly saveChanged = signal<boolean | undefined>(undefined);
+  private saveT0 = 0;
+  private saveTimer: ReturnType<typeof setInterval> | null = null;
 
   /** 当前激活的子 tab（挂载后按 App 记住的子页同步一次：input 在构造时还没赋值） */
   readonly tab = signal<PaneTab>('overview');
@@ -465,17 +482,122 @@ export class BackendPane implements OnDestroy {
     void this.runSave();
   }
 
-  /** 执行保存；被「缺 SSH 凭据」挡住时打开凭据弹窗 */
+  /**
+   * 执行保存；全程在进度弹窗里展示：
+   *  · 阶段推进按耗时估计（后端 apply 是单条阻塞 SSH 调用，结束时以真实结果为准）；
+   *  · 成功 → ok + 摘要；失败 → 停在出错步 + 原文 + 建议 + 重试；
+   *  · 缺凭据 → needCreds，点「填写凭据」开 SSH 凭据框，填完自动续跑。
+   */
   private async runSave(): Promise<void> {
-    await this.draft.save(this.backend());
-    if (this.draft.needCreds()) this.credOpen.set(true);
+    const text = this.draft.draft() ? serializeConfig(this.draft.draft()!, this.draft.originalText()) : '';
+    this.saveSize.set(text.length);
+    this.saveChanged.set(undefined);
+    this.saveError.set('');
+    this.saveStep.set(0);
+    this.saveState.set('running');
+    this.startSaveClock();
+
+    const p = this.draft.save(this.backend());
+    void this.advanceSaveSteps(); // 与真实请求并行跑进度
+    await p;
+    this.stopSaveClock();
+
+    if (this.draft.needCreds()) {
+      this.saveState.set('needCreds');
+      this.saveError.set(this.draft.error());
+      return;
+    }
+    const err = this.draft.error();
+    if (err) {
+      this.saveFailTitle.set(this.saveFailTitleOf(err));
+      this.saveFailHint.set(this.saveFailHintOf(err));
+      this.saveError.set(err);
+      this.saveStep.set(this.saveFailStepOf(err)); // 红叉落在真正出错的那一步
+      this.saveState.set('fail');
+      return;
+    }
+    // 成功：草稿已被服务清空
+    this.saveStep.set(5);
+    this.saveState.set('ok');
+  }
+
+  /** 进度时钟：显示已用时 */
+  private startSaveClock(): void {
+    this.stopSaveClock();
+    this.saveT0 = Date.now();
+    this.saveElapsed.set(0);
+    this.saveTimer = setInterval(() => this.saveElapsed.set(Date.now() - this.saveT0), 200);
+  }
+
+  private stopSaveClock(): void {
+    if (this.saveTimer) clearInterval(this.saveTimer);
+    this.saveTimer = null;
+  }
+
+  /**
+   * 按估计耗时推进阶段（总时长约 8–20 秒：凭据预检 0.3s → 读 sha 0.5s → 上传 0.5s
+   * → check 1–3s → 重启 1–3s → 健康检查 2–6s）。只是视觉引导，不指示真实完成度。
+   */
+  private async advanceSaveSteps(): Promise<void> {
+    const waits = [700, 900, 1800, 2500]; // 每次停留后推进到下一步
+    for (let i = 0; i < waits.length; i++) {
+      await new Promise((r) => setTimeout(r, waits[i]));
+      if (this.saveState() !== 'running') return;
+      this.saveStep.set(i + 1);
+    }
+  }
+
+  /** 失败原文 → 标题（按后端 apply 的失败标记分类） */
+  private saveFailTitleOf(err: string): string {
+    if (/STALE/.test(err)) return '配置已被他人修改';
+    if (/sing-box check 未通过|CHECK_FAILED/i.test(err)) return '语法校验未通过';
+    if (/自动回滚|ROLLBACK_OK/i.test(err)) return '新配置不健康，已自动回滚';
+    if (/凭据|Permission denied|ssh/i.test(err)) return 'SSH 凭据不可用';
+    if (/上传失败/.test(err)) return '上传配置失败';
+    return '保存失败';
+  }
+
+  /** 失败原文 → 出错的步骤序号（对应 SAVE_STEPS：0读取 1上传 2校验 3重启 4健康检查） */
+  private saveFailStepOf(err: string): number {
+    if (/STALE/.test(err)) return 0; // 基准版本不符：卡在读当前配置
+    if (/上传失败/.test(err)) return 1;
+    if (/sing-box check 未通过|CHECK_FAILED/i.test(err)) return 2;
+    if (/自动回滚|ROLLBACK_OK/i.test(err)) return 4; // 重启过但健康检查没过 → 回滚
+    if (/凭据|Permission denied|ssh/i.test(err)) return 1; // SSH 权限问题多发生在写/执行阶段
+    return 2;
+  }
+
+  /** 失败原文 → 可操作建议 */
+  private saveFailHintOf(err: string): string {
+    if (/STALE/.test(err)) return '有人在这期间改过路由配置：点「重试」会先拉取最新版本，再重新应用你的改动。';
+    if (/sing-box check 未通过|CHECK_FAILED/i.test(err)) return '新配置没通过 sing-box 语法检查，路由未被改动。按上面的报错修正后重试。';
+    if (/自动回滚|ROLLBACK_OK/i.test(err)) return '新配置重启后不健康，系统已自动回滚到原配置，路由仍是可用状态。看上面的日志定位问题。';
+    if (/凭据|Permission denied|ssh/i.test(err)) return '99 到路由的 SSH 登录失败：点「重试」并核对用户名/口令（NAS 的 credentials 文件里有登记）。';
+    if (/上传失败/.test(err)) return '写临时文件到路由失败：多为路由磁盘满或 /tmp 只读，登录路由查一下空间。';
+    return '按上面的错误原文排查；路由未被改坏时原配置保持不变。';
+  }
+
+  /** 进度弹窗「重试」：重新走一遍保存 */
+  retrySave(): void {
+    void this.runSave();
+  }
+
+  /** 进度弹窗「填写凭据」：开凭据框（填完 onCredSaved 会自动续跑） */
+  openCredsForSave(): void {
+    this.saveState.set(null);
+    this.credOpen.set(true);
+  }
+
+  /** 关掉进度弹窗 */
+  closeSaveProgress(): void {
+    this.saveState.set(null);
   }
 
   /** 凭据保存成功：关窗 → 自动重试刚才的保存（不再重复确认） */
   onCredSaved(): void {
     this.credOpen.set(false);
     this.draft.needCreds.set(false);
-    void this.runSave();
+    void this.runSave(); // 带上进度弹窗续跑
   }
 
   /** 待保存条「取消」：丢弃全部暂存改动 */

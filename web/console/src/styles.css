@@ -1222,6 +1222,45 @@ button.chip.on { border-color: var(--acc); color: var(--acc); background: #eef7f
   border: 1px solid #eef2f8; background: #f8fafd;
 }
 
+/* 保存进度弹窗：步骤清单 + 结果块 */
+.sp-modal { width: min(560px, calc(100vw - 40px)); }
+.sp-steps { display: flex; flex-direction: column; gap: 2px; }
+.sp-step {
+  display: flex; align-items: flex-start; gap: 9px;
+  padding: 7px 9px; font-size: 11.5px;
+  border-left: 2px solid transparent; color: var(--dim);
+}
+.sp-step.active { border-left-color: var(--acc); background: #f4fbf7; color: var(--ink); }
+.sp-step.done { color: var(--ink); }
+.sp-step.failed { border-left-color: var(--bad); background: #fdf0f2; color: var(--bad); }
+.sp-ico { flex: 0 0 14px; width: 14px; text-align: center; line-height: 17px; font-size: 11px; color: var(--acc); }
+.sp-step.todo .sp-ico, .sp-step:not(.done):not(.active):not(.failed) .sp-ico { color: #c4cfdb; }
+.sp-step.failed .sp-ico { color: var(--bad); }
+.sp-spin {
+  display: inline-block; width: 8px; height: 8px; margin-bottom: 1px;
+  border: 1.5px solid var(--acc); border-top-color: transparent; border-radius: 50%;
+  animation: cn-spin .7s linear infinite;
+}
+.sp-dot { display: inline-block; width: 4px; height: 4px; border-radius: 50%; background: currentColor; }
+.sp-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.sp-label { color: inherit; }
+.sp-hint { font-size: 10.5px; color: var(--dim); }
+.sp-elapsed { flex: 0 0 auto; font-size: 10.5px; color: var(--acc); font-variant-numeric: tabular-nums; }
+/* 结果块：成功绿 / 失败红 / 缺凭据黄 */
+.sp-result { padding: 9px 11px; font-size: 11.5px; display: flex; flex-direction: column; gap: 5px; }
+.sp-result.ok { background: #eefaf4; border: 1px solid #b7e3cd; color: #0d7a4f; }
+.sp-result.bad { background: #fdeef0; border: 1px solid #f0c0c6; color: #a61f2f; }
+.sp-result.warn { background: #fff8e6; border: 1px solid #efd89b; color: #8a6100; }
+.sp-err {
+  margin: 0; padding: 6px 8px; max-height: 140px; overflow: auto;
+  background: #fff; border: 1px solid #f0c0c6;
+  font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 10.5px;
+  color: #7a2230; white-space: pre-wrap; word-break: break-all;
+}
+@media (prefers-reduced-motion: reduce) {
+  .sp-spin { animation: none; border-top-color: var(--acc); }
+}
+
 /* ③④ 弹窗内的检索框（可用规则集 / 分组成员共用）：紧贴列表上方，宽度跟随 */
 .rs-search {
   display: flex; align-items: center; gap: 6px;

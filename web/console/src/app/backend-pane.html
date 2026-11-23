@@ -71,7 +71,7 @@
     <button class="acc" (click)="saveDraft()" [disabled]="draft.saving()">
       {{ draft.saving() ? '保存中…' : '保存并重启' }}
     </button>
-    <button (click)="cancelDraft()" [disabled]="draft.saving()">取消</button>
+    <button (click)="cancelDraft()" [disabled]="draft.saving()" [title]="draft.saving() ? '保存进行中，不能取消' : '丢弃全部暂存改动'">取消</button>
   </div>
 }
 
@@ -211,6 +211,24 @@
 @if (editGroupTag(); as tag) {
   <app-group-dialog [group]="tag" [backend]="backend()" (closed)="editGroupTag.set(null)" />
 }
+<!-- 保存进度弹窗：保存并重启的每一步（读取/上传/校验/重启/健康检查）都有明确状态 -->
+@if (saveState(); as st) {
+  <app-save-progress
+    [host]="backend().name + ' · ' + backend().api"
+    [state]="st"
+    [current]="saveStep()"
+    [elapsedMs]="saveElapsed()"
+    [error]="saveError()"
+    [failTitle]="saveFailTitle()"
+    [failHint]="saveFailHint()"
+    [size]="saveSize()"
+    [changed]="saveChanged()"
+    (close)="closeSaveProgress()"
+    (retry)="retrySave()"
+    (askCreds)="openCredsForSave()"
+  />
+}
+
 <!-- SSH 凭据弹窗：保存并重启缺凭据时弹出；saved → 关窗并自动重试保存 -->
 @if (credOpen()) {
   <app-ssh-cred-dialog [backend]="backend()" (saved)="onCredSaved()" (closed)="credOpen.set(false)" />
