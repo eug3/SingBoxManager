@@ -1203,6 +1203,26 @@ button.chip.on { border-color: var(--acc); color: var(--acc); background: #eef7f
   border: 1px solid #eef2f8; background: #f8fafd;
 }
 
+/* ③④ 弹窗内的检索框（可用规则集 / 分组成员共用）：紧贴列表上方，宽度跟随 */
+.rs-search {
+  display: flex; align-items: center; gap: 6px;
+  margin: 6px 0 4px; position: relative;
+}
+.rs-search input[type='search'] {
+  flex: 1 1 auto; min-width: 0;
+  padding: 4px 24px 4px 8px;
+  font-size: 11px; color: var(--ink);
+  border: 1px solid var(--line); background: #fff; border-radius: 3px;
+}
+.rs-search input[type='search']:focus { outline: none; border-color: var(--acc); box-shadow: 0 0 0 2px #e3f2ea; }
+.rs-search input[type='search']::-webkit-search-cancel-button { display: none; }
+.rs-clear {
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  border: none; background: transparent; color: var(--dim);
+  font-size: 11px; line-height: 1; padding: 2px 4px; cursor: pointer;
+}
+.rs-clear:hover { color: var(--bad); }
+
 /* ④ 分组成员 checkbox 列表（可滚动；特殊出站/嵌套分组底色区分，口径同看板） */
 .gd-members {
   display: flex; flex-direction: column; gap: 3px;

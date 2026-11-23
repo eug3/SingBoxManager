@@ -97,6 +97,21 @@ export class RuleSetDialog {
     return out;
   });
 
+  /** 可用规则集的检索词（匹配 tag / type，不区分大小写） */
+  readonly q = signal('');
+  /** 检索后的可用规则集（计数仍用 palette().length 展示总量） */
+  readonly paletteFiltered = computed<{ tag: string; type: string }[]>(() => {
+    const kw = this.q().trim().toLowerCase();
+    const all = this.palette();
+    if (!kw) return all;
+    return all.filter((p) => p.tag.toLowerCase().includes(kw) || p.type.toLowerCase().includes(kw));
+  });
+
+  /** 清空检索 */
+  clearQ(): void {
+    this.q.set('');
+  }
+
   /** 拖拽状态：落点高亮 + 被拖 chip 半透明 */
   readonly dragOver = signal(false);
   readonly dragging = signal('');

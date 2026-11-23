@@ -229,6 +229,47 @@ const server = createServer(async (req, res) => {
   if (path === '/version') return json(res, VERSION);
   if (path === '/proxies') return json(res, PROXIES);
   if (path === '/rules') return json(res, ROUTES);
+  // 3/4 弹窗（规则集 / 分组）需要 /router/config：给一份带多分组、多节点、多 rule_set 的假配置
+  if (path === '/router/config') {
+    const cfg = {
+      log: { level: 'info' },
+      inbounds: [{ type: 'tun', tag: 'tun-in' }],
+      outbounds: [
+        { type: 'selector', tag: '🚀 节点选择', outbounds: ['🇭🇰 香港 01', '🇯🇵 日本 02', '🇺🇸 美国 03', 'DIRECT'] },
+        { type: 'selector', tag: '📲 电报信息', outbounds: ['🚀 节点选择', 'DIRECT'] },
+        { type: 'urltest', tag: '♻️ 自动选择', outbounds: ['🇭🇰 香港 01', '🇯🇵 日本 02'] },
+        { type: 'selector', tag: '🍎 苹果服务', outbounds: ['DIRECT'] },
+        { type: 'selector', tag: '🎯 全球直连', outbounds: ['DIRECT'] },
+        { type: 'selector', tag: '🐟 漏网之鱼', outbounds: ['🚀 节点选择', 'DIRECT'] },
+        { type: 'shadowsocks', tag: '🇭🇰 香港 01', server: '1.1.1.1', server_port: 443 },
+        { type: 'shadowsocks', tag: '🇯🇵 日本 02', server: '1.1.1.2', server_port: 443 },
+        { type: 'trojan', tag: '🇺🇸 美国 03', server: '1.1.1.3', server_port: 443 },
+        { type: 'vmess', tag: '🇸🇬 新加坡 04', server: '1.1.1.4', server_port: 443 },
+        { type: 'direct', tag: 'DIRECT' },
+        { type: 'block', tag: 'REJECT' },
+      ],
+      route: {
+        rule_set: [
+          { type: 'remote', tag: 'rs-tg', url: 'http://x/rs-tg.srs' },
+          { type: 'remote', tag: 'rs-github', url: 'http://x/rs-github.srs' },
+          { type: 'remote', tag: 'rs-netflix', url: 'http://x/rs-netflix.srs' },
+          { type: 'remote', tag: 'rs-apple', url: 'http://x/rs-apple.srs' },
+          { type: 'remote', tag: 'rs-msft', url: 'http://x/rs-msft.srs' },
+          { type: 'local', tag: 'cn_ip', path: 'cn.srs' },
+          { type: 'local', tag: 'bard-domains', path: 'bard.srs' },
+        ],
+        rules: [
+          { rule_set: ['rs-tg'], outbound: '📲 电报信息' },
+          { rule_set: ['rs-github', 'rs-msft'], outbound: '🚀 节点选择' },
+          { rule_set: ['cn_ip'], outbound: 'DIRECT' },
+        ],
+        final: '🐟 漏网之鱼',
+      },
+      experimental: { clash_api: { external_controller: '0.0.0.0:9090' } },
+    };
+    const text = JSON.stringify(cfg, null, 2);
+    return json(res, { ok: true, host: '127.0.0.1', name: 'mock', config: text, size: text.length, sha256: 'mock', mtime: '' });
+  }
   if (path === '/configs') return json(res, CONFIGS);
   if (path === '/connections' && req.method === 'GET') {
     step();

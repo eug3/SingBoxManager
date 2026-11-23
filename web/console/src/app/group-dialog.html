@@ -57,8 +57,22 @@
         }
 
         <div class="rs-sec">成员（已勾 {{ members().length }} / {{ candidates().length }}）</div>
+        <div class="rs-search">
+          <input
+            type="search"
+            [value]="q()"
+            (input)="q.set($any($event.target).value)"
+            (keydown.escape)="clearQ()"
+            placeholder="检索成员名 / 类型…"
+            aria-label="检索成员"
+          />
+          @if (q()) {
+            <button class="rs-clear" (click)="clearQ()" title="清空检索">✕</button>
+            <span class="dim small">{{ candidatesFiltered().length }} / {{ candidates().length }}</span>
+          }
+        </div>
         <div class="gd-members">
-          @for (c of candidates(); track c.tag) {
+          @for (c of candidatesFiltered(); track c.tag) {
             <label class="gd-row" [class.special]="c.special" [class.nested]="c.isGroup">
               <input
                 type="checkbox"
@@ -69,7 +83,11 @@
               <span class="gd-type">{{ c.isGroup ? '分组 · ' + c.type : c.type }}</span>
             </label>
           } @empty {
-            <div class="dim small">配置里没有可选的节点 / 分组</div>
+            @if (q()) {
+              <div class="dim small">没有匹配「{{ q() }}」的成员</div>
+            } @else {
+              <div class="dim small">配置里没有可选的节点 / 分组</div>
+            }
           }
         </div>
 

@@ -31,9 +31,26 @@
           }
         </div>
 
-        <div class="rs-sec">可用规则集（{{ palette().length }}）</div>
+        <div class="rs-sec">
+          可用规则集（{{ palette().length }}）
+          <span class="dim small">· 点击或拖到上方添加</span>
+        </div>
+        <div class="rs-search">
+          <input
+            type="search"
+            [value]="q()"
+            (input)="q.set($any($event.target).value)"
+            (keydown.escape)="clearQ()"
+            placeholder="检索规则集名 / 类型…"
+            aria-label="检索可用规则集"
+          />
+          @if (q()) {
+            <button class="rs-clear" (click)="clearQ()" title="清空检索">✕</button>
+            <span class="dim small">{{ paletteFiltered().length }} / {{ palette().length }}</span>
+          }
+        </div>
         <div class="rs-palette">
-          @for (p of palette(); track p.tag) {
+          @for (p of paletteFiltered(); track p.tag) {
             <span
               class="chip rs-chip drag"
               draggable="true"
@@ -46,7 +63,11 @@
               {{ p.tag }}<span class="rs-type">{{ p.type }}</span><span class="rs-plus">＋</span>
             </span>
           } @empty {
-            <span class="dim small">没有其它可用规则集（route.rule_set 里的桶都已应用）</span>
+            @if (q()) {
+              <span class="dim small">没有匹配「{{ q() }}」的可用规则集</span>
+            } @else {
+              <span class="dim small">没有其它可用规则集（route.rule_set 里的桶都已应用）</span>
+            }
           }
         </div>
 

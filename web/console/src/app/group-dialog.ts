@@ -5,6 +5,7 @@ import {
   inject,
   input,
   output,
+  signal,
 } from '@angular/core';
 import { Backend } from './models';
 import { AnyObj, ConfigDoc, GROUP_TYPES, groups, nodes } from './config-ops';
@@ -93,6 +94,26 @@ export class GroupDialog {
     }
     return list;
   });
+
+  /** 成员的检索词（匹配 tag / 类型，不区分大小写；分组按「分组」二字可搜到） */
+  readonly q = signal('');
+  /** 检索后的候选成员（计数仍用 candidates().length 展示总量） */
+  readonly candidatesFiltered = computed<MemberCandidate[]>(() => {
+    const kw = this.q().trim().toLowerCase();
+    const all = this.candidates();
+    if (!kw) return all;
+    return all.filter(
+      (c) =>
+        c.tag.toLowerCase().includes(kw) ||
+        c.type.toLowerCase().includes(kw) ||
+        (c.isGroup && '分组'.includes(kw)),
+    );
+  });
+
+  /** 清空检索 */
+  clearQ(): void {
+    this.q.set('');
+  }
 
   isMember(tag: string): boolean {
     return this.members().includes(tag);
