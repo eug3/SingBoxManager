@@ -1,12 +1,24 @@
 <!-- 面板头部（固定不滚动）：统计条 / 错误横幅 / 后端配置 / 全局待保存条 / 子 tab -->
 <div class="bp-head">
-<!-- 统计条：引擎版本 / 活跃连接 / 流量↓↑ / 分组数 / 节点数 -->
-<div class="strip">
-  <div class="stat"><span>引擎</span><b class="sm">{{ version() || '—' }}</b></div>
-  <div class="stat"><span>活跃连接</span><b>{{ liveStat().count }}</b></div>
-  <div class="stat"><span>流量 ↓/↑</span><b class="sm">{{ fmtB(liveStat().down) }} / {{ fmtB(liveStat().up) }}</b></div>
-  <div class="stat"><span>分组</span><b>{{ groupList().length }}</b></div>
-  <div class="stat"><span>节点</span><b>{{ nodes() }}</b></div>
+<!-- 状态概览：一行动态文本（引擎 / 活跃连接 / 流量 / 分组 / 节点），悬停看完整信息 -->
+<div class="statusline" [title]="
+  '引擎 ' + (version() || '—') +
+  ' · 活跃连接 ' + liveStat().count +
+  ' · 流量 ↓' + fmtB(liveStat().down) + ' ↑' + fmtB(liveStat().up) +
+  ' · 分组 ' + groupList().length +
+  ' · 节点 ' + nodes()
+">
+  <span class="sl-engine" [class.sl-down]="!version()">{{ version() || '未连接' }}</span>
+  <span class="sl-sep">·</span>
+  <span class="sl-k">活跃</span> <b class="sl-v">{{ liveStat().count }}</b>
+  <span class="sl-sep">·</span>
+  <span class="sl-k">流量</span>
+  <b class="sl-v dl">↓{{ fmtB(liveStat().down) }}</b>
+  <b class="sl-v ul">↑{{ fmtB(liveStat().up) }}</b>
+  <span class="sl-sep">·</span>
+  <span class="sl-k">分组</span> <b class="sl-v">{{ groupList().length }}</b>
+  <span class="sl-sep">·</span>
+  <span class="sl-k">节点</span> <b class="sl-v">{{ nodes() }}</b>
 </div>
 
 <!-- 401 横幅：密钥未填或错误，指引去填密钥 -->
