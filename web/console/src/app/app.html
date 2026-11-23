@@ -38,9 +38,17 @@
 
   <!-- 内容区：按当前 tab 只渲染对应后端面板或规则编辑器 -->
   <div class="content">
-    @for (b of backends(); track $index) {
-      @if (active() === 'b' + $index) {
-        <app-backend-pane [backend]="b" [index]="$index" (removed)="onRemoved()" />
+    <!-- 只渲染当前激活的那一个后端（条件放外层：@for 内再套 @if 会让面板在切 tab 时被创建两次） -->
+    <!-- 注意：@if 按 JS 真值判断，下标 0 会被当成假，所以要先转成字符串再判空 -->
+    @for (ai of [activeIndex()]; track ai) {
+      @if (ai !== null) {
+        <app-backend-pane
+          [backend]="backends()[ai]"
+          [index]="ai"
+          [initialTab]="paneOf(ai)"
+          (tabChange)="onPaneChange(ai, $event)"
+          (removed)="onRemoved()"
+        />
       }
     }
 

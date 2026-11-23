@@ -8,6 +8,7 @@
  *    连接数据与轮询都归它，本组件只接收它回传的「活跃条数 + 累计流量」喂头部统计条。
  */
 import {
+  afterNextRender,
   ChangeDetectionStrategy,
   Component,
   ElementRef,
@@ -35,8 +36,8 @@ import { groups, validateDoc } from './config-ops';
 import { ClashService } from './clash.service';
 import { fmtBytes, latClass, latText, runPool } from './util';
 
-/** 后端子页签 */
-type PaneTab = 'overview' | 'groups' | 'connections' | 'flow' | 'logs' | 'rules' | 'config';
+/** 后端子页签（App 也用它记住每个后端的当前子页） */
+export type PaneTab = 'overview' | 'groups' | 'connections' | 'flow' | 'logs' | 'rules' | 'config';
 /** 一条日志行：级别 + 文本 */
 interface LogLine {
   type: string;
@@ -83,6 +84,10 @@ export class BackendPane implements OnDestroy {
   readonly backend = input.required<Backend>();
   /** 该后端在列表中的序号（保存 / 删除配置时用） */
   readonly index = input.required<number>();
+  /** 进入时要落在哪个子页（App 按后端记住当前子页，切后端回来不跳回概览） */
+  readonly initialTab = input<PaneTab>('overview');
+  /** 子页变化时回传（App 记住，供下次重建恢复） */
+  readonly tabChange = output<PaneTab>();
   /** 删除后端后通知根组件切换 tab */
   readonly removed = output<void>();
 
@@ -100,7 +105,7 @@ export class BackendPane implements OnDestroy {
   /** SSH 凭据弹窗（save 发现缺凭据时打开；saved 后自动重试保存） */
   readonly credOpen = signal(false);
 
-  /** 当前激活的子 tab */
+  /** 当前激活的子 tab（挂载后按 App 记住的子页同步一次：input 在构造时还没赋值） */
   readonly tab = signal<PaneTab>('overview');
   /** 子 tab 定义（数组顺序即渲染顺序） */
   readonly tabs: { key: PaneTab; label: string }[] = [
@@ -178,6 +183,12 @@ export class BackendPane implements OnDestroy {
         void this.draft.load(b);
       }
     });
+    // 组件因切后端被重建时，恢复 App 记住的子页（input 在构造时未赋值，故放到首帧之后）
+    afterNextRender(() => {
+      const t = this.initialTab();
+      if (t !== this.tab()) this.tab.set(t);
+      this.enterTab(t);
+    });
   }
 
   /** 清理：断开日志 WebSocket（连接子页的定时器归它自己管） */
@@ -241,9 +252,15 @@ export class BackendPane implements OnDestroy {
     if (this.tab() === 'logs') this.startLogs();
   }
 
-  /** 切换子 tab：日志按需连/断，规则懒加载（连接页自己轮询，挂载即拉） */
+  /** 切换子 tab：日志按需连/断，规则懒加载（连接页自己轮询，挂载即拉）；变化回传给 App */
   setTab(t: PaneTab): void {
     this.tab.set(t);
+    this.tabChange.emit(t);
+    this.enterTab(t);
+  }
+
+  /** 某个子页被激活时的副作用（日志连 WS、规则懒拉；连接/流向/概览由各自组件挂载时自己取数） */
+  private enterTab(t: PaneTab): void {
     if (t === 'logs') this.startLogs();
     else this.stopLogs();
     if (t === 'rules' && !this.rules().length) void this.loadRules();

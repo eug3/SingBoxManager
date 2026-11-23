@@ -1267,6 +1267,22 @@ button.chip.on { border-color: var(--acc); color: var(--acc); background: #eef7f
 .cnbtn.danger { color: var(--bad); }
 .cnbtn.danger:hover { border-color: var(--bad); }
 .cnbtn:disabled { opacity: .45; cursor: not-allowed; }
+/* 刷新按钮：固定宽度，避免「刷新 ⇄ 刷新中…」让整条工具条重排 */
+.cnbtn.cn-fixed-refresh { width: 58px; text-align: center; position: relative; padding-left: 16px; padding-right: 10px; }
+.cnbtn.cn-fixed-refresh.busy::before {
+  content: '';
+  position: absolute;
+  left: 7px; top: 50%;
+  width: 7px; height: 7px; margin-top: -3.5px;
+  border: 1.5px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: cn-spin .7s linear infinite;
+}
+@keyframes cn-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .cnbtn.cn-fixed-refresh.busy::before { animation: none; }
+}
 .cn-acts { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .cn-actor { position: relative; display: inline-flex; }
 .cnsel { font-family: var(--mono); font-size: 11px; padding: 4px 6px; border: 1px solid var(--line); background: #fff; color: var(--ink); max-width: 170px; }

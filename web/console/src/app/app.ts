@@ -13,6 +13,7 @@ import { RuleEditor } from './rule-editor';
 import { BackendsService } from './backends.service';
 import { ClashService } from './clash.service';
 import { Backend, CONSOLE_VERSION, PAGE_ORIGINS } from './models';
+import type { PaneTab } from './backend-pane';
 import { ShareHealthService } from './share-health.service';
 import { ShareConfigDialog } from './share-config';
 
@@ -38,6 +39,22 @@ export class App {
   readonly backends = this.bsvc.backends;
   /** 当前主 tab：'b'+序号 = 第 n 个后端面板，'edit' = 规则编辑；没有后端时落在规则编辑 */
   readonly active = signal<string>(this.backends().length ? 'b0' : 'edit');
+  /** 当前激活后端的下标（active 不是 'b<n>' 时为 null，即停在规则编辑） */
+  readonly activeIndex = computed<number | null>(() => {
+    const m = /^b(\d+)$/.exec(this.active());
+    const i = m ? Number(m[1]) : -1;
+    return i >= 0 && i < this.backends().length ? i : null;
+  });
+  /** 每个后端各自记住的子页（切走再切回来不跳回「概览」；按后端下标存，刷新页面后回默认概览） */
+  private readonly panes = signal<Record<number, PaneTab>>({});
+  /** 某后端当前应落在的子页 */
+  paneOf(i: number): PaneTab {
+    return this.panes()[i] ?? 'overview';
+  }
+  /** 记录某后端切到了哪个子页 */
+  onPaneChange(i: number, t: PaneTab): void {
+    this.panes.update((m) => ({ ...m, [i]: t }));
+  }
   /** 当前页面来源是否受信（不受信时模板显示横幅提示） */
   readonly originOk = PAGE_ORIGINS.includes(location.origin);
   /** 受信来源清单（横幅文案用） */

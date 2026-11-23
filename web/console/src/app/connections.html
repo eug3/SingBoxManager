@@ -113,8 +113,9 @@
       <input type="checkbox" [checked]="auto()" (change)="setAuto($any($event.target).checked)" />
       自动 2s
     </label>
-    <button class="cnbtn" (click)="refresh()" [disabled]="loading()">
-      {{ loading() ? '刷新中…' : '刷新' }}
+    <button class="cnbtn cn-fixed-refresh" (click)="refresh()" [disabled]="loading()" [class.busy]="loading()"
+      [title]="loading() ? '刷新中…' : '立即拉取一次连接快照'">
+      刷新
     </button>
     <button class="cnbtn danger" [disabled]="!killTargets().length" (click)="killFiltered()">
       断开筛选{{ killTargets().length ? ' (' + killTargets().length + ')' : '' }}
