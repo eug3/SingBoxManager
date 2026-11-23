@@ -3,8 +3,8 @@
 <!-- 统计条：引擎版本 / 活跃连接 / 流量↓↑ / 分组数 / 节点数 -->
 <div class="strip">
   <div class="stat"><span>引擎</span><b class="sm">{{ version() || '—' }}</b></div>
-  <div class="stat"><span>活跃连接</span><b>{{ conns().length }}</b></div>
-  <div class="stat"><span>流量 ↓/↑</span><b class="sm">{{ fmtB(totalDown()) }} / {{ fmtB(totalUp()) }}</b></div>
+  <div class="stat"><span>活跃连接</span><b>{{ liveStat().count }}</b></div>
+  <div class="stat"><span>流量 ↓/↑</span><b class="sm">{{ fmtB(liveStat().down) }} / {{ fmtB(liveStat().up) }}</b></div>
   <div class="stat"><span>分组</span><b>{{ groupList().length }}</b></div>
   <div class="stat"><span>节点</span><b>{{ nodes() }}</b></div>
 </div>
@@ -72,7 +72,7 @@
         <span class="cnt">{{ groupList().length }}</span>
       }
       @if (t.key === 'connections') {
-        <span class="cnt">{{ conns().length }}</span>
+        <span class="cnt">{{ liveStat().count }}</span>
       }
       @if (t.key === 'rules' && rules().length) {
         <span class="cnt">{{ rules().length }}</span>
@@ -121,86 +121,10 @@
     </div>
   }
 
-  <!-- 连接子页：关键字过滤 / 年龄与空转筛选 / 单条与批量断开 / 明细表 -->
+  <!-- 连接子页：独立组件（三档视图 / 搜索 / 筛选 / 排序 / 分组 / 列设置 / 详情抽屉），
+       活跃条数与累计流量回传给上面头部统计条 -->
   @case ('connections') {
-    <!-- 工具条：过滤输入 / 自动刷新 / 刷新 / 断开筛选 / 全部断开 / 存活档位 / 空转开关 -->
-    <div class="bar">
-      <input
-        class="flt"
-        placeholder="过滤：域名 / 链 / 规则…"
-        [value]="filter()"
-        (input)="filter.set($any($event.target).value)"
-      />
-      <label class="chk">
-        <input type="checkbox" [checked]="autoRefresh()" (change)="autoRefresh.set($any($event.target).checked)" />
-        自动刷新
-      </label>
-      <button (click)="refreshConns()">刷新</button>
-      <button class="danger" (click)="killMatched()" [disabled]="!matchedConns().length">
-        断开筛选({{ matchedConns().length }})
-      </button>
-      <button class="danger" (click)="killAll()">全部断开</button>
-      <span class="dim small">存活：</span>
-      <button class="chip" [class.on]="ageFilter() === 0" (click)="ageFilter.set(0)">全部</button>
-      <button class="chip" [class.on]="ageFilter() === 60" (click)="ageFilter.set(60)">≥1分</button>
-      <button class="chip" [class.on]="ageFilter() === 300" (click)="ageFilter.set(300)">≥5分</button>
-      <button class="chip" [class.on]="ageFilter() === 1800" (click)="ageFilter.set(1800)">≥30分</button>
-      <span class="dim small">·</span>
-      <button class="chip" [class.on]="idleOnly()" (click)="idleOnly.set(!idleOnly())">空转≥1分</button>
-    </div>
-    <!-- 连接统计：总数 / 最老存活 / ≥5分钟老连接与其中空转≥1分钟的僵死候选提示 -->
-    <div class="connstat dim small">
-      共 <b>{{ connStats().total }}</b> 条活跃连接 · 最老 <b>{{ ageText(connStats().oldest) }}</b>
-      @if (connStats().old) {
-        · <span class="warn">{{ connStats().old }} 条已存活 ≥5 分钟</span>，其中 <b>{{ connStats().idleOld }}</b> 条空转 ≥1 分钟（长时间零字节增长，最可能是僵死，可筛选后批量断开）
-      } @else {
-        · 暂无 ≥5 分钟的老连接
-      }
-      · 最多显示 120 条
-    </div>
-    <!-- 连接明细表（最多显示 120 行）：主机 / 目标 / 链 / 规则 / 存活 / 空转 / ↑↓ / 断开 -->
-    <div class="tblwrap">
-      <table>
-        <thead>
-          <tr><th>主机</th><th>目标</th><th>链</th><th>规则</th><th>存活</th><th>空转</th><th>↑</th><th>↓</th><th></th></tr>
-        </thead>
-        <tbody>
-          @for (c of filteredConns(); track c.id) {
-            <tr [class.oldconn]="ageOf(c) >= 300">
-              <td class="ch mono">{{ c.metadata?.host || c.metadata?.sniffHost }}</td>
-              <td class="dim mono">{{ c.metadata?.destinationIP }}:{{ c.metadata?.destinationPort }}</td>
-              <td>
-                @for (h of chainOf(c); track $index) {
-                  <span class="tag {{ $index === 0 ? 'first' : '' }}" [title]="h">{{ h }}</span>
-                  @if ($index < chainOf(c).length - 1) {
-                    <span class="sep">›</span>
-                  }
-                }
-                @if (!chainOf(c).length) {
-                  <span class="dim">—</span>
-                }
-              </td>
-              <td>
-                @if (c.rule) {
-                  <span class="tag rule" [title]="c.rule + (c.rulePayload ? ': ' + c.rulePayload : '')"
-                    >{{ c.rule }}{{ c.rulePayload ? ': ' + c.rulePayload : '' }}</span
-                  >
-                } @else {
-                  <span class="dim">—</span>
-                }
-              </td>
-              <td class="mono age {{ ageClass(ageOf(c)) }}">{{ ageText(ageOf(c)) }}</td>
-              <td class="mono age {{ idleSec(c) >= 300 ? 'r' : idleSec(c) >= 60 ? 'y' : '' }}">{{ idleSec(c) >= 60 ? ageText(idleSec(c)) : '—' }}</td>
-              <td class="dim">{{ fmtB(c.upload) }}</td>
-              <td class="dim">{{ fmtB(c.download) }}</td>
-              <td><span class="x" (click)="kill(c)" title="断开">✕</span></td>
-            </tr>
-          } @empty {
-            <tr><td colspan="9" class="dim">没有符合条件的连接</td></tr>
-          }
-        </tbody>
-      </table>
-    </div>
+    <app-connections [backend]="backend()" (stats)="onConnStats($event)" />
   }
 
   <!-- 流向子页：流向动画组件，点 ③ 规则集 / ④ 分组卡片触发编辑弹窗 -->

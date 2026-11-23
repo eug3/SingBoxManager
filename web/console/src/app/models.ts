@@ -26,7 +26,28 @@ export interface ProxiesResp {
   proxies: Record<string, ProxyNode>;
 }
 
-/** /connections 里的一条活跃连接（metadata 为目标信息） */
+/** 连接的 metadata（sing-box clash_api 原始字段；sniffHost/process 为 mihomo 兼容字段） */
+export interface ConnMeta {
+  host?: string;
+  sniffHost?: string;
+  destinationIP?: string;
+  destinationPort?: string;
+  sourceIP?: string;
+  sourcePort?: string;
+  /** tcp / udp */
+  network?: string;
+  /** 入站类型，如 tun/tun-in、mixed-in */
+  type?: string;
+  /** DNS 解析模式（normal / fakeip …） */
+  dnsMode?: string;
+  /** 发起连接的进程路径（TUN 模式下通常为空） */
+  processPath?: string;
+  process?: string;
+  /** 入站用户名（有 inbound user 时） */
+  user?: string;
+}
+
+/** /connections 里的一条活跃连接（metadata 为来源/目标信息） */
 export interface Connection {
   id: string;
   upload: number;
@@ -35,13 +56,7 @@ export interface Connection {
   chains?: string[];
   rule?: string;
   rulePayload?: string;
-  metadata?: {
-    host?: string;
-    sniffHost?: string;
-    destinationIP?: string;
-    destinationPort?: string;
-    network?: string;
-  };
+  metadata?: ConnMeta;
 }
 
 /** /connections 应答：累计总量 + 活跃连接数组 */
@@ -82,11 +97,28 @@ export const CONSOLE_VERSION = '0.1.0';
  * 已合并删除的桶（rs-custom-2 / rs-direct-2）不再列出。
  */
 export const BUCKETS: [string, number][] = [
-  ['rs-node', 13], ['rs-direct', 17], ['rs-fcm', 5], ['rs-custom', 12], ['rs-openai', 9],
-  ['rs-balance', 1], ['rs-openai-2', 1], ['rs-iplc', 1], ['rs-custom-3', 1],
-  ['rs-fish', 1], ['rs-node-2', 2], ['rs-gdirect', 9], ['rs-block', 2],
-  ['rs-purify', 8], ['rs-direct-3', 1], ['rs-msft', 2], ['rs-apple', 3], ['rs-tg', 2],
-  ['rs-media', 58], ['rs-node-3', 14], ['rs-gdirect-2', 7], ['bard-domains', 1],
+  ['rs-node', 13],
+  ['rs-direct', 17],
+  ['rs-fcm', 5],
+  ['rs-custom', 12],
+  ['rs-openai', 9],
+  ['rs-balance', 1],
+  ['rs-openai-2', 1],
+  ['rs-iplc', 1],
+  ['rs-custom-3', 1],
+  ['rs-fish', 1],
+  ['rs-node-2', 2],
+  ['rs-gdirect', 9],
+  ['rs-block', 2],
+  ['rs-purify', 8],
+  ['rs-direct-3', 1],
+  ['rs-msft', 2],
+  ['rs-apple', 3],
+  ['rs-tg', 2],
+  ['rs-media', 58],
+  ['rs-node-3', 14],
+  ['rs-gdirect-2', 7],
+  ['bard-domains', 1],
 ];
 
 /** 页面允许的来源（与两台路由 clash_api 的 CORS 白名单对应） */

@@ -39,7 +39,7 @@
 | 路径                     | 技术栈                                         | 作用                                                                                                                                                                           |
 | ------------------------ | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `service/`             | Go 1.27（单二进制，单包多文件）                | `vault-edit`：静态页面 + `/rule-set/*` + `/publish` + `/router/*`；模块划分见 [docs/architecture.md](docs/architecture.md)                                              |
-| `web/console/`         | Angular 22 + TypeScript 6（signals、zoneless） | 内网管理台：概览曲线、分组/节点、连接、日志、规则、Monaco 规则编辑                                                                                                             |
+| `web/console/`         | Angular 22 + TypeScript 6（signals、zoneless） | 内网管理台：概览曲线、分组/节点、连接浏览器（三档视图/搜索/筛选/排序/分组/列设置）、日志、规则、Monaco 规则编辑                                                                  |
 | `web/edit/index.html`  | 原生 HTML/JS（**已退役**）               | 上一代单文件管理台，仅作回滚参考，不参与部署                                                                                                                                   |
 | `web/index.html`       | 原生 HTML/JS                                   | 公网首页（脱敏：只有桶卡片与体积/时间，无 IP/节点/拓扑）                                                                                                                       |
 | `service/router_*.go`  | Go（在管理机上运行）                           | 路由配置通道：`router_store`（SSH 凭据 0600 存储）/ `router_ssh`（SSH 编排：读/check/备份/替换/重启/健康/回滚，**路由无需预装脚本**）/ `router_http`（鉴权与接口） |
@@ -96,6 +96,8 @@ VAULT_KEY="$VAULT_KEY" scripts/check.sh
 - **改规则**：管理台 → `🧩 规则编辑` → 选桶 → 编辑（Monaco）→ `保存并发布` → 各路由 60s 内自动拉取。
 - **看/切节点**：管理台后端 tab → `分组与节点`（Selector 组可点切换，URLTest 组只读、按延迟自动选）。
 - **看流量/连接/日志**：后端 tab → `概览`（下载/上传/连接数/内存曲线，1s 采样，可选 1/5/10 分钟窗口）、`连接`、`日志`。
+  连接页对齐 zashboard 的浏览方式：活跃/已关闭/全部三档、搜索即正则（空格 = AND、命中高亮）、源 IP/网络/出口/存活/空转筛选、
+  列头排序、按字段分组、列显隐与顺序可配、点行看详情抽屉、右键复制、单条/筛选/全部断开；细节见 `docs/plan-connections-browser.md`。
 - **改节点配置/重启**：后端 tab → `配置`（读 config.json、节点表、**按协议表单新增/编辑节点**、**删除带引用联动**、**ss/vmess/vless/trojan/hysteria2 分享链接导入**、Monaco 编辑整份配置、实时 diff 与结构校验、`校验` → `应用并重启`（约 1s 断流、失败自动回滚）、`重启 sing-box`）。链路：浏览器 → 管理机 `/router/*` → 受限 SSH → 路由本地 `singbox-apply`。
 - **多后端**：`＋ 添加后端` 可挂任意 clash_api（名称/地址/密钥存本浏览器 localStorage）；地址没填=草稿，刷新即消失。
 - **不用管理台时**：直接改 NAS `rule-set/*.json` 再编译成 `.srs` 也可以，见 `scripts/publish.sh` 与 runbook。

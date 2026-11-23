@@ -1,0 +1,290 @@
+#!/usr/bin/env node
+/**
+ * mock_clash.mjs — 本地假 clash_api + 静态托管管理台产物，用来在没有路由的环境里验收前端。
+ *
+ * 为什么要有：连接子页（三档视图 / 已关闭差分 / 排序 / 分组 / 详情）需要真实形态的数据才验收得出来，
+ * 而真路由的 9090 通常只对内网放行、还带密钥。这个 mock 同时模拟 sing-box 1.15 的应答形状
+ * （metadata 只有 destinationIP/destinationPort/dnsMode/host/network/processPath/sourceIP/sourcePort/type，
+ * chains[0] 是实际出口、末位是分组，rule 是 `rule_set=… => route(…)` 表达式），
+ * 以及「字节持续增长 / 连接自然消失 / 手动断开」三种动态。
+ *
+ * 用法：
+ *   cd web/console && npx ng build --configuration development --base-href=/
+ *   node ../../scripts/mock_clash.mjs            # 默认 8080，静态目录 web/console/dist/console/browser
+ *   # 浏览器打开 http://127.0.0.1:8080/ ，后端地址填 http://127.0.0.1:8080 ，密钥随便填
+ *   MOCK_PORT=8081 MOCK_CONNS=800 node scripts/mock_clash.mjs
+ */
+import { createServer } from 'node:http';
+import { readFile } from 'node:fs/promises';
+import { extname, join, resolve } from 'node:path';
+
+const ROOT = resolve(import.meta.dirname ?? '.', '..');
+const DIST = process.env.MOCK_DIST ?? join(ROOT, 'web/console/dist/console/browser');
+const PORT = Number(process.env.MOCK_PORT ?? 8080);
+const WANT = Number(process.env.MOCK_CONNS ?? 420);
+
+/* ── 造数据 ── */
+
+const SRC_IPS = [
+  '172.16.8.105',
+  '172.16.8.179',
+  '172.16.8.122',
+  '192.168.31.20',
+  '192.168.31.45',
+  '192.168.31.8',
+];
+const HOSTS = [
+  'www.google.com',
+  'github.com',
+  'api.openai.com',
+  'chatgpt.com',
+  'www.bilibili.com',
+  'api.telegram.org',
+  'mtalk.google.com',
+  'registry-1.docker.io',
+  'docs.rs',
+  'cdn.jsdelivr.net',
+  'raw.githubusercontent.com',
+  'www.youtube.com',
+  'claude.ai',
+  'api.anthropic.com',
+  'www.zhihu.com',
+  'update.googleapis.com',
+  'ntp.aliyun.com',
+  '',
+  '',
+];
+const GROUPS = ['🐟 漏网之鱼', 'Bard', '🎯 全球直连', '📢 谷歌FCM', 'OpenAi', 'BALANCE', 'AI'];
+const NODES = ['ali.vmess', 'iplc-ss', 'g.t', 'DIRECT', 'us-vless-1', 'hk-hy2', 'sg-tuic'];
+const RULE_EXPRS = [
+  ['rule_set=cn_ip => route(DIRECT)', ''],
+  ['rule_set=rs-openai => route(OpenAi)', ''],
+  ['rule_set=bard-domains => route(Bard)', ''],
+  ['rule_set=rs-fcm => route(📢 谷歌FCM)', ''],
+  ['rule_set=rs-gdirect => route(🎯 全球直连)', ''],
+  ['rule_set=rs-ai => route(AI)', ''],
+  ['final', ''],
+  ['domain_suffix=google.com', 'route(🐟 漏网之鱼)'],
+];
+const DNS = ['normal', 'normal', 'normal', 'fakeip'];
+const TYPES = ['tun/tun-in', 'tun/tun-in', 'tun/tun-in', 'mixed-in'];
+
+let seq = 0;
+/** 造一条连接；ageSec 越大表示越老（用来铺出 ≥5 分 / ≥30 分的档位） */
+function makeConn(now, ageSec) {
+  const src = pick(SRC_IPS);
+  const host = pick(HOSTS);
+  const dst = host
+    ? `${(20 + Math.floor(Math.random() * 200)).toString()}.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}`
+    : `192.168.31.${10 + Math.floor(Math.random() * 60)}`;
+  const group = pick(GROUPS);
+  const node = pick(NODES);
+  const chains = node === 'DIRECT' ? ['DIRECT', '🎯 全球直连'] : Math.random() < 0.45 ? [node, group] : Math.random() < 0.5 ? [node] : [node, 'BALANCE', group];
+  const [rule, rulePayload] = pick(RULE_EXPRS);
+  const udp = Math.random() < 0.3;
+  const dl = Math.floor(Math.random() * 4_000_000);
+  const ul = Math.floor(Math.random() * 400_000);
+  return {
+    id: `mock-${++seq}`,
+    upload: ul,
+    download: dl,
+    start: new Date(now - ageSec * 1000).toISOString(),
+    chains,
+    rule,
+    rulePayload,
+    metadata: {
+      destinationIP: dst,
+      destinationPort: String(udp ? 443 : 80 + Math.floor(Math.random() * 8000)),
+      dnsMode: pick(DNS),
+      host,
+      network: udp ? 'udp' : 'tcp',
+      processPath: '',
+      sourceIP: src,
+      sourcePort: String(30000 + Math.floor(Math.random() * 30000)),
+      type: pick(TYPES),
+    },
+    /** 还剩多少次快照后自然消失（0 = 长期存活） */
+    ttl: Math.random() < 0.12 ? 1 + Math.floor(Math.random() * 8) : 0,
+    /** 僵死样本：永不增长字节，用来演示「空转」与批量断开 */
+    stuck: Math.random() < 0.08,
+  };
+}
+
+function pick(list) {
+  return list[Math.floor(Math.random() * list.length)];
+}
+
+const now0 = Date.now();
+let conns = Array.from({ length: WANT }, (_, i) => {
+  // 前 15% 造老连接（30 分 ~ 2 小时），其余按秒铺开
+  const age = i < WANT * 0.15 ? 1800 + Math.random() * 5400 : Math.random() * 900;
+  return makeConn(now0, age);
+});
+/** 每次取快照：长一点字节、老连接偶尔下线、补几条新的（保持总量大致稳定） */
+function step() {
+  const now = Date.now();
+  const gone = [];
+  const alive = [];
+  for (const c of conns) {
+    // 约 1/3 的连接这 2 秒里在跑数据，其余静止（空转）；stuck 的永不增长
+    if (!c.stuck && Math.random() < 0.34) {
+      c.download += Math.floor(Math.random() * 120_000);
+      c.upload += Math.floor(Math.random() * 20_000);
+    }
+    if (c.ttl > 0) {
+      c.ttl -= 1;
+      if (c.ttl <= 0) {
+        gone.push(c);
+        continue;
+      }
+    }
+    alive.push(c);
+  }
+  conns = alive;
+  // 下线的那些补成新连接，让「活跃 / 已关闭」两边都有得看
+  for (let i = 0; i < gone.length; i++) conns.push(makeConn(now, Math.random() * 5));
+  // 被手动断开 / 全部断开后补足，保证页面不会永远空着
+  while (conns.length < WANT) conns.push(makeConn(now, Math.random() * 60));
+  if (process.env.MOCK_DEBUG) {
+    console.log('[step] conns', conns.length, 'ttl>0', conns.filter((c) => c.ttl > 0).length, 'gone', gone.length);
+  }
+}
+
+/* ── 应答 ── */
+
+const VERSION = { version: '1.15.0-alpha.13-mock', meta: true };
+
+const PROXIES = {
+  proxies: {
+    'Bard': { type: 'Selector', name: 'Bard', now: 'iplc-ss', all: ['iplc-ss', 'ali.vmess', 'hk-hy2'] },
+    'OpenAi': { type: 'Selector', name: 'OpenAi', now: 'ali.vmess', all: ['ali.vmess', 'us-vless-1'] },
+    'AI': { type: 'Selector', name: 'AI', now: 'sg-tuic', all: ['sg-tuic', 'ali.vmess'] },
+    '🐟 漏网之鱼': { type: 'Selector', name: '🐟 漏网之鱼', now: 'BALANCE', all: ['BALANCE', 'DIRECT'] },
+    'BALANCE': { type: 'URLTest', name: 'BALANCE', now: 'hk-hy2', all: ['hk-hy2', 'us-vless-1', 'iplc-ss'] },
+    '🎯 全球直连': { type: 'Selector', name: '🎯 全球直连', now: 'DIRECT', all: ['DIRECT'] },
+    '📢 谷歌FCM': { type: 'Selector', name: '📢 谷歌FCM', now: 'g.t', all: ['g.t', 'ali.vmess'] },
+    'ali.vmess': { type: 'Shadowsocks', name: 'ali.vmess', history: [{ time: new Date().toISOString(), delay: 42 }] },
+    'iplc-ss': { type: 'Shadowsocks', name: 'iplc-ss', history: [{ time: new Date().toISOString(), delay: 88 }] },
+    'g.t': { type: 'Trojan', name: 'g.t', history: [{ time: new Date().toISOString(), delay: 120 }] },
+    'us-vless-1': { type: 'VLESS', name: 'us-vless-1', history: [{ time: new Date().toISOString(), delay: 210 }] },
+    'hk-hy2': { type: 'Hysteria2', name: 'hk-hy2', history: [{ time: new Date().toISOString(), delay: 65 }] },
+    'sg-tuic': { type: 'TUIC', name: 'sg-tuic', history: [{ time: new Date().toISOString(), delay: 150 }] },
+    'DIRECT': { type: 'Direct', name: 'DIRECT' },
+  },
+};
+
+const ROUTES = {
+  rules: [
+    { type: 'logical', payload: '', proxy: '🐟 漏网之鱼' },
+    { type: 'remote', payload: 'cn_ip', proxy: '🎯 全球直连' },
+    { type: 'remote', payload: 'rs-openai', proxy: 'OpenAi' },
+    { type: 'default', payload: '', proxy: '🐟 漏网之鱼' },
+  ],
+};
+
+const CONFIGS = { mode: 'rule', 'mode-list': ['rule', 'global', 'direct'], 'log-level': 'info' };
+
+/* ── HTTP ── */
+
+const MIME = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.ico': 'image/x-icon',
+  '.svg': 'image/svg+xml',
+  '.map': 'application/json; charset=utf-8',
+  '.woff2': 'font/woff2',
+  '.txt': 'text/plain; charset=utf-8',
+};
+
+function json(res, body, code = 200) {
+  const text = JSON.stringify(body);
+  res.writeHead(code, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Content-Length': Buffer.byteLength(text),
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': '*',
+    'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
+    'Cache-Control': 'no-store',
+  });
+  res.end(text);
+}
+
+const server = createServer(async (req, res) => {
+  const url = new URL(req.url ?? '/', 'http://localhost');
+  const path = url.pathname;
+
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204, {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Headers': '*',
+      'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
+    });
+    return res.end();
+  }
+
+  // clash_api 模拟（同源，页面把后端地址填成 http://127.0.0.1:<port> 即可）
+  if (path === '/version') return json(res, VERSION);
+  if (path === '/proxies') return json(res, PROXIES);
+  if (path === '/rules') return json(res, ROUTES);
+  if (path === '/configs') return json(res, CONFIGS);
+  if (path === '/connections' && req.method === 'GET') {
+    step();
+    const downloadTotal = conns.reduce((n, c) => n + c.download, 0);
+    const uploadTotal = conns.reduce((n, c) => n + c.upload, 0);
+    return json(res, {
+      connections: conns,
+      downloadTotal,
+      uploadTotal,
+      memory: 0,
+    });
+  }
+  if (path === '/connections' && req.method === 'DELETE') {
+    conns = [];
+    return json(res, null, 204);
+  }
+  if (path.startsWith('/connections/') && req.method === 'DELETE') {
+    const id = decodeURIComponent(path.slice('/connections/'.length));
+    conns = conns.filter((c) => c.id !== id);
+    return json(res, null, 204);
+  }
+  // 注：断开后不用墓碑——被移除的对象不会再回来，step() 会补新连接
+  if (path.startsWith('/proxies/') && req.method === 'PUT') return json(res, null, 204);
+  if (path.startsWith('/proxies/') && path.endsWith('/delay')) return json(res, { delay: 100 });
+
+  // 管理台同源接口（顶栏存储体检 / 规则桶）：给一个体面的假值，避免页面到处报错
+  if (path === '/share/health') {
+    return json(res, {
+      file: { mode: 'smb', ok: true, files: 47, detail: 'mock 目录可读', ms: 3 },
+      http: { url: 'https://rules.example.com/', ok: true, status: 200, size: 1024, ms: 12 },
+    });
+  }
+  if (path === '/share/config') return json(res, { mode: 'smb', smb: {}, sftp: {}, http: {} });
+
+  // 静态产物（SPA 回退）
+  const file = path === '/' ? '/index.html' : path;
+  try {
+    const body = await readFile(join(DIST, file));
+    res.writeHead(200, {
+      'Content-Type': MIME[extname(file)] ?? 'application/octet-stream',
+      'Content-Length': body.length,
+      'Cache-Control': 'no-store',
+    });
+    return res.end(body);
+  } catch {
+    try {
+      const body = await readFile(join(DIST, 'index.html'));
+      res.writeHead(200, { 'Content-Type': MIME['.html'], 'Content-Length': body.length });
+      return res.end(body);
+    } catch {
+      res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+      return res.end(`没有找到静态产物：${DIST}\n先执行 cd web/console && npx ng build --configuration development --base-href=/\n`);
+    }
+  }
+});
+
+server.listen(PORT, '127.0.0.1', () => {
+  console.log(`mock clash_api + 管理台：http://127.0.0.1:${PORT}/  （${WANT} 条连接，静态目录 ${DIST}）`);
+});

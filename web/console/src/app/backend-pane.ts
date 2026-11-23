@@ -4,15 +4,14 @@
  *  - 子 tab：概览 / 分组与节点 / 连接 / 流向 / 日志 / 规则 / 配置（概览与配置是独立组件）；
  *  - 全局待保存条：流向图 ③④ 弹窗的改动暂存在 ConfigDraftService，跨子 tab 可见，「保存并重启」才写回路由；
  *  - 编辑弹窗宿主：③ 规则集 / ④ 分组 / SSH 凭据弹窗以 fixed 遮罩挂在面板根部；
- *  - 连接子页：年龄过滤（全部 / ≥1分 / ≥5分 / ≥30分）+ 空转过滤（≥60s 零字节增长），
- *    用于揪出疑似僵死的老连接并批量断开。
+ *  - 连接子页：独立组件 Connections（三档视图 / 搜索 / 筛选 / 排序 / 分组 / 列设置 / 详情抽屉），
+ *    连接数据与轮询都归它，本组件只接收它回传的「活跃条数 + 累计流量」喂头部统计条。
  */
 import {
   ChangeDetectionStrategy,
   Component,
   ElementRef,
   OnDestroy,
-  OnInit,
   effect,
   computed,
   inject,
@@ -22,10 +21,11 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
-import { Backend, Connection, PAGE_ORIGINS, ProxyNode, RuleEntry } from './models';
+import { Backend, ConnectionsResp, PAGE_ORIGINS, ProxyNode, RuleEntry } from './models';
 import { BackendsService } from './backends.service';
 import { OverviewPane } from './overview';
 import { ConfigPane } from './config-pane';
+import { Connections } from './connections';
 import { FlowAnim } from './flow-anim';
 import { RuleSetDialog } from './rule-set-dialog';
 import { GroupDialog } from './group-dialog';
@@ -46,7 +46,15 @@ interface LogLine {
 @Component({
   selector: 'app-backend-pane',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [OverviewPane, ConfigPane, FlowAnim, RuleSetDialog, GroupDialog, SshCredDialog],
+  imports: [
+    OverviewPane,
+    ConfigPane,
+    Connections,
+    FlowAnim,
+    RuleSetDialog,
+    GroupDialog,
+    SshCredDialog,
+  ],
   templateUrl: './backend-pane.html',
   styles: `
     :host {
@@ -70,7 +78,7 @@ interface LogLine {
   `,
 })
 /** 后端面板组件：其余五个子页（分组/连接/流向/日志/规则）的状态与 clash_api 交互都在本组件 */
-export class BackendPane implements OnInit, OnDestroy {
+export class BackendPane implements OnDestroy {
   /** 当前后端（名称 / 地址 / 密钥等） */
   readonly backend = input.required<Backend>();
   /** 该后端在列表中的序号（保存 / 删除配置时用） */
@@ -109,29 +117,14 @@ export class BackendPane implements OnInit, OnDestroy {
   readonly version = signal('');
   /** 全量代理表：名称 → 节点（分组与节点子页的数据源） */
   readonly proxyMap = signal<Record<string, ProxyNode>>({});
-  /** 活跃连接列表（连接子页） */
-  readonly conns = signal<Connection[]>([]);
+  /** 活跃连接条数与累计流量（头部统计条；由连接子页的 stats 事件与首屏加载共同更新） */
+  readonly liveStat = signal({ count: 0, down: 0, up: 0 });
   /** 实际生效的规则表（规则子页，进入时才拉取） */
   readonly rules = signal<RuleEntry[]>([]);
   /** 首屏加载错误文案（横幅展示） */
   readonly loadErr = signal('');
   /** 401：密钥未填或错误（单独横幅提示） */
   readonly unauthorized = signal(false);
-
-  /** 连接关键字过滤（域名 / 链 / 规则等，忽略大小写） */
-  readonly filter = signal('');
-  /** 连接年龄过滤阈值（秒）：0=全部，其余=只看存活≥该秒数的（用来揪疑似僵死的老连接） */
-  readonly ageFilter = signal(0);
-  /** 当前时刻（每 3s 随刷新推进），用于实时计算连接存活时长 */
-  readonly now = signal(Date.now());
-  /** 只看「空转」连接（≥60s 没有任何字节增长） */
-  readonly idleOnly = signal(false);
-  /** 每条连接的「最近一次字节变化时刻」：id → 毫秒。用于区分长连接（仍在跑数据）与空转/僵死 */
-  private readonly lastMove = new Map<string, number>();
-  /** 每条连接的字节签名（upload+download）：配合 lastMove 判断是否还在跑数据 */
-  private readonly lastSig = new Map<string, number>();
-  /** 连接子页自动刷新开关（3s 一次） */
-  readonly autoRefresh = signal(true);
   /** 日志暂停开关：暂停时丢弃新日志行 */
   readonly paused = signal(false);
   /** 日志级别（debug/info/warn/error） */
@@ -160,8 +153,6 @@ export class BackendPane implements OnInit, OnDestroy {
 
   /** 日志滚动容器（自动贴底用） */
   private readonly logBox = viewChild<ElementRef<HTMLDivElement>>('logbox');
-  /** 3s 心跳定时器：推进连接年龄 + 连接子页自动刷新 */
-  private timer: ReturnType<typeof setInterval> | null = null;
   /** 日志 WebSocket（仅在日志子页连接） */
   private ws: WebSocket | null = null;
   /** 日志是否贴底（用户上滚离开底部后停止自动滚动） */
@@ -173,43 +164,6 @@ export class BackendPane implements OnInit, OnDestroy {
   );
   /** 节点总数（头部统计条） */
   readonly nodes = computed(() => Object.keys(this.proxyMap()).length);
-  /** 全部连接的累计下载字节（头部统计条） */
-  readonly totalDown = computed(() => this.conns().reduce((n, c) => n + (c.download ?? 0), 0));
-  /** 全部连接的累计上传字节（头部统计条） */
-  readonly totalUp = computed(() => this.conns().reduce((n, c) => n + (c.upload ?? 0), 0));
-  /** 当前筛选命中的全部连接（不受 120 条显示上限影响，批量断开用） */
-  readonly matchedConns = computed(() => {
-    const q = this.filter().trim().toLowerCase();
-    const minAge = this.ageFilter();
-    const now = this.now();
-    let list = this.conns();
-    if (minAge > 0) list = list.filter((c) => this.ageOf(c, now) >= minAge);
-    if (this.idleOnly()) list = list.filter((c) => this.idleSec(c, now) >= 60);
-    if (q) list = list.filter((c) => this.connText(c).includes(q));
-    return list;
-  });
-
-  /** 表格显示用（最多 120 行） */
-  readonly filteredConns = computed(() => this.matchedConns().slice(0, 120));
-
-  /** 连接总览：总数 / 最老存活 / ≥5分钟的老连接数（疑似僵死候选） */
-  readonly connStats = computed(() => {
-    const now = this.now();
-    const list = this.conns();
-    let oldest = 0;
-    let old = 0;
-    let idleOld = 0;
-    for (const c of list) {
-      const a = this.ageOf(c, now);
-      if (a > oldest) oldest = a;
-      if (a >= 300) {
-        old++;
-        if (this.idleSec(c, now) >= 60) idleOld++;
-      }
-    }
-    return { total: list.length, oldest, old, idleOld };
-  });
-
   constructor() {
     // 密钥/后端地址变化时自动重新拉取（连接页填入全局密钥后也能立刻生效）；
     // 配置草稿基准同步重读（load 会清掉旧草稿），并关掉属于上一后端的编辑弹窗
@@ -226,20 +180,14 @@ export class BackendPane implements OnInit, OnDestroy {
     });
   }
 
-  /** 启动 3s 心跳：页面隐藏时跳过；推进 now 让连接年龄实时走动，连接子页按需自动刷新 */
-  ngOnInit(): void {
-    this.timer = setInterval(() => {
-      if (document.hidden) return;
-      this.now.set(Date.now()); // 推进连接年龄
-      if (this.tab() === 'connections' && this.autoRefresh()) void this.refreshConns();
-    }, 3000);
+  /** 清理：断开日志 WebSocket（连接子页的定时器归它自己管） */
+  ngOnDestroy(): void {
+    this.stopLogs();
   }
 
-  /** 清理：停心跳定时器并断开日志 WebSocket */
-  ngOnDestroy(): void {
-    if (this.timer) clearInterval(this.timer);
-    this.timer = null;
-    this.stopLogs();
+  /** 连接子页回传的活跃条数与累计流量 → 头部统计条 */
+  onConnStats(ev: { count: number; down: number; up: number }): void {
+    this.liveStat.set(ev);
   }
 
   /** 首屏三连拉：版本 / 分组节点 / 连接（401 单独提示填密钥） */
@@ -247,18 +195,21 @@ export class BackendPane implements OnInit, OnDestroy {
     this.loadErr.set('');
     this.unauthorized.set(false);
     if (!this.bsvc.valid(this.backend())) {
-      this.loadErr.set('该后端还没配置地址：点「⚙ 后端配置」填 http(s)://主机:9090 并保存（草稿不保存就刷新即消失）');
+      this.loadErr.set(
+        '该后端还没配置地址：点「⚙ 后端配置」填 http(s)://主机:9090 并保存（草稿不保存就刷新即消失）',
+      );
       return;
     }
     try {
-      const [ver, proxies, conns] = await Promise.all([
+      const [ver, proxies, cons] = await Promise.all([
         this.clash.version(this.backend()),
         this.clash.proxies(this.backend()),
         this.clash.connections(this.backend()),
       ]);
       this.version.set(ver?.version ?? '');
       this.proxyMap.set(proxies?.proxies ?? {});
-      this.applyConns(conns?.connections ?? []);
+      // 首屏先给头部统计条一个数；之后由连接子页每 2s 的 stats 事件接管
+      this.applyLiveStat(cons);
     } catch (e) {
       const err = e as { status?: number; message?: string };
       if (err?.status === 401) this.unauthorized.set(true);
@@ -266,36 +217,16 @@ export class BackendPane implements OnInit, OnDestroy {
     }
   }
 
-  /** 只刷新连接列表（自动刷新 / 手动刷新；失败静默不打扰用户） */
-  async refreshConns(): Promise<void> {
-    try {
-      const conns = await this.clash.connections(this.backend());
-      this.applyConns(conns?.connections ?? []);
-    } catch {
-      /* 自动刷新失败不打扰用户 */
-    }
-  }
-
-  /** 更新连接列表，同时刷新每条连接的「最近字节变化时刻」（空转判定依据） */
-  private applyConns(list: Connection[]): void {
-    const now = Date.now();
-    const seen = new Set<string>();
+  /** 首屏连接快照 → 头部统计条（活跃条数 / 累计上下行） */
+  private applyLiveStat(resp: ConnectionsResp | undefined): void {
+    const list = resp?.connections ?? [];
+    let down = 0;
+    let up = 0;
     for (const c of list) {
-      seen.add(c.id);
-      const sig = (c.upload ?? 0) + (c.download ?? 0);
-      const prev = this.lastMove.get(c.id);
-      const prevSig = this.lastSig.get(c.id);
-      // 首次见到记为活跃起点；之后字节签名有增长才刷新活跃时刻
-      if (prev === undefined || prevSig !== sig) {
-        this.lastMove.set(c.id, now);
-        this.lastSig.set(c.id, sig);
-      }
+      down += c.download ?? 0;
+      up += c.upload ?? 0;
     }
-    // 清掉已消失连接的记录，避免 Map 无限增长
-    for (const id of [...this.lastMove.keys()]) if (!seen.has(id)) this.lastMove.delete(id);
-    for (const id of [...this.lastSig.keys()]) if (!seen.has(id)) this.lastSig.delete(id);
-    this.now.set(now);
-    this.conns.set(list);
+    this.liveStat.set({ count: list.length, down, up });
   }
 
   /** 头部「刷新」：整体重拉；停在规则子页时顺带刷新规则表 */
@@ -310,13 +241,12 @@ export class BackendPane implements OnInit, OnDestroy {
     if (this.tab() === 'logs') this.startLogs();
   }
 
-  /** 切换子 tab：日志按需连/断，规则懒加载，进入连接子页立即刷新一次 */
+  /** 切换子 tab：日志按需连/断，规则懒加载（连接页自己轮询，挂载即拉） */
   setTab(t: PaneTab): void {
     this.tab.set(t);
     if (t === 'logs') this.startLogs();
     else this.stopLogs();
     if (t === 'rules' && !this.rules().length) void this.loadRules();
-    if (t === 'connections') void this.refreshConns();
   }
 
   /* ── 分组 / 节点 ── */
@@ -355,10 +285,12 @@ export class BackendPane implements OnInit, OnDestroy {
     try {
       const res = await this.clash.proxies(this.backend());
       const map = res?.proxies ?? {};
-      const groups = Object.values(map).filter((p) => p.type === 'Selector' || p.type === 'URLTest');
-      const names = [
-        ...new Set(groups.flatMap((g) => g.all ?? [])),
-      ].filter((n) => map[n] && map[n].type !== 'Selector' && map[n].type !== 'URLTest');
+      const groups = Object.values(map).filter(
+        (p) => p.type === 'Selector' || p.type === 'URLTest',
+      );
+      const names = [...new Set(groups.flatMap((g) => g.all ?? []))].filter(
+        (n) => map[n] && map[n].type !== 'Selector' && map[n].type !== 'URLTest',
+      );
       // 并发 6 逐节点测延迟，结果写回 history（runPool 见 util.ts）
       let done = 0;
       await runPool(names, 6, async (name) => {
@@ -383,98 +315,14 @@ export class BackendPane implements OnInit, OnDestroy {
     this.proxyMap.update((m) => {
       const p = m[name];
       if (!p) return m;
-      return { ...m, [name]: { ...p, history: [...(p.history ?? []), { time: new Date().toISOString(), delay: d }] } };
+      return {
+        ...m,
+        [name]: {
+          ...p,
+          history: [...(p.history ?? []), { time: new Date().toISOString(), delay: d }],
+        },
+      };
     });
-  }
-
-  /* ── 连接 ── */
-  /** 连接的可搜索文本（主机 / 目标 / 规则 / 链，小写拼接），供关键字过滤 */
-  private connText(c: Connection): string {
-    const m = c.metadata ?? {};
-    return [
-      m.host,
-      m.sniffHost,
-      m.destinationIP,
-      m.destinationPort,
-      c.rule,
-      c.rulePayload,
-      ...(c.chains ?? []),
-    ]
-      .filter(Boolean)
-      .join(' ')
-      .toLowerCase();
-  }
-
-  /** 连接经过的代理链（缺失按空数组处理） */
-  chainOf(c: Connection): string[] {
-    return c.chains ?? [];
-  }
-
-  /** 连接存活秒数（now - start；start 缺失记 0） */
-  ageOf(c: Connection, now = this.now()): number {
-    const t = Date.parse(c.start);
-    return Number.isFinite(t) ? Math.max(0, (now - t) / 1000) : 0;
-  }
-
-  /** 空转秒数：距最近一次字节增长的时间（新连接算 0） */
-  idleSec(c: Connection, now = this.now()): number {
-    const t = this.lastMove.get(c.id);
-    return t === undefined ? 0 : Math.max(0, (now - t) / 1000);
-  }
-
-  /** 年龄文案：<60s 显示秒，<1h 显示分，其余显示 时+分 */
-  ageText(sec: number): string {
-    if (sec < 60) return Math.round(sec) + 's';
-    if (sec < 3600) return Math.floor(sec / 60) + '分';
-    return Math.floor(sec / 3600) + '时' + Math.floor((sec % 3600) / 60) + '分';
-  }
-
-  /** 年龄着色：≥30分钟红（很可能僵死）、≥5分钟黄（偏老）、其余正常 */
-  ageClass(sec: number): string {
-    if (sec >= 1800) return 'r';
-    if (sec >= 300) return 'y';
-    return '';
-  }
-
-  /** 断开单条连接并从列表移除（连接可能已自行关闭，失败静默） */
-  async kill(c: Connection): Promise<void> {
-    try {
-      await this.clash.kill(this.backend(), c.id);
-      this.conns.update((list) => list.filter((x) => x.id !== c.id));
-    } catch {
-      /* 连接可能已关闭 */
-    }
-  }
-
-  /** 批量断开当前筛选命中的连接（例：存活 ≥5 分钟的全部断开，清僵死） */
-  async killMatched(): Promise<void> {
-    const targets = this.matchedConns();
-    if (!targets.length) return;
-    if (!confirm(`断开当前筛选出的 ${targets.length} 条连接？`)) return;
-    const ids = new Set(targets.map((c) => c.id));
-    for (const c of targets) {
-      try {
-        await this.clash.kill(this.backend(), c.id);
-      } catch {
-        /* 连接可能已自行关闭 */
-      }
-    }
-    this.conns.update((list) => list.filter((x) => !ids.has(x.id)));
-    for (const id of ids) {
-      this.lastMove.delete(id);
-      this.lastSig.delete(id);
-    }
-  }
-
-  /** 断开全部连接（需确认），成功后刷新连接列表 */
-  async killAll(): Promise<void> {
-    if (!confirm('断开全部连接？（会立刻断开当前所有代理连接）')) return;
-    try {
-      await this.clash.killAll(this.backend());
-      await this.refreshConns();
-    } catch {
-      /* 忽略：断开或刷新失败 */
-    }
   }
 
   /** 字节数格式化（模板包装，实现见 util.fmtBytes） */

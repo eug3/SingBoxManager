@@ -1,0 +1,519 @@
+<!-- 连接子页：三档视图 + 搜索/筛选/排序/分组/列设置 + 明细表 + 详情抽屉（浏览方式对齐 zashboard /ui/#/connections） -->
+
+<!-- 工具条（固定不滚动）：视图 / 搜索 / 源 IP / 网络 / 出口 / 分组 / 列 / 自动刷新 / 刷新 / 断开 -->
+<div class="cn-top">
+  <div class="cn-tabs">
+    <button class="cntab" [class.on]="tab() === 'active'" (click)="tab.set('active')">
+      活跃 <em>{{ activeCount() }}</em>
+    </button>
+    <button
+      class="cntab"
+      [class.on]="tab() === 'closed'"
+      (click)="tab.set('closed')"
+      title="最近 500 条已关闭的连接"
+    >
+      已关闭 <em>{{ closedCount() }}</em>
+    </button>
+    <button class="cntab" [class.on]="tab() === 'all'" (click)="tab.set('all')">
+      全部 <em>{{ rows().length }}</em>
+    </button>
+  </div>
+
+  <!-- 搜索：空格分隔的多个词各自是正则（AND）；漏斗按钮切换「只看可见列 / 全部字段」 -->
+  <div class="cn-search">
+    <button
+      class="scope"
+      [class.on]="scopeAll()"
+      (click)="scopeAll.set(!scopeAll())"
+      [title]="
+        scopeAll()
+          ? '搜索范围：全部字段（点一下只看可见列）'
+          : '搜索范围：可见列（点一下搜全部字段）'
+      "
+    >
+      🔎
+    </button>
+    <input
+      class="flt"
+      placeholder="搜索：域名 / IP / 规则 / 链 / 进程…（支持正则，空格=AND）"
+      [value]="q()"
+      (input)="q.set($any($event.target).value)"
+    />
+    @if (q() || srcSel().size || net() || outSel() || minAge() || idleOnly()) {
+      <button class="clearx" title="清空全部筛选" (click)="clearFilters()">✕</button>
+    }
+  </div>
+
+  <div class="cn-acts">
+    <!-- 源 IP 多选 -->
+    <div class="cn-actor">
+      <button
+        class="cnbtn"
+        [class.on]="pop() === 'src'"
+        [class.sethas]="srcSel().size"
+        (click)="togglePop('src')"
+      >
+        源 IP
+        @if (srcSel().size) {
+          <b>{{ srcSel().size }}</b>
+        }
+      </button>
+    </div>
+
+    <!-- 网络 -->
+    <select
+      class="cnsel"
+      [value]="net()"
+      (change)="net.set($any($event.target).value)"
+      title="按网络类型筛选"
+    >
+      <option value="">全部网络</option>
+      <option value="tcp">TCP</option>
+      <option value="udp">UDP</option>
+    </select>
+
+    <!-- 出口（chains[0]） -->
+    <select
+      class="cnsel"
+      [value]="outSel()"
+      (change)="outSel.set($any($event.target).value)"
+      title="按实际出口筛选"
+    >
+      <option value="">全部出口</option>
+      @for (o of outOptions(); track o.value) {
+        <option [value]="o.value">{{ o.value }}（{{ o.count }}）</option>
+      }
+    </select>
+
+    <!-- 分组 -->
+    <select
+      class="cnsel"
+      [value]="groupBy()"
+      (change)="groupBy.set($any($event.target).value)"
+      title="按字段分组浏览"
+    >
+      <option value="">不分组</option>
+      @for (g of groupKeys; track g) {
+        <option [value]="g">按{{ groupLabels[g] }}分组</option>
+      }
+    </select>
+
+    @if (groupBy() && groups()?.length) {
+      <button class="cnbtn" (click)="toggleAllGroups()" [title]="'展开 / 收起全部分组'">
+        {{ allGroupsCollapsed() ? '展开组' : '收起组' }}
+      </button>
+    }
+
+    <!-- 列设置 -->
+    <div class="cn-actor">
+      <button class="cnbtn" [class.on]="pop() === 'cols'" (click)="togglePop('cols')">⚙ 列</button>
+    </div>
+
+    <label class="chk" title="关闭即暂停轮询，列表冻结便于逐条查看">
+      <input type="checkbox" [checked]="auto()" (change)="setAuto($any($event.target).checked)" />
+      自动 2s
+    </label>
+    <button class="cnbtn" (click)="refresh()" [disabled]="loading()">
+      {{ loading() ? '刷新中…' : '刷新' }}
+    </button>
+    <button class="cnbtn danger" [disabled]="!killTargets().length" (click)="killFiltered()">
+      断开筛选{{ killTargets().length ? ' (' + killTargets().length + ')' : '' }}
+    </button>
+    <button class="cnbtn danger" [disabled]="!activeCount()" (click)="killAll()">全断</button>
+  </div>
+
+  <!-- 浮层：列设置（显隐 / 顺序 / 链 / 快速隐藏正则） -->
+  @if (pop() === 'cols') {
+    <div class="cn-pop cn-popcols">
+      <div class="cn-pophd">
+        <b>列与显示</b>
+        <span class="spacer"></span>
+        <button class="cn-mini" (click)="resetCols()">恢复默认</button>
+        <button class="cn-mini" (click)="pop.set(null)">✕</button>
+      </div>
+      <div class="cn-popbd">
+        <div class="cn-poplbl">显示列（从上到下即表格列序，共 {{ cols().length }}）</div>
+        <div class="cn-collist">
+          @for (c of visibleCols(); track c.key; let i = $index) {
+            <div class="cn-colrow">
+              <span class="cn-collbl" [title]="c.tip">{{ c.label }}</span>
+              <button
+                class="cn-mini"
+                [disabled]="i === 0"
+                (click)="moveCol(c.key, -1)"
+                title="上移"
+              >
+                ↑
+              </button>
+              <button
+                class="cn-mini"
+                [disabled]="i === visibleCols().length - 1"
+                (click)="moveCol(c.key, 1)"
+                title="下移"
+              >
+                ↓
+              </button>
+              <button class="cn-mini" (click)="hideCol(c.key)" title="隐藏该列">✕</button>
+            </div>
+          }
+        </div>
+        <div class="cn-poplbl">未显示的列（点一下加到末尾）</div>
+        <div class="cn-addlist">
+          @for (c of allCols; track c.key) {
+            @if (!cols().includes(c.key)) {
+              <button class="cn-addcol" (click)="showCol(c.key)" [title]="c.tip">
+                ＋ {{ c.label }}
+              </button>
+            }
+          }
+        </div>
+        <div class="cn-poplbl">链与隐藏</div>
+        <label class="cn-chkline">
+          <input
+            type="checkbox"
+            [checked]="fullChain()"
+            (change)="fullChain.set($any($event.target).checked)"
+          />
+          显示完整链（关掉后 >2 段折叠成「出口 › … › 分组」）
+        </label>
+        <label class="cn-chkline">
+          链方向
+          <select
+            class="cnsel"
+            [value]="chainDir()"
+            (change)="chainDir.set($any($event.target).value)"
+          >
+            <option value="out">出口 → 分组</option>
+            <option value="in">分组 → 出口</option>
+          </select>
+        </label>
+        <label class="cn-chkline">
+          快速隐藏正则
+          <input
+            class="cn-in"
+            [value]="hideRe()"
+            (input)="hideRe.set($any($event.target).value)"
+            placeholder="direct|dns-out"
+          />
+        </label>
+        <label class="cn-chkline">
+          <input
+            type="checkbox"
+            [checked]="hideOn()"
+            (change)="hideOn.set($any($event.target).checked)"
+          />
+          启用快速隐藏（命中该正则的行整行藏掉）
+        </label>
+      </div>
+    </div>
+  }
+
+  <!-- 浮层：源 IP 多选 -->
+  @if (pop() === 'src') {
+    <div class="cn-pop cn-popsrc">
+      <div class="cn-pophd">
+        <b>按源 IP 筛选</b>
+        <span class="spacer"></span>
+        <button class="cn-mini" (click)="clearSrc()">清空</button>
+        <button class="cn-mini" (click)="pop.set(null)">✕</button>
+      </div>
+      <div class="cn-popbd">
+        @if (!srcOptions().length) {
+          <div class="dim small">当前视图没有带来源地址的连接</div>
+        }
+        @for (o of srcOptions(); track o.value) {
+          <label class="cn-srcrow">
+            <input
+              type="checkbox"
+              [checked]="srcSel().has(o.value)"
+              (change)="toggleSrc(o.value)"
+            />
+            <span class="mono">{{ o.value }}</span>
+            <b>{{ o.count }}</b>
+          </label>
+        }
+      </div>
+    </div>
+  }
+</div>
+
+<!-- 筛选条：存活档位 / 空转 / 快速隐藏正则 / 命中统计 -->
+<div class="cn-filters">
+  <span class="dim small">存活</span>
+  <button class="chip" [class.on]="minAge() === 0" (click)="minAge.set(0)">全部</button>
+  <button class="chip" [class.on]="minAge() === 60" (click)="minAge.set(60)">≥1分</button>
+  <button class="chip" [class.on]="minAge() === 300" (click)="minAge.set(300)">≥5分</button>
+  <button class="chip" [class.on]="minAge() === 1800" (click)="minAge.set(1800)">≥30分</button>
+  <span class="csep"></span>
+  <button
+    class="chip"
+    [class.on]="idleOnly()"
+    (click)="idleOnly.set(!idleOnly())"
+    title="只看 ≥60s 没有任何字节增长的连接（疑似僵死）"
+  >
+    空转≥1分
+  </button>
+  <span class="csep"></span>
+  <button
+    class="chip"
+    [class.on]="hideOn()"
+    (click)="hideOn.set(!hideOn())"
+    [title]="'快速隐藏正则：' + (hideRe() || '（空）') + '（在「⚙ 列」里可改）'"
+  >
+    🧹 隐藏 {{ hideRe() || '—' }}
+  </button>
+  <span class="csep"></span>
+  <span class="dim small">
+    命中 <b>{{ filteredRows().length }}</b> / {{ baseRows().length }}
+    @if (filtered().hidden) {
+      · 正则隐藏 <b>{{ filtered().hidden }}</b>
+    }
+    @if (sort(); as s) {
+      · 按{{ colLabel(s.key) }} {{ s.dir === 'asc' ? '升序' : '降序' }}
+    }
+  </span>
+</div>
+
+<!-- 浮层遮罩：点空白关掉列设置 / 源 IP 面板 -->
+@if (pop()) {
+  <div class="cn-popmask" (click)="pop.set(null)"></div>
+}
+
+<!-- 表格（唯一滚动区：表头 sticky；列多时横向滚动） -->
+<div class="cn-scroll">
+  <table class="cn-table" [style.width.px]="totalW()">
+    <colgroup>
+      @for (c of visibleCols(); track c.key) {
+        <col [style.width.px]="c.w" />
+      }
+    </colgroup>
+    <thead>
+      <tr>
+        @for (c of visibleCols(); track c.key) {
+          <th
+            [class.sortable]="c.key !== 'close'"
+            [title]="c.tip + (c.key === 'close' ? '' : '（点击排序）')"
+            (click)="toggleSort(c.key)"
+          >
+            {{ c.label }}
+            @if (sortMark(c.key)) {
+              <span class="smark">{{ sortMark(c.key) === 'asc' ? '▲' : '▼' }}</span>
+            }
+          </th>
+        }
+      </tr>
+    </thead>
+    <tbody>
+      @for (v of viewGroups(); track v.key) {
+        @if (v.header) {
+          <tr class="cn-ghd" (click)="toggleGroup(v.key)">
+            <td [attr.colspan]="visibleCols().length">
+              <span class="gcar">{{ isCollapsed(v.key) ? '▸' : '▾' }}</span>
+              <b class="gname">{{ v.label }}</b>
+              <span class="gmeta">
+                {{ v.rows.length }} 条 · ↓{{ fmtB(v.dl) }} ↑{{ fmtB(v.ul) }}
+                @if (v.oldest >= 60) {
+                  · 最老 {{ ageTextOf(v.oldest) }}
+                }
+              </span>
+            </td>
+          </tr>
+        }
+        @if (v.open) {
+          @for (r of v.rows; track r.c.id) {
+            <tr
+              class="cn-row"
+              [class.closed]="r.closed"
+              [class.old]="ageOf(r) >= 300"
+              [class.idle]="idleOf(r) >= 60"
+              [title]="r.closed ? '已关闭：已从活跃快照里消失（点开看关闭前的字段）' : ''"
+              (click)="openDetail(r)"
+            >
+              @for (c of visibleCols(); track c.key) {
+                <td [class]="'cc-' + c.key" (contextmenu)="copyCell($event, r, c.key)">
+                  @switch (c.key) {
+                    @case ('close') {
+                      @if (!r.closed) {
+                        <span class="x" (click)="killOne($event, r)" title="断开这一条">✕</span>
+                      } @else {
+                        <span class="dim" title="已关闭">·</span>
+                      }
+                    }
+                    @case ('chains') {
+                      @if (chainTags(r).length) {
+                        @for (t of chainTags(r); track $index) {
+                          @if (t.name === '…') {
+                            <span class="sep">…</span>
+                          } @else {
+                            <span class="tag {{ t.out ? 'first' : '' }}" [title]="t.name">{{
+                              t.name
+                            }}</span>
+                          }
+                          @if (!$last) {
+                            <span class="sep">›</span>
+                          }
+                        }
+                      } @else {
+                        <span class="dim">—</span>
+                      }
+                    }
+                    @case ('age') {
+                      <span class="mono age {{ ageClassOf(ageOf(r)) }}">{{ cell(r, c.key) }}</span>
+                    }
+                    @case ('idle') {
+                      <span class="mono age {{ idleClass(idleOf(r)) }}">{{ cell(r, c.key) }}</span>
+                    }
+                    @case ('net') {
+                      <span class="net" [class.udp]="r.f.net === 'udp'">{{ cell(r, c.key) }}</span>
+                    }
+                    @case ('dlSpd') {
+                      <span class="mono spd" [class.live]="r.dlSpd > 0">{{ cell(r, c.key) }}</span>
+                    }
+                    @case ('ulSpd') {
+                      <span class="mono spd" [class.live]="r.ulSpd > 0">{{ cell(r, c.key) }}</span>
+                    }
+                    @case ('dl') {
+                      <span class="mono dim">{{ cell(r, c.key) }}</span>
+                    }
+                    @case ('ul') {
+                      <span class="mono dim">{{ cell(r, c.key) }}</span>
+                    }
+                    @case ('rule') {
+                      @let rp = hlParts(r, c.key);
+                      <span
+                        class="tag rule"
+                        [title]="r.c.rule + (r.c.rulePayload ? ': ' + r.c.rulePayload : '')"
+                      >
+                        @if (rp) {
+                          @for (p of rp; track $index) {
+                            @if (p.m) {
+                              <mark>{{ p.t }}</mark>
+                            } @else {
+                              {{ p.t }}
+                            }
+                          }
+                        } @else {
+                          {{ cell(r, c.key) }}
+                        }
+                      </span>
+                    }
+                    @default {
+                      @let parts = hlParts(r, c.key);
+                      <span class="ell" [title]="cell(r, c.key)">
+                        @if (parts) {
+                          @for (p of parts; track $index) {
+                            @if (p.m) {
+                              <mark>{{ p.t }}</mark>
+                            } @else {
+                              {{ p.t }}
+                            }
+                          }
+                        } @else {
+                          {{ cell(r, c.key) }}
+                        }
+                      </span>
+                    }
+                  }
+                </td>
+              }
+            </tr>
+          }
+        }
+      }
+    </tbody>
+  </table>
+
+  @if (!sortedRows().length) {
+    <div class="cn-empty">
+      <div class="cn-empty-ico">◌</div>
+      <div>
+        @if (tab() === 'closed') {
+          还没有已关闭的连接（快照里消失的连接会留在这里，最多 500 条）
+        } @else if (rows().length) {
+          没有符合当前筛选条件的连接
+        } @else {
+          还没有连接数据（{{ auto() ? '2s 自动刷新中' : '自动刷新已暂停' }}）
+        }
+      </div>
+    </div>
+  }
+</div>
+
+<!-- 状态条（固定底部）：总数 / 命中 / 隐藏 / 老连接与空转候选 / 流量 / 更新时间 / 错误 -->
+<div class="cn-status">
+  <span
+    >共 <b>{{ baseRows().length }}</b> 条</span
+  >
+  <span class="csep"></span>
+  <span
+    >命中 <b>{{ filteredRows().length }}</b></span
+  >
+  @if (filtered().hidden) {
+    <span class="csep"></span>
+    <span
+      >正则隐藏 <b>{{ filtered().hidden }}</b></span
+    >
+  }
+  <span class="csep"></span>
+  <span>
+    活跃 <b>{{ activeCount() }}</b>
+    @if (activeStat().old) {
+      · <span class="warn">{{ activeStat().old }} 条存活 ≥5 分</span>（空转 ≥1 分
+      <b>{{ activeStat().idleOld }}</b>）
+    }
+    · 最老 <b>{{ ageTextOf(activeStat().oldest) }}</b>
+  </span>
+  <span class="csep"></span>
+  <span>↓{{ fmtB(stat().dl) }} ↑{{ fmtB(stat().ul) }}</span>
+  <span class="csep"></span>
+  <span>↓{{ fmtR(stat().dlSpd) }} ↑{{ fmtR(stat().ulSpd) }}</span>
+  <span class="spacer"></span>
+  @if (err()) {
+    <span class="cerr">✗ {{ err() }}</span>
+  }
+  <span class="dim">{{ auto() ? '自动刷新 2s' : '已暂停' }} · {{ lastText() }}</span>
+</div>
+
+<!-- 详情抽屉：点行打开，Esc / 点遮罩关闭；右侧滑出，字段按小节分组 -->
+@if (detail(); as d) {
+  <div class="cn-drawer-mask" (click)="detail.set(null)"></div>
+  <aside class="cn-drawer" (click)="$event.stopPropagation()">
+    <header class="cn-dhead">
+      <div class="cn-dtitle">
+        <b class="mono">{{ hostText(d) }}</b>
+        <span class="tag {{ d.closed ? '' : 'first' }}">{{ d.closed ? '已关闭' : '活跃' }}</span>
+      </div>
+      <button class="cn-mini" (click)="detail.set(null)" title="关闭（Esc）">✕</button>
+    </header>
+    <div class="cn-dbody">
+      @for (s of detailSections(); track s.title) {
+        <section class="cn-dsec">
+          <h4>{{ s.title }}</h4>
+          @for (kv of s.rows; track kv[0]) {
+            <div class="cn-kv">
+              <span>{{ kv[0] }}</span>
+              <b class="mono" [title]="kv[1]">{{ kv[1] }}</b>
+            </div>
+          }
+        </section>
+      }
+      <section class="cn-dsec">
+        <h4>原始 JSON</h4>
+        <pre class="cn-raw">{{ detailRaw() }}</pre>
+      </section>
+    </div>
+    <footer class="cn-dfoot">
+      <button class="cnbtn" (click)="copyRaw()">复制 JSON</button>
+      @if (!d.closed) {
+        <button class="cnbtn danger" (click)="killRow(d)">断开这条</button>
+      }
+      <span class="spacer"></span>
+      <button class="cnbtn" (click)="detail.set(null)">关闭</button>
+    </footer>
+  </aside>
+}
+
+<!-- 轻提示（复制 / 断开结果） -->
+@if (toast()) {
+  <div class="cn-toast">{{ toast() }}</div>
+}

@@ -17,7 +17,7 @@ export function fmtBytes(n: number): string {
 /** 字节/秒 → B/s、K/s、M/s（概览速率行的次要读数） */
 export function fmtRate(n: number): string {
   if (!n) return '0B/s';
-  if (n < 1024) return n + 'B/s';
+  if (n < 1024) return Math.round(n) + 'B/s';
   if (n < 1024 * 1024) return (n / 1024).toFixed(1) + 'K/s';
   return (n / 1024 / 1024).toFixed(2) + 'M/s';
 }
@@ -53,15 +53,44 @@ export function latText(d: number | null, empty = ''): string {
 
 /** 从 HttpClient 错误 / Error / 任意值里提取可读文案（服务端约定 {"error": "..."}） */
 export function errMsg(e: unknown): string {
-  const x = e as { error?: { error?: string }; message?: string };
+  const x = e as { error?: { error?: string }; status?: number; message?: string };
   return x?.error?.error ?? x?.message ?? String(e);
+}
+
+/** 时长（秒）→ 文案：<60s 显示秒、<1h 显示分、其余 时+分（连接存活 / 空转共用） */
+export function ageText(sec: number): string {
+  if (!Number.isFinite(sec) || sec < 0) return '—';
+  if (sec < 60) return Math.round(sec) + 's';
+  if (sec < 3600) return Math.floor(sec / 60) + '分';
+  return Math.floor(sec / 3600) + '时' + Math.floor((sec % 3600) / 60) + '分';
+}
+
+/** 时长着色：≥30 分钟红（很可能僵死）、≥5 分钟黄（偏老）、其余正常 */
+export function ageClass(sec: number): string {
+  if (sec >= 1800) return 'r';
+  if (sec >= 300) return 'y';
+  return '';
+}
+
+/** 时间戳 / ISO 串 → 本地 HH:MM:SS（解析失败返回空串） */
+export function clockText(v: string | number | undefined | null): string {
+  if (!v) return '';
+  const ms = typeof v === 'number' ? v : Date.parse(v);
+  if (!Number.isFinite(ms)) return '';
+  const d = new Date(ms);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }
 
 /**
  * runPool — 固定并发的工作池：items 逐个交给 worker，最多 concurrency 个并行。
  * 用于「全部测速」这类要对几十个节点逐个发请求的场景（并发 6 与旧实现一致）。
  */
-export async function runPool<T>(items: T[], concurrency: number, worker: (item: T) => Promise<void>): Promise<void> {
+export async function runPool<T>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T) => Promise<void>,
+): Promise<void> {
   const queue = [...items];
   const lane = async (): Promise<void> => {
     for (;;) {
