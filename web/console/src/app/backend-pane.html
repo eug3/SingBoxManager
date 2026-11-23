@@ -84,7 +84,7 @@
 </div>
 
 <!-- 内容区（唯一滚动区）：按当前子 tab 渲染对应页面 -->
-<div class="bp-body">
+<div class="bp-body" [class.bp-fill]="tab() === 'logs'">
 @switch (tab()) {
   <!-- 概览子页：独立组件（速率 / 连接数 / 内存曲线 + 分组延时速览） -->
   @case ('overview') {
@@ -132,8 +132,9 @@
     <app-flow-anim [backend]="backend()" (editRule)="openRule($event)" (editGroup)="openGroup($event)" />
   }
 
-  <!-- 日志子页：级别选择 / 暂停 / 清空；切走即断开 WebSocket -->
+  <!-- 日志子页：级别选择 / 暂停 / 清空；切走即断开 WebSocket；日志窗口撑满剩余高度 -->
   @case ('logs') {
+    <div class="logpage">
     <div class="bar">
       <select [value]="level()" (change)="setLevel($any($event.target).value)">
         @for (l of levels; track l) {
@@ -153,6 +154,7 @@
       } @empty {
         <div class="dim small">等待日志…</div>
       }
+    </div>
     </div>
   }
 

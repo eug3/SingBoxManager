@@ -76,6 +76,19 @@ interface LogLine {
       scrollbar-gutter: stable;
       padding-right: 2px;
     }
+    /* 日志页：整页撑满，滚动交给 .logbox（只滚日志，工具条与页面外壳不动） */
+    .bp-body.bp-fill {
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .logpage {
+      flex: 1 1 auto;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+    .logpage > .bar { flex: 0 0 auto; }
   `,
 })
 /** 后端面板组件：其余五个子页（分组/连接/流向/日志/规则）的状态与 clash_api 交互都在本组件 */

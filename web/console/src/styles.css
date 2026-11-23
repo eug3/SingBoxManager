@@ -523,7 +523,9 @@ tbody tr:hover td {
 
 /* 日志 */
 .logbox {
-  height: 320px;
+  height: 320px; /* 兜底：容器无确定高度时（如窄屏堆叠）仍可用 */
+  flex: 1 1 auto;
+  min-height: 0;
   overflow: auto;
   background: #fbfdff;
   border: 1px solid var(--line);
