@@ -4,10 +4,6 @@
     <div class="ra-sidehd">
       <span class="ra-sidetitle">📁 rule-set</span>
       <span class="dim small">{{ bucketSource() === 'nas' ? buckets().length + ' 个文件' : '清单未取到' }}</span>
-      <span class="ra-spacer"></span>
-      <button class="mini" title="新建 JSON 桶（只写 .json，填好规则后再发布）" (click)="startCreate()" [disabled]="acting()">
-        ＋ 新建
-      </button>
     </div>
 
     @if (creating()) {
@@ -67,14 +63,10 @@
           </div>
         } @empty {
           <div class="ra-empty">
-            {{ bucketSource() === 'nas' ? '还没有桶，点「＋ 新建」' : '清单未取到（/rule-set/index 未响应）' }}
+            {{ bucketSource() === 'nas' ? '还没有桶：在空白处右键 → 新建 JSON 文件' : '清单未取到（/rule-set/index 未响应）' }}
           </div>
         }
       }
-    </div>
-
-    <div class="ra-sideft">
-      <button class="mini danger" (click)="deleteBucket()" [disabled]="acting() || !bucket()">删除当前桶</button>
     </div>
   </aside>
 

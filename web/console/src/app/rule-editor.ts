@@ -193,10 +193,10 @@ export class RuleEditor implements OnInit {
   }
 
   /**
-   * 删除桶（.json + .srs 一起删，需确认）。
-   * 默认删当前选中；右键菜单传具体桶名时只删那一个，不动当前编辑文件。
+   * 删除指定桶（.json + .srs 一起删，需确认）。
+   * 入口只有文件行右键菜单；删的不是当前文件时只刷新树，不动编辑器。
    */
-  async deleteBucket(name = this.bucket()): Promise<void> {
+  async deleteBucket(name: string): Promise<void> {
     if (!name) return;
     const ok = await this.ui.ask({
       title: `删除桶 ${name}.json？`,
