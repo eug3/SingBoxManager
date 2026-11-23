@@ -87,6 +87,9 @@ NAS nas.lan
 
 ### 页面/服务发版
 - `scripts/deploy_console.sh`（**前端，日常改页面只跑这个**）：`ng build --base-href=/edit/` → 内联 tar 上传 → 备份旧 `edit.bak-<ts>` 后整体替换 pageDir，并（首次或版本变化时）把 Monaco `min/vs` 铺到 `/usr/local/share/vault-edit/static/monaco/`；**不需要重启 Go 服务**。首次部署需能访问 npm registry（之后走 `/tmp/monaco-pack` 缓存）。
+  - **在 macOS 上要加 `LC_ALL=C LANG=C` 前缀**：`LC_ALL=C LANG=C ROUTER_PW='…' scripts/deploy_console.sh`。不加的话在 UTF-8 语言环境下脚本会于第 2 步中止（见坑 17）；中止发生在上传之前，线上不受影响。
+  - 备份目录名里的时间戳是**管理机自己的时区（EDT，比本地慢 12 小时）**，挑备份回滚时别当成「很久以前的」。
+- 发前端前可先在本地验收：`node scripts/mock_clash.mjs` 起一个假 clash_api（420 条连接，含自然下线与僵死样本）并托管 ng 产物，打开 `http://127.0.0.1:8080/`、后端地址填 `http://127.0.0.1:8080` 即可，不需要路由（见 `docs/plan-connections-browser.md`）。
 - `scripts/deploy_service.sh`（**只发后端**）：交叉编译 Go + systemd unit + `/etc/vault-edit.env` + 重启；**不再上传页面**（页面归 deploy_console.sh）。
 - `scripts/deploy_web.sh`：只发公网首页 `web/index.html` → NAS（注意 NAS nginx ~1min 句柄缓存）
 - 旧单文件页面 `web/edit/index.html` 仅作回滚参考（回滚：`cp -a /usr/local/share/vault-edit/edit.bak-<ts>/. /usr/local/share/vault-edit/edit/`）
@@ -177,6 +180,7 @@ sing-box 没有 reload/写配置 API，所以「改节点配置 → 生效」由
 14. **Monaco 走本站 `/static/monaco/vs`（AMD loader）**，不依赖 CDN；它需要 worker（`language/json/json.worker.js`），所以静态目录必须整份 `min/vs` 而不是只放 `editor.main.js`
 15. **表单控件的坑**：`<select [value]>` 在选项是 `@for` 动态渲染时可能显示成第一个选项（值其实是对的）——用 `<option [selected]="…">` 绑定，`deploy_console.sh` 之后实测 `rs-tg` 显示正确
 16. **CORS origin 只能写精确来源**：`access_control_allow_origin` 不接受网段，写 `协议://主机:端口`；页面换入口要同步所有路由
+17. **`deploy_console.sh` 在 macOS 自带 `/bin/bash 3.2` + UTF-8 语言环境下必中止**：报 `scripts/deploy_console.sh: line 31: MONACO_VERSION…: unbound variable`。根因是脚本开了 `set -u`，而第 31 行 `（$MONACO_VERSION）` 里变量名紧贴全角括号——bash 3.2 在 UTF-8 locale 下会把「）」的首字节吸进变量名，于是去找一个不存在的变量；`LC_ALL=C` 下正常。agent / cron 常注入 `LANG=C.UTF-8`，所以在这些环境里必现，交互终端里则不一定。**规避**：运行时加 `LC_ALL=C LANG=C`（脚本只处理 ASCII，C locale 不影响中文输出与校验）。根治是把 `$MONACO_VERSION` 写成 `${MONACO_VERSION}`（一行），属发布链脚本改动，待拍板后再改。
 
 ## 6. 凭据指路（仓库与页面不落密钥）
 
@@ -200,6 +204,7 @@ sing-box 没有 reload/写配置 API，所以「改节点配置 → 生效」由
 |---|---|
 | 管理台目录移出公网 | 从 NAS 备份目录移回，并恢复看板来源的 CORS |
 | 管理机服务/页面新版 | 管理机上 `/usr/local/bin/vault-edit.bak-<时间戳>`（每次部署自动留）；页面副本见 git |
+| 管理台页面（`/edit/`）新版 | 管理机上 `cp -a /usr/local/share/vault-edit/edit.bak-<ts>/. /usr/local/share/vault-edit/edit/`（`deploy_console.sh` 每次自动留整目录；纯静态，**不用重启**；`<ts>` 是管理机 EDT 时区）。例：连接页改版前的版本在 `edit.bak-20261123-005236` |
 | 某路由加管理机 LAN 来源 | `cp /etc/sing-box/config.json.bak-<日期>-before-99origin /etc/sing-box/config.json && /etc/init.d/sing-box restart` |
 | 某路由加虚拟内网来源 | `cp config.json.bak-<日期时间>-before-easytier-origin …` → `/etc/init.d/sing-box restart` |
 | Socat udp 转发修正 | `cp /etc/config/socat.bak-<日期>-before-udpfix /etc/config/socat && /etc/init.d/socat restart` |

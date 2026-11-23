@@ -1,47 +1,74 @@
-<div class="bar">
-  <select (change)="pickBucket($any($event.target).value)">
-    @for (b of buckets; track b.name) {
-      <option [value]="b.name" [selected]="b.name === bucket()">{{ b.name }}（{{ b.rules }} 条规则）</option>
+<!-- 规则编辑主 tab：工具条 → 编辑区（撑满剩余高度）→ 校验条 → 发布结果条 → 底部说明 -->
+<div class="ra-page">
+  <div class="bar">
+    <select (change)="pickBucket($any($event.target).value)">
+      @for (b of buckets; track b.name) {
+        <option [value]="b.name" [selected]="b.name === bucket()">{{ b.name }}（{{ b.rules }} 条规则）</option>
+      }
+    </select>
+    <button (click)="load()" [disabled]="loading()">{{ loading() ? '拉取中…' : '重新拉取' }}</button>
+    <button (click)="format()">格式化</button>
+    <button class="acc" (click)="publish()" [disabled]="publishing()">
+      {{ publishing() ? '发布中…' : '保存并发布 →' }}
+    </button>
+    @if (head()) {
+      <span class="dim small">线上：{{ fmtBytes(head()?.size) }} · {{ head()?.time }}</span>
     }
-  </select>
-  <button (click)="load()" [disabled]="loading()">{{ loading() ? '拉取中…' : '重新拉取' }}</button>
-  <button (click)="format()">格式化</button>
-  <button class="acc" (click)="publish()" [disabled]="publishing()">
-    {{ publishing() ? '发布中…' : '保存并发布 →' }}
-  </button>
-  @if (head()) {
-    <span class="dim small">线上：{{ fmtBytes(head()?.size) }} · {{ head()?.time }}</span>
-  }
-</div>
-
-<app-monaco-editor [value]="source()" (valueChange)="onValueChange($event)" />
-
-<div class="vstat" [class.bad]="!check().ok">
-  @if (check().ok) {
-    ✓ {{ check().msg }}
-    @if (check().detail) {
-      <span class="dim"> · {{ check().detail }}</span>
+    @if (dirty()) {
+      <span class="ra-dirty" title="编辑器内容与最近一次拉取/发布的不同">● 未发布改动</span>
     }
-  } @else {
-    ✗ {{ check().msg }}
-    @if (check().detail) {
-      <span class="dim"> —— {{ check().detail }}</span>
+  </div>
+
+  <!-- 编辑区：fill 模式撑满剩余高度；容器尺寸变化由 Monaco 内部 ResizeObserver 同步 -->
+  <app-monaco-editor class="ra-editor" [value]="source()" [fill]="true" (valueChange)="onValueChange($event)" />
+
+  <!-- 校验条：绿色=合法 / 红色=不合法 -->
+  <div class="vstat" [class.bad]="!check().ok">
+    @if (check().ok) {
+      ✓ {{ check().msg }}
+      @if (check().detail) {
+        <span class="dim"> · {{ check().detail }}</span>
+      }
+    } @else {
+      ✗ {{ check().msg }}
+      @if (check().detail) {
+        <span class="dim"> —— {{ check().detail }}</span>
+      }
+    }
+  </div>
+
+  <!-- 发布结果：成功（绿，带可核对信息与自动拉取说明）/ 失败（红，带原因与建议） -->
+  @if (result(); as r) {
+    @if (r.ok) {
+      <div class="ra-result ok" role="status" aria-live="polite">
+        <span class="ra-ico">✓</span>
+        <div class="ra-body">
+          <div class="ra-title">
+            已发布 <b>{{ r.bucket }}</b>
+            <span class="dim small">{{ publishedAt() }}</span>
+          </div>
+          <div class="ra-detail">
+            json {{ fmtB(r.json) }} → srs {{ fmtB(r.srs) }} · sha256 <span class="mono cd">{{ r.sha256 }}</span>
+          </div>
+          <div class="ra-hint">{{ r.hint || '两台路由 60s 内自动拉取，无需重启' }}</div>
+        </div>
+        <button class="ra-close" (click)="dismissResult()" title="关闭">✕</button>
+      </div>
+    } @else {
+      <div class="ra-result bad" role="alert" aria-live="assertive">
+        <span class="ra-ico">✗</span>
+        <div class="ra-body">
+          <div class="ra-title">发布失败：{{ r.error || '服务端未返回原因' }}</div>
+          <div class="ra-hint">{{ failHint(r.error) }}</div>
+        </div>
+        <button class="ra-retry" (click)="publish()" [disabled]="publishing()">重试</button>
+        <button class="ra-close" (click)="dismissResult()" title="关闭">✕</button>
+      </div>
     }
   }
-</div>
 
-@if (result(); as r) {
-  @if (r.ok) {
-    <div class="result">
-      ✓ 已发布 <b>{{ r.bucket }}</b> · json {{ r.json }}B → srs {{ r.srs }}B · sha256 <span class="cd">{{ r.sha256 }}</span>
-      <div class="dim small">{{ r.hint || '两台路由 60s 内自动拉取，无需重启' }}</div>
-    </div>
-  } @else {
-    <div class="banner show">✗ 发布失败{{ r.error ? '：' + r.error : '' }}</div>
-  }
-}
-
-<div class="hint small dim" style="margin-top:14px">
-  语义提醒：桶内条目是「或」关系；同名序号桶（-2/-3）是在原位保序的影子桶，改它们不影响主桶<br />
-  服务端会拒绝：非法桶名 / 非 rules[] 结构 / 未知字段 —— 校验通过才会写盘
+  <div class="hint small dim">
+    语义提醒：桶内条目是「或」关系；同名序号桶（-2/-3）是在原位保序的影子桶，改它们不影响主桶<br />
+    服务端会拒绝：非法桶名 / 非 rules[] 结构 / 未知字段 —— 校验通过才会写盘
+  </div>
 </div>

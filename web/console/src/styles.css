@@ -822,6 +822,24 @@ button.chip.on { border-color: var(--acc); color: var(--acc); background: #eef7f
 .gbchip.dragging { opacity: .45; }
 .gbempty { padding: 8px 6px; font-size: 10px; color: var(--dim); border: 1px dashed var(--line); text-align: center; }
 
+/* 规则编辑主 tab：整页 flex 列，编辑区吃满剩余高度（Monaco 自适应窗口尺寸） */
+.ra-page { display: flex; flex-direction: column; height: 100%; min-height: 0; gap: 10px; }
+.ra-page > .bar { flex: 0 0 auto; margin-bottom: 0; }
+.ra-editor { flex: 1 1 auto; min-height: 180px; }
+.ra-dirty { font-size: 11px; color: var(--warn); white-space: nowrap; }
+/* 发布结果条：成功绿 / 失败红，带图标、标题、可核对信息与建议 */
+.ra-result { flex: 0 0 auto; display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border: 1px solid; font-size: 11px; }
+.ra-result.ok { border-color: #b7e3cd; background: #eefaf4; color: #0d7a4f; }
+.ra-result.bad { border-color: #f0c0c6; background: #fdeef0; color: #a61f2f; }
+.ra-result .ra-ico { flex: 0 0 auto; font-size: 13px; line-height: 18px; }
+.ra-result .ra-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.ra-result .ra-title { color: #16202c; font-size: 12px; }
+.ra-result .ra-detail { color: var(--ink); font-size: 11px; word-break: break-all; }
+.ra-result .ra-hint { color: var(--dim); font-size: 10.5px; line-height: 1.7; }
+.ra-result .cd { color: #54418a; }
+.ra-result .ra-close, .ra-result .ra-retry { flex: 0 0 auto; padding: 2px 8px; font-size: 10.5px; }
+.ra-result .ra-retry { color: inherit; border-color: currentColor; background: #fff; }
+
 /* ==========================================================================
    流向动画 v3（后端「流向」子页）：六列 SVG 画布 + 顶层粒子 + 自绘 tooltip
    六列＝①电脑 ②路由器 ③规则集 ④分组 ⑤分组成员（逐行）⑥互联网

@@ -96,3 +96,36 @@ Chrome 157 headless（1500×960 与 1280×800 两档）逐项实测：
 | 窄窗 | 1280×800 工具条自动换行、表格横向滚动，状态条不溢出 |
 
 另：`npx ng build`（development）无 ERROR；TypeScript 严格选项下无隐式返回/未用变量告警。
+
+## 7. 上线记录（2026-11-23）
+
+- 功能提交 `a763d90`；经 `scripts/deploy_console.sh` 发布到管理机 `/usr/local/share/vault-edit/edit/`，**未重启 Go 服务**（全程 `active`）。
+- 运行方式：`LC_ALL=C LANG=C ROUTER_PW='…' scripts/deploy_console.sh`。不带 `LC_ALL=C` 的第一次在第 2 步就中止
+  （`MONACO_VERSION…: unbound variable`，见 runbook 坑 17），中止在上传之前，线上未受影响。
+- 产物：`main-MR2JZO4L.js`（408,931 B）/ `styles-KJ436Q4N.css`（36,265 B）/ `index.html`；三个文件的 sha256 远端与本地生产产物**逐字节一致**
+  （`3b15fcc6…98d69` / `a73b53bd…6069357` / `99040aac…41808`）。
+- 回滚点：`edit.bak-20261123-005236`（内为改版前的 `main-BOBT4ETC.js`；时间戳是管理机 EDT 时区）。Monaco 仍是 0.57.0，未重传。
+  远端临时文件（含口令文件）已被脚本清空。
+- **线上只读实测（乙路由 172.16.8.1，真实数据，无头 Chrome 从开发机加载 `http://192.168.31.99:9099/edit/`）**：
+  - 载入 / 切乙 / 进连接页三个阶段**零失败请求**，来源受信无横幅；
+  - 三档计数随真实流量变化（活跃 133→150、已关闭 6→19）；头部统计条与连接页活跃数一致（133↔133、136↔136）；
+  - 真实规则被正确压短：`ip_is_private=true ⇒ direct`、`rs-msft ⇒ Ⓜ️ 微软服务`、`cn_ip ⇒ DIRECT`、`bard-domains ⇒ Bard`；
+    抽屉「路由」节保留完整原文 `rule_set=cn_ip => route(DIRECT)`；
+  - 搜索 `windows` → 命中 4、高亮 4 处；「存活」「↓速率」排序与提示正确；按出口分组：`DIRECT 69 / shayuqite 15 / iplc-ss 15 / direct 12 / lan-fd-sa 11`；
+  - 抽屉 Esc 关闭正常。
+- **未覆盖**：① 断开类操作（单条 / 批量 / 全部）只在 mock 上验证过，线上实测刻意不点；② 甲路由（192.168.31.32）见 §8。
+- 与 zashboard 的一处有意差异：「存活」列第一下是**最老在前**（本页用途是揪老连接），zashboard 的连接时间列是最新在前。
+  要对齐只需去掉 `COLS` 里 `age` 列的 `num: true`。
+
+## 8. 上线验证时发现的甲路由现状（与本次改动无关，仅记录）
+
+以下均为开发机 / 管理机上的只读探测，未登录、未改动甲路由：
+
+- 管理机 99 → `192.168.31.32:9090`：两次采样都是**立即拒绝连接**（`Could not connect … after 0 ms`）；`9091` 端口开着，但对明文 HTTP 与 TLS 都是对端立即关闭。
+  按记忆，11-21 时甲的 clash_api 还是 `0.0.0.0:9090`、无 secret 返回 401。所以管理台「甲」tab 此刻加载不出数据，本次线上验证只覆盖了乙。
+  该现象在本轮任何改动之前就已存在（会话开头第一次探测即超时）。
+- 经甲路由出网（99 的默认网关是甲）：ICMP、gstatic 204、百度 HTTP/HTTPS 都能通，但建连偏慢（百度 1~3 秒）且**偶发超时**
+  （一轮里 `https://www.baidu.com` 连 TCP 都没建起来、github 读到 16 KB 后停住，下一轮均 200）；99 走自己的 SOCKS 出口 0.9 秒即通。
+- 开发机 Mac 的网关与 DNS 都是 `172.16.8.1`（乙），从它测 `192.168.31.32:9090` 会得到「TCP 能连上但无应答」——那是乙的 TUN 本地终结握手的假象，
+  判断甲路由端口要以 99 上的探测为准（runbook 坑 10 的延伸）。
+- 待办（需用户授权登录甲路由后才能定位）：在甲上看 `ss -ltnp | grep -E '9090|9091'`、sing-box 进程 / FD / `nf_conntrack_count`，以及 clash_api 监听是否被改。
