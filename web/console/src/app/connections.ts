@@ -648,20 +648,47 @@ export class Connections implements OnInit, OnDestroy {
         /* 连接可能已自行关闭 */
       }
     }
-    this.drop([...ids]);
-    this.flash(`已断开 ${ids.size} 条`);
+    await this.killAnimate([...ids]);
+    this.flash(
+      ids.size
+        ? `已断开 ${ids.size} 条${ids.size < targets.length ? `（失败 ${targets.length - ids.size} 条）` : ''}`
+        : '没有断开任何连接（可能已自行关闭）',
+    );
   }
 
-  /** 断开全部连接（需确认；由路由侧执行后再刷一次） */
+  /**
+   * 断开全部连接（需确认；由路由侧执行后再刷一次）。
+   *
+   * 注意「断完立刻回涨」是正常现象：局域网设备（心跳 / DNS / APP 后台同步）会瞬间重连，
+   * 实测断开 60 条后 4 秒内就重新建了 29 条、且全是新连接。所以这里不能只说「已断开」，
+   * 而要告诉用户断了多少、以及现在列表里的是新连接，否则会被误认为没生效。
+   */
   async killAll(): Promise<void> {
-    if (!confirm('断开全部连接？（会立刻断开当前所有代理连接）')) return;
+    const before = this.rows().filter((r) => !r.closed).length;
+    if (!confirm(`断开全部 ${before} 条连接？（会立刻断开当前所有代理连接）`)) return;
     try {
+      const killedIds = this.rows().filter((r) => !r.closed).map((r) => r.c.id);
       await this.clash.killAll(this.backend());
-      this.flash('已请求断开全部');
+      // 先标红淡出，再刷新：若先 poll，新快照会立刻替换 rows，动画根本来不及播
+      await this.killAnimate(killedIds);
       await this.poll();
+      const after = this.rows().filter((r) => !r.closed).length;
+      // 断开后仍有余量 = 已经涌入新连接；把两个数字都说清楚
+      this.flash(
+        after === 0
+          ? `已断开全部 ${before} 条`
+          : `已断开 ${before} 条；设备正在重连（当前 ${after} 条为新连接）`,
+      );
+      this.flashLong(after === 0 ? 2600 : 4200); // 有重连说明时多留一会儿，够读完
     } catch (e) {
       this.flash('断开失败：' + errMsg(e));
     }
+  }
+
+  /** 同 flash，但指定停留时长（毫秒） */
+  private flashLong(ms: number): void {
+    if (this.toastTimer) clearTimeout(this.toastTimer);
+    this.toastTimer = setTimeout(() => this.toast.set(''), ms);
   }
 
   /** 从当前列表里移除已断开的行（下一轮快照会把它们记成已关闭） */
@@ -710,6 +737,18 @@ export class Connections implements OnInit, OnDestroy {
   /** 详情抽屉里的复制按钮（整条 JSON） */
   copyRaw(): void {
     void this.copy(this.detailRaw(), 'JSON');
+  }
+
+  /** 正在被断开的行（id 集合）：行先标红淡出再移除，让「断开了」看得见 */
+  readonly killing = signal<Set<string>>(new Set());
+
+  /** 标记一批行为「断开中」，等动画播完再移除（0.5s） */
+  private async killAnimate(ids: string[]): Promise<void> {
+    if (!ids.length) return;
+    this.killing.set(new Set(ids));
+    await new Promise((r) => setTimeout(r, 480));
+    this.drop(ids);
+    this.killing.set(new Set());
   }
 
   /** 轻提示：1.6s 后自动消失 */

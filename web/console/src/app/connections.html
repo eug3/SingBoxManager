@@ -327,6 +327,7 @@
               [class.closed]="r.closed"
               [class.old]="ageOf(r) >= 300"
               [class.idle]="idleOf(r) >= 60"
+              [class.killing]="killing().has(r.c.id)"
               [title]="r.closed ? '已关闭：已从活跃快照里消失（点开看关闭前的字段）' : ''"
               (click)="openDetail(r)"
             >

@@ -1347,6 +1347,20 @@ button.chip.on { border-color: var(--acc); color: var(--acc); background: #eef7f
 .cnbtn.danger { color: var(--bad); }
 .cnbtn.danger:hover { border-color: var(--bad); }
 .cnbtn:disabled { opacity: .45; cursor: not-allowed; }
+/* 正在断开的行：标红淡出（0.48s 后由逻辑移除），让「全断生效了」看得见 */
+.cn-row.killing {
+  background: #fdeef0 !important;
+  animation: cn-kill-fade .48s ease-out forwards;
+}
+.cn-row.killing td { color: #a61f2f !important; }
+@keyframes cn-kill-fade {
+  from { opacity: 1; }
+  to { opacity: .25; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cn-row.killing { animation: none; background: #fdeef0; }
+}
+
 /* 刷新按钮：固定宽度，避免「刷新 ⇄ 刷新中…」让整条工具条重排 */
 .cnbtn.cn-fixed-refresh { width: 58px; text-align: center; position: relative; padding-left: 16px; padding-right: 10px; }
 .cnbtn.cn-fixed-refresh.busy::before {
