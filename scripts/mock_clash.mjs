@@ -156,11 +156,24 @@ const VERSION = { version: '1.15.0-alpha.13-mock', meta: true };
 
 const PROXIES = {
   proxies: {
-    'Bard': { type: 'Selector', name: 'Bard', now: 'iplc-ss', all: ['iplc-ss', 'ali.vmess', 'hk-hy2'] },
-    'OpenAi': { type: 'Selector', name: 'OpenAi', now: 'ali.vmess', all: ['ali.vmess', 'us-vless-1'] },
-    'AI': { type: 'Selector', name: 'AI', now: 'sg-tuic', all: ['sg-tuic', 'ali.vmess'] },
-    '🐟 漏网之鱼': { type: 'Selector', name: '🐟 漏网之鱼', now: 'BALANCE', all: ['BALANCE', 'DIRECT'] },
-    'BALANCE': { type: 'URLTest', name: 'BALANCE', now: 'hk-hy2', all: ['hk-hy2', 'us-vless-1', 'iplc-ss'] },
+    // 与 /router/config 同名的分组：流向图 ⑤ 行的「激活 / 测速」用（Selector 可切、URLTest 只读）
+    '🚀 节点选择': {
+      type: 'Selector',
+      name: '🚀 节点选择',
+      now: '🇭🇰 香港 01',
+      all: ['🇭🇰 香港 01', '🇯🇵 日本 02', '🇺🇸 美国 03', 'DIRECT'],
+    },
+    '📲 电报信息': { type: 'Selector', name: '📲 电报信息', now: '🚀 节点选择', all: ['🚀 节点选择', 'DIRECT'] },
+    '♻️ 自动选择': { type: 'URLTest', name: '♻️ 自动选择', now: '🇭🇰 香港 01', all: ['🇭🇰 香港 01', '🇯🇵 日本 02'] },
+    '🍎 苹果服务': { type: 'Selector', name: '🍎 苹果服务', now: 'DIRECT', all: ['DIRECT'] },
+    '🇭🇰 香港 01': { type: 'Shadowsocks', name: '🇭🇰 香港 01', history: [{ time: new Date().toISOString(), delay: 38 }] },
+    '🇯🇵 日本 02': { type: 'Shadowsocks', name: '🇯🇵 日本 02', history: [{ time: new Date().toISOString(), delay: 92 }] },
+    '🇺🇸 美国 03': { type: 'Trojan', name: '🇺🇸 美国 03', history: [{ time: new Date().toISOString(), delay: 210 }] },
+    Bard: { type: 'Selector', name: 'Bard', now: 'iplc-ss', all: ['iplc-ss', 'ali.vmess', 'hk-hy2'] },
+    OpenAi: { type: 'Selector', name: 'OpenAi', now: 'ali.vmess', all: ['ali.vmess', 'us-vless-1'] },
+    AI: { type: 'Selector', name: 'AI', now: 'sg-tuic', all: ['sg-tuic', 'ali.vmess'] },
+    '🐟 漏网之鱼': { type: 'Selector', name: '🐟 漏网之鱼', now: '🚀 节点选择', all: ['🚀 节点选择', 'DIRECT'] },
+    BALANCE: { type: 'URLTest', name: 'BALANCE', now: 'hk-hy2', all: ['hk-hy2', 'us-vless-1', 'iplc-ss'] },
     '🎯 全球直连': { type: 'Selector', name: '🎯 全球直连', now: 'DIRECT', all: ['DIRECT'] },
     '📢 谷歌FCM': { type: 'Selector', name: '📢 谷歌FCM', now: 'g.t', all: ['g.t', 'ali.vmess'] },
     'ali.vmess': { type: 'Shadowsocks', name: 'ali.vmess', history: [{ time: new Date().toISOString(), delay: 42 }] },
@@ -169,7 +182,7 @@ const PROXIES = {
     'us-vless-1': { type: 'VLESS', name: 'us-vless-1', history: [{ time: new Date().toISOString(), delay: 210 }] },
     'hk-hy2': { type: 'Hysteria2', name: 'hk-hy2', history: [{ time: new Date().toISOString(), delay: 65 }] },
     'sg-tuic': { type: 'TUIC', name: 'sg-tuic', history: [{ time: new Date().toISOString(), delay: 150 }] },
-    'DIRECT': { type: 'Direct', name: 'DIRECT' },
+    DIRECT: { type: 'Direct', name: 'DIRECT' },
   },
 };
 
@@ -210,6 +223,18 @@ function json(res, body, code = 200) {
     'Cache-Control': 'no-store',
   });
   res.end(text);
+}
+
+/** 读请求体（PUT /proxies/<组> 的 {name} 要用） */
+function readBody(req) {
+  return new Promise((resolve) => {
+    let buf = '';
+    req.on('data', (c) => {
+      buf += c;
+    });
+    req.on('end', () => resolve(buf));
+    req.on('error', () => resolve(buf));
+  });
 }
 
 const server = createServer(async (req, res) => {
@@ -311,8 +336,29 @@ const server = createServer(async (req, res) => {
     return json(res, null, 204);
   }
   // 注：断开后不用墓碑——被移除的对象不会再回来，step() 会补新连接
-  if (path.startsWith('/proxies/') && req.method === 'PUT') return json(res, null, 204);
-  if (path.startsWith('/proxies/') && path.endsWith('/delay')) return json(res, { delay: 100 });
+  // Selector 切换（流向图 ⑤ 弹层「激活」/ 分组与节点子页点 chip 共用）：有状态，回读 /proxies 能看到 now 变了
+  if (path.startsWith('/proxies/') && req.method === 'PUT') {
+    const tag = decodeURIComponent(path.slice('/proxies/'.length));
+    const raw = await readBody(req);
+    let name = '';
+    try {
+      name = String(JSON.parse(raw || '{}')?.name ?? '');
+    } catch {
+      name = '';
+    }
+    const g = PROXIES.proxies[tag];
+    if (!g || g.type !== 'Selector') return json(res, { message: 'selector not found' }, 400);
+    if (!(g.all ?? []).includes(name)) return json(res, { message: 'member not in group' }, 400);
+    g.now = name;
+    return json(res, null, 204);
+  }
+  // 单节点测速：有 history 的沿用末次值，其余按名字造一个稳定的毫秒数（便于断言文案）
+  if (path.startsWith('/proxies/') && path.endsWith('/delay')) {
+    const name = decodeURIComponent(path.slice('/proxies/'.length, -'/delay'.length));
+    const h = PROXIES.proxies[name]?.history ?? [];
+    const delay = h.length ? h[h.length - 1].delay : 60 + (name.length * 7) % 400;
+    return json(res, { delay });
+  }
 
   // 管理台同源接口（顶栏存储体检 / 规则桶）：给一个体面的假值，避免页面到处报错
   if (path === '/share/health') {

@@ -1,4 +1,4 @@
-<div class="flow" [class.fs]="fs()" (document:keydown.escape)="exitFs()">
+<div class="flow" [class.fs]="fs()" (document:keydown.escape)="onEsc()">
   <!-- 顶部统计：一排小 pill -->
   <div class="flowbar">
     <span class="fstat">活跃连接 <b>{{ stats().total }}</b></span>
@@ -60,6 +60,7 @@
     #canvas
     (mousemove)="onMove($event)"
     (mouseleave)="clearHover()"
+    (click)="closePick()"
   >
     <!-- 100%：svg 高＝内容高，超出容器时 .flowcanvas 内部滚动；
          自适应：svg 撑满可视容器 + viewBox=内容尺寸 → 整图等比缩放（不滚动） -->
@@ -189,11 +190,15 @@
             (n.active ? ' active' : '') +
             (n.hi ? ' hi' : n.dim ? ' dim' : '') +
             (n.emp ? ' emp' : '') +
-            (n.edit ? ' editable' : '')
+            (n.edit ? ' editable' : '') +
+            (n.pick ? ' picked' : '') +
+            (n.cur ? ' cur' : '') +
+            (n.col === 'node' ? ' pickable' : '')
           "
           (mouseenter)="onEnter(n.key, $event)"
           (mouseleave)="clearHover()"
-          (click)="onNodeClick(n)"
+          (click)="onNodeClick(n, $event)"
+          [attr.data-key]="n.key"
         >
           <rect
             class="fnbox"
@@ -229,6 +234,10 @@
           <!-- ⑤ 成员方格：有流量的左上角一个小亮点，右上角是延时状态点（红/黄/绿） -->
           @if (n.col === 'node' && n.mode === 'tile' && n.count > 0) {
             <circle class="fdot" [attr.cx]="n.x + 4" [attr.cy]="n.y + 4" r="1.8" />
+          }
+          <!-- 所属组的当前成员：左下角小橙点（Selector 手动选中 / URLTest 自动选中） -->
+          @if (n.col === 'node' && n.mode === 'tile' && n.cur) {
+            <circle class="fcur" [attr.cx]="n.x + 4" [attr.cy]="n.y + n.h - 4" r="2" />
           }
           @if (n.latState && n.latState !== 'none') {
             @if (n.mode === 'tile') {
@@ -282,6 +291,42 @@
     <!-- 自绘 tooltip（HTML 层，不吃鼠标事件；\n 用 pre-line 换行；随 canvas 一起滚动） -->
     @if (tip(); as t) {
       <div class="flowtip" [style.left.px]="t.x" [style.top.px]="t.y">{{ t.text }}</div>
+    }
+
+    <!-- 点 ⑤ 成员方格后的固定弹层：节点信息 + 「激活 / 测速」按钮（点弹层不冒泡到画布） -->
+    @if (pickCard(); as p) {
+      <div class="flowpick" [style.left.px]="p.x" [style.top.px]="p.y" (click)="$event.stopPropagation()">
+        <div class="fphead">
+          <span class="fpname">{{ p.label }}</span>
+          <span class="fptype" [class.sel]="p.canAct">{{ p.groupNote }}</span>
+          <button type="button" class="fpx" title="关闭（Esc）" (click)="closePick()">✕</button>
+        </div>
+        <div class="fpinfo">{{ p.info }}</div>
+        @if (p.msg) {
+          <div class="fpmsg" [class.bad]="p.err">{{ p.msg }}</div>
+        }
+        <div class="fpact">
+          @if (p.canAct) {
+            <button
+              type="button"
+              class="fpbtn act"
+              [disabled]="p.busy !== null || p.isCurrent"
+              [attr.title]="p.isCurrent ? '已经是该组当前成员' : '切换该组的当前出站'"
+              (click)="activatePick()"
+            >
+              {{ p.isCurrent ? '已激活' : p.busy === 'act' ? '激活中…' : '激活' }}
+            </button>
+          }
+          @if (p.canTest) {
+            <button type="button" class="fpbtn test" [disabled]="p.busy !== null" title="单测该节点延时" (click)="testPick()">
+              {{ p.busy === 'test' ? '测速中…' : '测速' }}
+            </button>
+          }
+          @if (p.hint) {
+            <span class="fphint">{{ p.hint }}</span>
+          }
+        </div>
+      </div>
     }
 
     @if (!stats().rules && !stats().total) {

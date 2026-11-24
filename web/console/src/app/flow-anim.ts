@@ -21,6 +21,7 @@ import { BackendsService } from './backends.service';
 import { ClashService } from './clash.service';
 import { LiveStatService } from './live-stat.service';
 import { RouterService } from './router.service';
+import { ToastService } from './toast.service';
 import { errMsg, fmtBytes, fmtRate } from './util';
 import { AreaChartComponent } from './area-chart';
 import type { ChartSeries } from './area-chart';
@@ -32,6 +33,7 @@ import {
   markActive,
   nameOfKey,
   pointOnPath,
+  splitRowKey,
   stepActivity,
   tangentOnPath,
   trafficTotal,
@@ -133,6 +135,43 @@ interface NodeView extends FlowNodeGeom {
   emp: boolean;
   /** ③④ 卡片且指向 config 里真实分组 → 可点击编辑（DIRECT/block 带不可编辑） */
   edit: boolean;
+  /** 点击固定的弹层选中态（⑤ 成员方格） */
+  pick: boolean;
+  /** ⑤ 行：是不是所属 selector 组当前的成员（橙色描边） */
+  cur: boolean;
+}
+
+/**
+ * 点 ⑤ 成员方格后固定的弹层：节点信息 + 动作按钮。
+ * 激活 = 把该成员切为所属 selector 组的当前出站；测速 = 单测该成员延时。
+ */
+interface PickCard {
+  key: string;
+  label: string;
+  /** 标题右侧标签：`Selector · 组名` / `URLTest · 组名` / `无分组` */
+  groupNote: string;
+  /** 信息行（⑤ 行 tooltip 去掉首行「节点 X」） */
+  info: string;
+  /** 所属分组（'-' = 无分组） */
+  group: string;
+  /** 成员 tag */
+  member: string;
+  /** 所属组是 Selector → 可以切过去 */
+  canAct: boolean;
+  /** 已经是该组当前成员 */
+  isCurrent: boolean;
+  /** 可以单独测速（直连 / 拦截不测） */
+  canTest: boolean;
+  /** 不能激活时的说明 */
+  hint: string;
+  busy: 'act' | 'test' | null;
+  /** 状态行（测速结果 / 成功 / 失败原文） */
+  msg: string;
+  /** msg 是失败 */
+  err: boolean;
+  /** 弹层左上角（画布内容坐标，已收边） */
+  x: number;
+  y: number;
 }
 
 /** ③ 规则卡 key（`rule:分组名[桶 …]`）→ 分组 tag：取 '[' 前缀 */
@@ -215,6 +254,7 @@ export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
   private readonly router = inject(RouterService);
   private readonly http = inject(HttpClient);
   private readonly backends = inject(BackendsService);
+  private readonly toast = inject(ToastService);
   private readonly canvas = viewChild<ElementRef<HTMLDivElement>>('canvas');
 
   /** 静态结构（config 解析结果 + ②列名字） */
@@ -279,6 +319,18 @@ export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
    *  · true（强调视图）＝ 有流量的连线/节点加粗提亮、其余压暗，hover 仍然优先。
    */
   readonly emphasis = signal(false);
+  /** 点击 ⑤ 成员方格固定的弹层：节点 key（null = 关闭） */
+  readonly picked = signal<string | null>(null);
+  /** 弹层锚点（画布内容坐标；100% 模式含滚动偏移，随内容一起滚） */
+  private readonly pickAt = signal<{ x: number; y: number }>({ x: 0, y: 0 });
+  /** 弹层里正在执行的动作（null = 空闲） */
+  readonly pickBusy = signal<'act' | 'test' | null>(null);
+  /** 弹层状态行（测速结果 / 激活成功 / 失败原文） */
+  readonly pickMsg = signal('');
+  /** 状态行是否是失败 */
+  readonly pickErr = signal(false);
+  /** `/proxies` 里分组的运行态：tag → {类型, 当前成员}（激活按钮与「已激活」判定用） */
+  private readonly groupRuntime = signal<ReadonlyMap<string, { type: string; now: string }>>(new Map());
   /** 微型图的两条 WebSocket 及其重连定时器 */
   private miniSockets: { ws: WebSocket | null; path: string; timer: ReturnType<typeof setTimeout> | null }[] = [];
   /** ⑤ 节点延时：tag → 末次测速 delay（ms）；拿不到就是空表，方格不画点 */
@@ -349,6 +401,8 @@ export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
   readonly nodesView = computed<NodeView[]>(() => {
     const h = this.hover();
     const emp = this.emphasis();
+    const picked = this.picked();
+    const runtime = this.groupRuntime();
     const near = new Set<string>();
     if (h) {
       near.add(h);
@@ -359,22 +413,81 @@ export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
     }
     // 可编辑判定用 config 名册：只有真实分组才弹编辑窗（实时兜底卡 / DIRECT 带不弹）
     const groupTags = new Set(this.stat().groups.map((g) => g.tag));
-    return this.geom().nodes.map((n) => ({
-      ...n,
-      hi: n.key === h,
-      dim: h ? !near.has(n.key) : emp ? !n.active : false,
-      emp: !h && emp && !!n.active,
-      edit:
-        n.mode === 'card' &&
-        ((n.col === 'rule' && groupTags.has(ruleGroupTag(n.key))) ||
-          (n.col === 'group' && groupTags.has(nameOfKey(n.key)))),
-    }));
+    return this.geom().nodes.map((n) => {
+      const row = n.col === 'node' ? splitRowKey(n.key) : null;
+      const now = row ? runtime.get(row.group)?.now : '';
+      return {
+        ...n,
+        hi: n.key === h,
+        dim: h ? !near.has(n.key) : emp ? !n.active : false,
+        emp: !h && emp && !!n.active,
+        edit:
+          n.mode === 'card' &&
+          ((n.col === 'rule' && groupTags.has(ruleGroupTag(n.key))) ||
+            (n.col === 'group' && groupTags.has(nameOfKey(n.key)))),
+        pick: n.key === picked,
+        cur: !!row && !!now && now === row.node,
+      };
+    });
   });
 
-  /** tooltip（自绘 HTML 层，位置跟随指针，靠近右边/下边时收进来） */
+  /**
+   * 点 ⑤ 成员方格后固定的弹层：节点信息 + 「激活 / 测速」。
+   * 只对 node 列生效；③④ 的点仍然走编辑弹窗（不显示本弹层）。
+   */
+  readonly pickCard = computed<PickCard | null>(() => {
+    const key = this.picked();
+    if (!key) return null;
+    const n = this.geom().nodes.find((x) => x.key === key);
+    if (!n || n.col !== 'node') return null;
+    const row = splitRowKey(key);
+    const cfg = this.stat().groups.find((g) => g.tag === row.group);
+    const rt = this.groupRuntime().get(row.group);
+    // 运行态优先（引擎真实类型），config 兜底（/proxies 还没回来时也能判）
+    const gtype =
+      rt?.type ?? (cfg?.type === 'selector' ? 'Selector' : cfg?.type === 'urltest' ? 'URLTest' : '');
+    const noGroup = !row.group || row.group === '-';
+    const canAct = !noGroup && gtype === 'Selector';
+    const isCurrent = canAct && !!rt?.now && rt.now === row.node;
+    const canTest = n.kind === 'proxy';
+    const groupNote = noGroup ? '无分组' : gtype ? `${gtype} · ${row.group}` : `分组 · ${row.group}`;
+    const hint = !canAct && !noGroup && gtype === 'URLTest'
+      ? 'URLTest 按延迟自动选择，不能手动指定'
+      : !canTest
+        ? '直连 / 拦截不参与测速'
+        : noGroup
+          ? '不在分组里，只能测速'
+          : '';
+    const p = this.pickAt();
+    const g = this.geom();
+    // fit 模式下 svg 被等比缩放、画布不可滚动 → 收边按可视区算；100% 按内容尺寸算
+    const el = this.canvas()?.nativeElement as HTMLElement | undefined;
+    const fit = this.scaleMode() === 'fit';
+    const bw = fit ? Math.max(120, el?.clientWidth ?? g.w) : g.w;
+    const bh = fit ? Math.max(80, el?.clientHeight ?? g.h) : g.h;
+    return {
+      key,
+      label: n.label,
+      groupNote,
+      info: n.tip.split('\n').slice(1).join('\n'),
+      group: row.group,
+      member: row.node,
+      canAct,
+      isCurrent,
+      canTest,
+      hint,
+      busy: this.pickBusy(),
+      msg: this.pickMsg(),
+      err: this.pickErr(),
+      x: Math.min(p.x + 12, Math.max(6, bw - 276)),
+      y: Math.min(p.y + 14, Math.max(6, bh - 180)),
+    };
+  });
+
+  /** tooltip（自绘 HTML 层，位置跟随指针，靠近右边/下边时收进来；弹层固定显示时让位） */
   readonly tip = computed<{ x: number; y: number; text: string } | null>(() => {
     const key = this.hover();
-    if (!key) return null;
+    if (!key || this.picked()) return null;
     const node = this.geom().nodes.find((n) => n.key === key);
     if (!node) return null;
     const p = this.pointer();
@@ -457,6 +570,8 @@ export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
     this.err.set('');
     this.cfgErr.set('');
     this.hover.set(null);
+    this.closePick();
+    this.groupRuntime.set(new Map());
     this.lastConns = [];
     this.version = '';
     this.stat.set(emptyStatic(this.hostOf(b)));
@@ -703,9 +818,9 @@ export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
   }
 
   /**
-   * 拉一次 `clash_api /proxies` → tag→末次 delay（ms）。
+   * 拉一次 `clash_api /proxies` → tag→末次 delay（ms）+ 分组运行态（类型 / 当前成员）。
    * 每个出站的 `history` 是测速记录数组，取最后一条的 delay；<=0 或缺 history 视为未测速。
-   * 失败静默：保留上一次的延时（首次为空表 → 方格不画点），不影响其它列。
+   * 失败静默：保留上一次的延时与分组态（首次为空表 → 方格不画点、弹层按 config 判类型）。
    */
   private async loadDelays(b: Backend): Promise<void> {
     if (!b?.api) return;
@@ -713,12 +828,18 @@ export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
       const resp = await this.clash.proxies(b);
       if (this.destroyed) return;
       const map = new Map<string, number>();
+      const groups = new Map<string, { type: string; now: string }>();
       for (const [tag, p] of Object.entries(resp?.proxies ?? {})) {
         const h = p?.history;
         const last = h && h.length ? Number(h[h.length - 1]?.delay) : NaN;
         if (Number.isFinite(last)) map.set(tag, last as number);
+        // 分组运行态：Selector 才能手动切；now = 当前成员（弹层「已激活」判定）
+        if (p?.type === 'Selector' || p?.type === 'URLTest') {
+          groups.set(tag, { type: p.type, now: (p.now ?? '').trim() });
+        }
       }
       this.delays = map;
+      this.groupRuntime.set(groups);
       this.rebuild();
     } catch {
       // /proxies 拿不到（旧版引擎 / 网络抖动）：保留旧延时，不报错
@@ -833,29 +954,126 @@ export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
   }
 
   /**
-   * 点 ③④ 卡片 → 抛编辑事件（backend-pane 接去开弹窗）。
-   * 只处理「可编辑」节点（config 里真实分组的卡片）；hover 逻辑不受影响。
+   * 点节点：
+   *  · ③④ 真实分组卡片 → 抛编辑事件（backend-pane 接去开弹窗）；
+   *  · ⑤ 成员方格 → 固定信息弹层（再点同一格 / Esc / 点空白关闭）；
+   *  · 其它列不响应。
    * groupTag 从 key 解析（label 会被列宽截断，key 才是全名）：
    *  · ③ `rule:分组名[桶 …]` → '[' 前缀；④ `group:分组名` → 名即 tag。
    */
-  onNodeClick(n: NodeView): void {
-    if (!n.edit) return;
-    if (n.col === 'rule') this.editRule.emit(ruleGroupTag(n.key));
-    else if (n.col === 'group') this.editGroup.emit(nameOfKey(n.key));
+  onNodeClick(n: NodeView, ev: MouseEvent): void {
+    if (n.edit) {
+      this.closePick();
+      if (n.col === 'rule') this.editRule.emit(ruleGroupTag(n.key));
+      else if (n.col === 'group') this.editGroup.emit(nameOfKey(n.key));
+      return;
+    }
+    if (n.col !== 'node') return;
+    // 节点上的点击不冒泡到画布（否则弹层刚开就被「点空白关闭」收掉）
+    ev.stopPropagation();
+    if (this.picked() === n.key) {
+      this.closePick();
+      return;
+    }
+    const p = this.canvasPoint(ev);
+    if (p) this.pickAt.set(p);
+    this.pickBusy.set(null);
+    this.pickMsg.set('');
+    this.pickErr.set(false);
+    this.picked.set(n.key);
+  }
+
+  /** 关闭 ⑤ 弹层（点空白 / Esc / 再点同一格 / 切后端） */
+  closePick(): void {
+    if (!this.picked() && !this.pickMsg()) return;
+    this.picked.set(null);
+    this.pickBusy.set(null);
+    this.pickMsg.set('');
+    this.pickErr.set(false);
+  }
+
+  /** Esc：先收弹层，没有弹层再退全屏 */
+  onEsc(): void {
+    if (this.picked()) {
+      this.closePick();
+      return;
+    }
+    this.exitFs();
+  }
+
+  /** 弹层「激活」：PUT /proxies/<组> 把该成员切为 selector 的当前出站 */
+  async activatePick(): Promise<void> {
+    const c = this.pickCard();
+    if (!c || !c.canAct || c.isCurrent || this.pickBusy()) return;
+    const b = this.backend();
+    this.pickBusy.set('act');
+    this.pickMsg.set('');
+    this.pickErr.set(false);
+    try {
+      await this.clash.select(b, c.group, c.member);
+      // 先乐观更新（按钮立刻变「已激活」），再回读 /proxies 以引擎为准
+      this.groupRuntime.update((m) => new Map(m).set(c.group, { type: 'Selector', now: c.member }));
+      this.pickMsg.set(`已激活 ${c.member}`);
+      this.toast.ok(`已把「${c.group}」切到 ${c.member}`);
+      void this.loadDelays(b);
+    } catch (e) {
+      const msg = errMsg(e);
+      this.pickErr.set(true);
+      this.pickMsg.set('激活失败：' + msg);
+      this.toast.error('激活失败：' + msg);
+    } finally {
+      this.pickBusy.set(null);
+    }
+  }
+
+  /** 弹层「测速」：单测该成员延时，结果立刻写回 ⑤ 延时点 / ④ 平均延时 / 弹层状态行 */
+  async testPick(): Promise<void> {
+    const c = this.pickCard();
+    if (!c || !c.canTest || this.pickBusy()) return;
+    const b = this.backend();
+    this.pickBusy.set('test');
+    this.pickMsg.set('');
+    this.pickErr.set(false);
+    try {
+      const d = await this.clash.delay(b, c.member);
+      const ms = Number.isFinite(d) ? Math.max(0, Math.round(d)) : 0;
+      this.delays = new Map(this.delays).set(c.member, ms);
+      if (ms > 0) this.pickMsg.set(`测速结果 ${ms} ms`);
+      else {
+        this.pickErr.set(true);
+        this.pickMsg.set('测速超时：没有拿到 delay');
+      }
+      this.rebuild();
+    } catch (e) {
+      const msg = errMsg(e);
+      this.delays = new Map(this.delays).set(c.member, 0);
+      this.pickErr.set(true);
+      this.pickMsg.set('测速失败：' + msg);
+      this.rebuild();
+    } finally {
+      this.pickBusy.set(null);
+    }
   }
 
   private trackPointer(ev: MouseEvent): void {
+    const p = this.canvasPoint(ev);
+    if (p) this.pointer.set(p);
+  }
+
+  /**
+   * 鼠标位置 → 画布内容坐标（tooltip / 弹层都挂 .flowcanvas 的绝对定位层）：
+   *  · 100%：canvas 可纵向滚动 → 加上滚动偏移（随内容一起走）；
+   *  · fit：整图等比缩放进可视区、不滚动 → 直接用画布可视坐标（不会因为缩放跑偏）。
+   */
+  private canvasPoint(ev: MouseEvent): { x: number; y: number } | null {
     const el = this.canvas()?.nativeElement;
-    if (!el) return;
+    if (!el) return null;
     const r = el.getBoundingClientRect();
-    // tooltip 是 canvas 的绝对定位子元素：
-    //  · 100%：canvas 可纵向滚动 → 换算到内容坐标（随滚动一起走）
-    //  · fit：整图被等比缩放进可视区、不滚动 → 直接用画布可视坐标（不会因为缩放跑偏）
     const fit = this.scaleMode() === 'fit';
-    this.pointer.set({
+    return {
       x: Math.round(ev.clientX - r.left + (fit ? 0 : el.scrollLeft)),
       y: Math.round(ev.clientY - r.top + (fit ? 0 : el.scrollTop)),
-    });
+    };
   }
 
   /* ────────────────────────── 尺寸 ────────────────────────── */

@@ -1180,6 +1180,13 @@ button.chip.on { border-color: var(--acc); color: var(--acc); background: #eef7f
 .fn.hi .fnname { fill: #0c3f6d; }
 .fn.hi .fncount { fill: var(--acc2); }
 .fn.dim { opacity: .28; }
+/* ⑤ 成员方格可点（点击出信息 + 激活/测速弹层） */
+.fn.pickable { cursor: pointer; }
+/* 弹层选中的节点：比 hover 更实的蓝框 */
+.fn.picked .fnbox { stroke: var(--acc2); stroke-width: 2; fill: #edf4ff; }
+.fn.picked .fnname { fill: #0c3f6d; }
+/* 所属组当前成员（Selector 手动选中 / URLTest 自动选中）：左下角小橙点，不动绿活跃描边 */
+.fn .fcur { fill: #d99313; stroke: #fff; stroke-width: .7; }
 
 /* 强调视图（普通/强调切换）：有流量的节点/连线加粗提亮，其余压暗（连线 opacity 与线宽在组件里算好） */
 .fn.emp .fnbox { stroke: #2f9e5f; stroke-width: 2; fill: #eafaf0; }
@@ -1202,6 +1209,83 @@ button.chip.on { border-color: var(--acc); color: var(--acc); background: #eef7f
   white-space: pre-line;
   pointer-events: none;
 }
+
+/* ⑤ 成员方格点击后的固定弹层：信息（卡片）+ 状态行 + 「激活 / 测速」按钮；
+   要能点按钮，所以 pointer-events 恢复（与 .flowtip 相反） */
+.flowpick {
+  position: absolute;
+  z-index: 4;
+  width: 268px;
+  padding: 7px 9px 8px;
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--ink);
+  background: rgba(255, 255, 255, .98);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  box-shadow: 0 6px 20px rgba(34, 48, 63, .18);
+  cursor: default;
+}
+.flowpick .fphead { display: flex; align-items: baseline; gap: 6px; }
+.flowpick .fpname {
+  min-width: 0;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: var(--mono);
+  color: #1f3b5b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.flowpick .fptype {
+  flex: 0 0 auto;
+  max-width: 132px;
+  padding: 0 5px;
+  font-size: 9px;
+  color: #7c8ea3;
+  border: 1px solid #e3eaf4;
+  border-radius: 999px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.flowpick .fptype.sel { color: #1c6b45; border-color: #bfe6cd; background: #f2fbf5; }
+.flowpick .fpx {
+  margin-left: auto;
+  flex: 0 0 auto;
+  padding: 0 4px;
+  border: none;
+  background: none;
+  color: #9aa7b6;
+  font-size: 10px;
+  cursor: pointer;
+}
+.flowpick .fpx:hover { color: var(--bad); }
+.flowpick .fpinfo {
+  margin-top: 3px;
+  padding-top: 3px;
+  border-top: 1px dashed #e7edf6;
+  color: #4a5c73;
+  font-size: 9.5px;
+  font-family: var(--mono);
+  white-space: pre-line;
+}
+.flowpick .fpmsg { margin-top: 4px; font-size: 10px; color: #1c6b45; }
+.flowpick .fpmsg.bad { color: var(--bad); }
+.flowpick .fpact { display: flex; align-items: center; gap: 6px; margin-top: 7px; }
+.flowpick .fpbtn {
+  flex: 0 0 auto;
+  padding: 2px 12px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  cursor: pointer;
+}
+.flowpick .fpbtn.act { border: 1px solid #bfe6cd; background: #f2fbf5; color: #1c6b45; }
+.flowpick .fpbtn.act:hover:enabled { border-color: var(--acc); }
+.flowpick .fpbtn.test { border: 1px solid #cfdcec; background: #f6f9fd; color: #2a4f7a; }
+.flowpick .fpbtn.test:hover:enabled { border-color: var(--acc2); color: var(--acc2); }
+.flowpick .fpbtn:disabled { opacity: .55; cursor: default; }
+.flowpick .fphint { flex: 1 1 auto; min-width: 0; font-size: 9px; color: #9aa7b6; line-height: 1.35; }
 
 /* 粒子层：不吃鼠标事件（节点 tooltip 才不会被挡住） */
 .fdots { pointer-events: none; }
