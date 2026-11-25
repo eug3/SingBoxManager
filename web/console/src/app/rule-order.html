@@ -1,0 +1,118 @@
+<!-- 规则顺序表：config route.rules 的生效顺序（自上而下第一条命中即停），可拖 / ↑↓ 调序 -->
+<div class="ro">
+  <div class="robar">
+    <span class="dim small">
+      顺序 = 生效顺序（自上而下第一条命中即停）· 拖动整行或点 ↑↓ 调序 · 改动进顶部「待保存条」，
+      「保存并重启」后生效 · 动作规则（sniff / hijack-dns）钉在最前
+    </span>
+    <span class="spacer"></span>
+    <span class="rohits">
+      命中 <b>{{ totalHits() }}</b>
+      · final <b>{{ finalHits() }}</b>
+      · 0 命中 <b>{{ idleRows() }}</b> 条
+    </span>
+  </div>
+
+  @if (!doc()) {
+    <div class="roempty dim small">
+      配置还没读到（缺 SSH 凭据或 JSON 解析失败）：先在「配置」页连接成功，或等流向页拉取配置后再回来。
+    </div>
+  } @else if (!rows().length) {
+    <div class="roempty dim small">route.rules 为空 —— 所有流量都会落到 final。</div>
+  } @else {
+    <div class="tblwrap ro-wrap">
+      <table class="ro-tbl">
+        <thead>
+          <tr>
+            <th class="ro-idx">#</th>
+            <th>匹配条件</th>
+            <th class="ro-out">出口</th>
+            <th class="ro-hit">命中</th>
+            <th class="ro-mv">顺序</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (r of rows(); track r.index) {
+            <tr
+              [class.act]="r.actionOnly"
+              [class.ip]="r.ipRule"
+              [class.zero]="!r.actionOnly && hitOf(r.index) === 0"
+              [class.dragging]="dragFrom() === r.index"
+              [class.drop-before]="dropAt()?.index === r.index && dropAt()?.after === false"
+              [class.drop-after]="dropAt()?.index === r.index && dropAt()?.after === true"
+              [attr.draggable]="r.actionOnly ? null : 'true'"
+              (dragstart)="onDragStart(r, $event)"
+              (dragover)="onDragOver(r.index, $event)"
+              (dragleave)="onDragLeave(r.index, $event)"
+              (drop)="onDrop(r.index, $event)"
+              (dragend)="onDragEnd()"
+            >
+              <td class="ro-idx dim">{{ r.index }}</td>
+              <td class="ro-cond">
+                @if (r.actionOnly) {
+                  <span class="ro-chip act">动作</span>
+                  <span class="dim small">不选路（嗅探 / DNS 劫持 / 解析），只影响后续规则能看到什么</span>
+                } @else {
+                  @for (ref of r.ruleSetRefs; track $index) {
+                    <span class="ro-chip rs">{{ ref }}</span>
+                  }
+                  @if (r.logical) {
+                    <span class="ro-chip logic">逻辑</span>
+                  }
+                  @if (r.ipRule) {
+                    <span class="ro-chip ip">IP</span>
+                  }
+                  <span class="ro-text" [title]="r.condition">{{ r.condition }}</span>
+                }
+              </td>
+              <td class="ro-out mono" [title]="r.actionHint">
+                @if (r.outbound || r.action) {
+                  {{ r.outbound || r.action }}
+                } @else {
+                  <span class="dim">—</span>
+                }
+              </td>
+              <td class="ro-hit">
+                @if (r.actionOnly) {
+                  <span class="dim">—</span>
+                } @else if (!r.payloadHint) {
+                  <span class="dim" title="带多条件 / 逻辑规则：前端无法可靠复现 sing-box 的规则串，不统计命中">—</span>
+                } @else {
+                  <b [class.dim]="hitOf(r.index) === 0">{{ hitOf(r.index) }}</b>
+                }
+              </td>
+              <td class="ro-mv">
+                <span class="ro-drag" [class.off]="r.actionOnly" [title]="r.actionOnly ? '动作规则钉住，不参与排序' : '拖动整行调序'">⋮⋮</span>
+                <button
+                  type="button"
+                  class="rselmv"
+                  [disabled]="!canUp(r.index)"
+                  (click)="move(r.index, -1)"
+                  [title]="canUp(r.index) ? '上移一位（更早命中）' : '已在可动范围最上面'"
+                >
+                  ↑
+                </button>
+                <button
+                  type="button"
+                  class="rselmv"
+                  [disabled]="!canDown(r.index)"
+                  (click)="move(r.index, 1)"
+                  [title]="canDown(r.index) ? '下移一位（更晚命中）' : '已是最后一条'"
+                >
+                  ↓
+                </button>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+    <div class="rofoot dim small">
+      命中数来自当前活动连接快照：可归类 <b>{{ totalHits() + finalHits() }}</b> 条
+      @if (unmatched()) {
+        · 未归类 <b>{{ unmatched() }}</b> 条（多条件 / 逻辑规则，前端复现不了 sing-box 的规则串，不计入）
+      }
+      · 标灰 = 0 命中，可优先核对是否被更靠前的规则截胡
+    </div>
+  }
+</div>

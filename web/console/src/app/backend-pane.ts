@@ -30,6 +30,7 @@ import { Connections } from './connections';
 import { FlowAnim } from './flow-anim';
 import { RuleSetDialog } from './rule-set-dialog';
 import { GroupDialog } from './group-dialog';
+import { RuleOrder } from './rule-order';
 import { RuleSetCreateDialog } from './rule-set-create-dialog';
 import { GroupCreateDialog } from './group-create-dialog';
 import { NodeCreateDialog } from './node-create-dialog';
@@ -39,6 +40,7 @@ import { LiveStatService } from './live-stat.service';
 import { ConfirmService } from './confirm.service';
 import { ToastService } from './toast.service';
 import { ConfigDoc, groups, validateDoc, serializeConfig } from './config-ops';
+import { readRuleModel } from './rule-model';
 import { ClashService } from './clash.service';
 import { fmtBytes, latClass, latText, runPool } from './util';
 import { SaveProgressDialog } from './save-progress';
@@ -59,6 +61,7 @@ interface LogLine {
     ConfigPane,
     Connections,
     FlowAnim,
+    RuleOrder,
     RuleSetDialog,
     GroupDialog,
     RuleSetCreateDialog,
@@ -481,6 +484,18 @@ export class BackendPane implements OnDestroy {
 
   /** 新建弹窗的编辑基准：当前草稿优先，否则刚读到的配置（与 ③④ 编辑弹窗同一口径） */
   readonly workDoc = computed<ConfigDoc | null>(() => this.draft.draft() ?? this.draft.baseDoc());
+
+  /** config 里 route.rules 的条数（「规则」子 tab 的计数徽章用；运行态条数见 rules()） */
+  readonly ruleCount = computed(() => {
+    const d = this.workDoc();
+    return d ? readRuleModel(d).routeRules.length : 0;
+  });
+
+  /** 规则顺序表调序/启停产出新文档 → 暂存到全局草稿（顶部待保存条），保存并重启才生效 */
+  onRuleOrder(doc: ConfigDoc): void {
+    this.draft.stage(doc);
+    this.toast.ok('规则顺序已暂存：点顶部「保存并重启」才写回路由');
+  }
 
   /** 新建弹窗产出新文档 → 暂存到全局草稿（顶部待保存条），点「保存并重启」才写回路由 */
   onCreateDoc(doc: ConfigDoc): void {

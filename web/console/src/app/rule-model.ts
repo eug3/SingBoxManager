@@ -22,14 +22,24 @@ export interface RuleSetInfo {
  */
 export interface RouteRuleInfo {
   index: number; // 在 route.rules 数组里的原始下标（停用=按此下标移除）
-  summary: string; // 人类可读的匹配条件摘要
+  summary: string; // 人类可读的匹配条件摘要（含 → 出口）
+  /** 匹配条件文本（不含出口；动作规则为空串） */
+  condition: string;
   ruleSetRefs: string[]; // 引用的 rule_set tag 列表
   outbound: string; // 出站 tag（无则空串）
+  /** 规则动作（sniff / hijack-dns / resolve / reject…）；普通选路规则为空串 */
+  action: string;
   structural: true;
   /** 纯动作规则（sniff / hijack-dns / resolve…）：排序时钉住，不许挪动 */
   actionOnly: boolean;
   /** IP 维度规则（显式 IP 字段或引用全 IP 桶）：列表里打「IP」标记，方便和域名规则对照 */
   ipRule: boolean;
+  /** 逻辑规则（type: logical） */
+  logical: boolean;
+  /** sing-box rule.String() 的近似（纯 rule_set 规则才有值），用于和 /connections 的 rule 字段精确比对 */
+  payloadHint: string;
+  /** sing-box Action().String() 的近似：route(出站) / sniff / hijack-dns / reject */
+  actionHint: string;
 }
 
 export interface RuleModel {
@@ -86,9 +96,20 @@ function displayList(v: unknown, max = 3): string {
   return head.join('、') + (items.length > max ? ` …共${items.length}项` : '');
 }
 
-/** 单条规则 → 摘要 + rule_set 引用 + outbound */
-function summarize(r: AnyObj): { summary: string; ruleSetRefs: string[]; outbound: string } {
-  const ruleSetRefs = asArray(r['rule_set']).map(String);
+/** 单条规则 → 摘要 + 条件 + 动作 + rule_set 引用 + outbound（+ 命中匹配用的 sing-box 字符串近似） */
+function summarize(r: AnyObj): {
+  summary: string;
+  condition: string;
+  ruleSetRefs: string[];
+  outbound: string;
+  action: string;
+  payloadHint: string;
+  actionHint: string;
+} {
+  const rawRefs = r['rule_set'];
+  const ruleSetRefs = (typeof rawRefs === 'string' ? [rawRefs] : asArray(rawRefs))
+    .map(String)
+    .filter(Boolean);
   const parts: string[] = [];
   for (const [key, label] of FIELD_LABELS) {
     if (key === 'rule_set') continue; // 引用单独渲染成 chips，不进摘要文本
@@ -96,18 +117,52 @@ function summarize(r: AnyObj): { summary: string; ruleSetRefs: string[]; outboun
     if (shown) parts.push(`${label}=${shown}`);
   }
   // 未识别字段兜底成紧凑 JSON，保证摘要不丢信息
-  const known = new Set<string>([...FIELD_LABELS.map(([k]) => k), 'outbound']);
+  const known = new Set<string>([
+    ...FIELD_LABELS.map(([k]) => k),
+    'outbound',
+    'action',
+    'type',
+    'mode',
+    'rules',
+    'invert',
+    'method',
+  ]);
   const rest: AnyObj = {};
   for (const k of Object.keys(r)) if (!known.has(k)) rest[k] = r[k];
   if (Object.keys(rest).length) parts.push(JSON.stringify(rest));
   const outbound = typeof r['outbound'] === 'string' ? r['outbound'] : '';
+  const action = typeof r['action'] === 'string' ? r['action'] : '';
   // 只有 rule_set 引用时条件渲染成 chips，但摘要文本也要如实体现，不能误标「无条件」
   const body = parts.length
     ? parts.join(' · ')
     : ruleSetRefs.length
       ? `规则集=${ruleSetRefs.join('、')}`
       : '（无条件匹配）';
-  return { summary: outbound ? `${body} → ${outbound}` : body, ruleSetRefs, outbound };
+  /**
+   * sing-box 侧渲染的近似（用于和 /connections 的 rule 字段比对算命中）：
+   *  · payload = rule.String()：纯 rule_set 规则就是 `rule_set=<tag>` / `rule_set=[a b]`；
+   *    带其它条件时 sing-box 的字段顺序与拼法无法在前端可靠复现 → 留空（该行不统计命中）。
+   *  · action = Action().String()：route(<出站>) / sniff / hijack-dns / reject。
+   */
+  const onlyRuleSet = Object.keys(r).every(
+    (k) => k === 'rule_set' || k === 'outbound' || k === 'action',
+  );
+  const payloadHint =
+    onlyRuleSet && ruleSetRefs.length
+      ? ruleSetRefs.length === 1
+        ? `rule_set=${ruleSetRefs[0]}`
+        : `rule_set=[${ruleSetRefs.join(' ')}]`
+      : '';
+  const actionHint = outbound ? `route(${outbound})` : action;
+  return {
+    summary: outbound ? `${body} → ${outbound}` : body,
+    condition: body,
+    ruleSetRefs,
+    outbound,
+    action,
+    payloadHint,
+    actionHint,
+  };
 }
 
 /** 从整份配置读分流规则模型；route 缺失/形状不对时返回空列表，不抛错 */
@@ -134,23 +189,33 @@ export function readRuleModel(doc: ConfigDoc): RuleModel {
       routeRules.push({
         index,
         summary: String(item),
+        condition: String(item),
         ruleSetRefs: [],
         outbound: '',
+        action: '',
         structural: true,
         actionOnly: false,
         ipRule: false,
+        logical: false,
+        payloadHint: '',
+        actionHint: '',
       });
       return;
     }
-    const { summary, ruleSetRefs, outbound } = summarize(r);
+    const { summary, condition, ruleSetRefs, outbound, action, payloadHint, actionHint } = summarize(r);
     routeRules.push({
       index,
       summary,
+      condition,
       ruleSetRefs,
       outbound,
+      action,
       structural: true,
       actionOnly: isActionRule(r),
       ipRule: isIpRule(r),
+      logical: String(r['type'] ?? '').toLowerCase() === 'logical',
+      payloadHint,
+      actionHint,
     });
   });
   return { ruleSets, routeRules };
@@ -168,4 +233,58 @@ export function filterRouteRules(base: ConfigDoc, disabled: ReadonlySet<number>)
     route['rules'] = (route['rules'] as unknown[]).filter((_, i) => !disabled.has(i));
   }
   return { root };
+}
+/** /connections 里一条连接的最小形状（只用到 rule 字段） */
+export interface ConnRuleLike {
+  rule?: string;
+}
+
+/** 命中统计结果 */
+export interface RuleHitStats {
+  /** 规则下标 → 命中条数（只统计能精确对上的规则；0 不出现） */
+  hits: Map<number, number>;
+  /** 命中 route.final 的连接数（connection.rule === "final"） */
+  final: number;
+  /** 规则串对不上任何配置规则（逻辑规则 / 带多条件规则）的条数 */
+  unmatched: number;
+}
+
+/**
+ * 按「配置规则」统计当前活动连接的命中数（纯函数）。
+ *
+ * sing-box 的 connection.rule = `<rule.String()> => <action.String()>`，例如
+ * `rule_set=rs-tg => route(📲 电报信息)`；route.final 命中时是字面量 `final`。
+ * 我们只能精确复现「纯 rule_set 规则」的字符串（`rule_set=<tag>` / `rule_set=[a b]`），
+ * 其余规则（带 domain/ip_cidr/port 等条件、逻辑规则）payload 拼法不可靠复现 → 记 unmatched，
+ * 不做猜测性归并（宁可显示 —，也不把命中算到错的行上）。
+ */
+export function countRuleHits(
+  rows: readonly RouteRuleInfo[],
+  conns: readonly ConnRuleLike[],
+): RuleHitStats {
+  // 同一 payload+action 出现多次时取求值顺序上的第一条（与 sing-box 一致）
+  const byKey = new Map<string, number>();
+  for (const r of rows) {
+    if (!r.payloadHint || !r.actionHint) continue;
+    const key = `${r.payloadHint} => ${r.actionHint}`;
+    if (!byKey.has(key)) byKey.set(key, r.index);
+  }
+  const hits = new Map<number, number>();
+  let final = 0;
+  let unmatched = 0;
+  for (const c of conns) {
+    const rule = String(c.rule ?? '').trim();
+    if (!rule) {
+      unmatched++;
+      continue;
+    }
+    if (rule === 'final') {
+      final++;
+      continue;
+    }
+    const idx = byKey.get(rule);
+    if (idx === undefined) unmatched++;
+    else hits.set(idx, (hits.get(idx) ?? 0) + 1);
+  }
+  return { hits, final, unmatched };
 }

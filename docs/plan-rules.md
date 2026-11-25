@@ -81,3 +81,48 @@ sing-box 的 `route.rules` 是**自上而下第一条命中即停**。TUN 进来
   选择 DIRECT + domain 落盘为 `#2: ["rs-order-test"] → DIRECT`（在 `#3: cn_ip` 之前），
   选择 ip 落盘为 `#3: ["rs-ip-test"]`（在 cn_ip 之后）；
   ③ 编辑弹窗把 palette 的引用按 `ip` 位置加入（已应用 2→3、待保存条出现）。
+
+## 5. 「规则」子页改为可拖动的规则顺序表（2026-11-25，替换原 GET /rules 只读表）
+
+### 5.1 为什么要改
+原「规则」子页只展示 `GET /rules`（运行时只读镜像）：能看真实求值顺序，但**改不了**，
+也看不出「这条规则的出口是谁、有没有命中」。用户需要一眼看清「规则 → 出口」并直接拖动调序，
+所以把子页主视图换成 **config `route.rules` 顺序表**，运行时表降级为底部折叠区「核对运行态」。
+
+### 5.2 表格（`rule-order.ts / .html`）
+| 列 | 内容 |
+|---|---|
+| `#` | config `route.rules` 下标（= 生效顺序 = 运行时 `/rules` 行号） |
+| 匹配条件 | rule_set 引用 chips + 条件摘要；动作规则显示「动作 + 不选路」；`逻辑` / `IP` 徽章 |
+| 出口 | `outbound`（DIRECT / 分组名 / direct / block）；动作规则显示动作名（sniff / hijack-dns） |
+| 命中 | 当前活动连接命中条数（见 5.4），0 命中的行条件与出口淡化，便于优先核对 |
+| 顺序 | 拖动把手 `⋮⋮` + `↑` / `↓` |
+
+- 拖动：整行 `draggable`，`dragover` 按行的上/下半区决定插入到该行之前/之后（亮线提示），
+  `drop` 后 `moveRule` 生成新文档 → `ConfigDraftService.stage()` → 顶部待保存条 →「保存并重启」。
+- 头部连续的动作规则（`isActionRule`：只有 action、无 outbound / 无桶引用）钉住：不可拖、
+  也不允许别的行落到它们前面（插入下标下限 `minMovable`）。
+- `move(index, +1)` 的落点必须用「插到下一行之后」，否则「插到下一行之前」再抵消会原地不动（已踩）。
+
+### 5.3 运行态核对（折叠区）
+保留原 `GET /rules` 表（`#` / 类型 / payload / 动作），并标注「行号 = 上面表的 #；
+动作规则占行不选路；final 不在表内」。重启后两张表逐行一致即说明改动已生效。
+
+### 5.4 命中列的口径（不猜）
+`/connections` 的 `rule` 字段是 sing-box 的 `<rule.String()> => <action.String()>`，例如
+`rule_set=rs-tg => route(📲 电报信息)`；`route.final` 命中时是字面量 `final`。
+前端只能可靠复现**纯 rule_set 规则**的字符串（`rule_set=<tag>` / `rule_set=[a b]`）与
+`route(<outbound>)` / `sniff` / `reject` 等动作串，因此 `countRuleHits()`：
+- 纯桶规则 + final 精确计数；
+- 带 domain / ip_cidr / port 等多条件规则、逻辑规则 → 显示 `—` 并计入「未归类」，
+  **不做模糊归并**（宁可显示 —，也不把命中算错行）；
+- 同一 `payload+action` 出现多次时取求值顺序上的第一条（与 sing-box 一致）。
+
+### 5.5 验收（2026-11-25 本地 mock + 无头 Chrome）
+- 纯函数：`readRuleModel` 新字段（condition / action / payloadHint / actionHint / logical）与
+  `countRuleHits` 共 20 条断言全 PASS；顺带修 `rule_set` **字符串写法**被当成「无条件匹配」的旧 bug
+  （线上两种写法都有）。
+- UI：3 行配置 → 表格 3 行，出口列正确，`cn_ip` 命中 12 / 其它 0 命中标灰，
+  底部「命中 12 · final 12 · 0 命中 2 条」；折叠区运行态表可展开（4 行）。
+- 拖动第 0 行到末行 → 顺序变化 + 待保存条出现；`↓` 按钮 → 顺序交换 → 保存并重启 → `✓ 保存成功`；
+  落盘 `route.rules` 顺序与表格一致（`rs-github` 在前、`rs-tg` 在后）。

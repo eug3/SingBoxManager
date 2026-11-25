@@ -152,6 +152,7 @@ ssh-cred-dialog.ts / .html 保存缺 SSH 凭据：user/password/port → setCred
 share-config.ts / .html    顶栏齿轮：存储模式/SMB/SFTP/本机目录/规则路径/只读端口 + 测试/保存
 group-board.ts / .html     分组看板：未分组+各分组列，拖 chip 改成员（=改 config，需重启）
 rule-selector.ts / .html   分流规则选择器：route.rules 启用/停用 + ↑↓ 调顺序（域名规则排 IP 桶之前；=改 config，需重启）
+rule-order.ts / .html      规则顺序表（「规则」子页）：拖动整行/↑↓ 调序 + 出口列 + 命中列，运行态 GET /rules 降为折叠核对区
 
 —— 全局交互（取代原生 confirm()/alert()，浏览器拦截原生对话框时不会静默）——
 confirm-dialog.ts          页内确认框：原生 <dialog> + showModal（顶层/焦点约束/ESC），外观复用 .modal

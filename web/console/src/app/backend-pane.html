@@ -86,8 +86,8 @@
       @if (t.key === 'connections') {
         <span class="cnt">{{ liveStat().count }}</span>
       }
-      @if (t.key === 'rules' && rules().length) {
-        <span class="cnt">{{ rules().length }}</span>
+      @if (t.key === 'rules' && ruleCount()) {
+        <span class="cnt">{{ ruleCount() }}</span>
       }
     </button>
   }
@@ -184,29 +184,48 @@
 
   <!-- 规则子页：sing-box 实际生效的规则表（只读，可重新拉取） -->
   @case ('rules') {
-    <div class="bar">
-      <button (click)="loadRules()">重新拉取</button>
-      <span class="dim small">sing-box 实际生效的规则表（GET /rules，只读）</span>
-    </div>
-    <div class="tblwrap">
-      <table>
-        <thead>
-          <tr><th>#</th><th>类型</th><th>条件 / payload</th><th>动作 / 出站</th></tr>
-        </thead>
-        <tbody>
-          @for (r of rules(); track $index) {
-            <tr>
-              <td class="dim">{{ $index }}</td>
-              <td><span class="tag">{{ r.type }}</span></td>
-              <td class="mono" [title]="r.payload || ''">{{ r.payload || '—' }}</td>
-              <td class="mono">{{ r.proxy }}</td>
-            </tr>
-          } @empty {
-            <tr><td colspan="4" class="dim">没有规则（或还没拉取）</td></tr>
+    <!-- 规则顺序表：config route.rules 的生效顺序，可拖行 / ↑↓ 调序（改动进待保存条） -->
+    <app-rule-order
+      [doc]="workDoc()"
+      [backend]="backend()"
+      (docChange)="onRuleOrder($event)"
+    />
+
+    <!-- 运行态核对：GET /rules 是进程里真实求值的顺序，只读；重启后与上面的表逐行对照 -->
+    <details class="rorun">
+      <summary>
+        核对运行态（GET /rules，只读）<span class="dim small">· 行号 = 上面表的 #；动作规则占行不选路；final 不在表内</span>
+      </summary>
+      <div class="bar">
+        <button (click)="loadRules()">重新拉取</button>
+        <span class="dim small">
+          @if (rules().length) {
+            {{ rules().length }} 行 · 与配置顺序一致说明已重启生效
+          } @else {
+            还没拉取
           }
-        </tbody>
-      </table>
-    </div>
+        </span>
+      </div>
+      <div class="tblwrap">
+        <table>
+          <thead>
+            <tr><th>#</th><th>类型</th><th>条件 / payload</th><th>动作 / 出站</th></tr>
+          </thead>
+          <tbody>
+            @for (r of rules(); track $index) {
+              <tr>
+                <td class="dim">{{ $index }}</td>
+                <td><span class="tag">{{ r.type }}</span></td>
+                <td class="mono" [title]="r.payload || ''">{{ r.payload || '—' }}</td>
+                <td class="mono">{{ r.proxy }}</td>
+              </tr>
+            } @empty {
+              <tr><td colspan="4" class="dim">没有规则（或还没拉取）</td></tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </details>
   }
 }
 </div>

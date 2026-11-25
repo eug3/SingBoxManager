@@ -1716,3 +1716,53 @@ dialog.cfm-dialog::backdrop { background: rgba(20, 32, 48, .35); }
 .toast.bad { border-left-color: #ff8a97; background: #6f1f2a; }
 .toast-ico { flex: 0 0 auto; }
 .toast-text { white-space: pre-wrap; word-break: break-word; }
+
+/* ── 规则顺序表（「规则」子页）：拖行调序 + 命中列 ── */
+.ro { padding: 2px 0 8px; }
+.robar { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; padding: 6px 0 8px; }
+.robar .spacer { flex: 1 1 auto; }
+.rohits { font-size: 11px; color: var(--dim); white-space: nowrap; }
+.rohits b { color: var(--ink); font-family: var(--mono); }
+.roempty { padding: 10px 2px; }
+.ro-wrap { max-height: none; }
+.ro-tbl { width: 100%; }
+.ro-tbl th { white-space: nowrap; }
+.ro-idx { width: 34px; text-align: right; }
+.ro-out { width: 150px; }
+.ro-hit { width: 56px; text-align: right; }
+.ro-mv { width: 96px; text-align: right; white-space: nowrap; }
+.ro-tbl td.ro-out { font-size: 11px; color: #1f3b5b; }
+.ro-tbl td.ro-cond { min-width: 0; }
+.ro-text { font-size: 11px; color: #3c4b5d; }
+.ro-chip {
+  display: inline-block; margin-right: 4px; padding: 0 5px; font-size: 10px; line-height: 16px;
+  border: 1px solid var(--line); border-radius: 2px; white-space: nowrap; vertical-align: 1px;
+}
+.ro-chip.rs { color: #2a4f7a; border-color: #cfdcec; background: #f4f8fd; }
+.ro-chip.ip { color: #5b4a86; border-color: #ddd4ef; background: #f6f3fb; }
+.ro-chip.act { color: #8a6100; border-color: #efd89b; background: #fff8e6; }
+.ro-chip.logic { color: #0d5f6b; border-color: #b7e0e6; background: #eefafb; }
+/* 动作规则：整行浅黄，不可拖 */
+.ro-tbl tr.act { background: #fffdf5; }
+.ro-tbl tr.act td.ro-cond { color: #8a6100; }
+/* 0 命中：条件与出口淡化（行仍可操作） */
+.ro-tbl tr.zero td.ro-cond .ro-text,
+.ro-tbl tr.zero td.ro-out { color: #9aa7b6; }
+/* 拖动反馈：被拖行半透明；落点用上下两条亮线表示插入位置 */
+.ro-tbl tr.dragging { opacity: .45; }
+.ro-tbl tr.drop-before td { box-shadow: inset 0 2px 0 var(--acc); }
+.ro-tbl tr.drop-after td { box-shadow: inset 0 -2px 0 var(--acc); }
+.ro-drag { display: inline-block; margin-right: 4px; color: #b7c1cd; cursor: grab; letter-spacing: -2px; user-select: none; }
+.ro-drag.off { color: #e2e8f0; cursor: not-allowed; }
+.ro-tbl tr:hover .ro-drag:not(.off) { color: var(--acc2); }
+.rofoot { padding: 6px 2px 0; line-height: 1.6; }
+.rofoot b { color: var(--ink); font-family: var(--mono); }
+/* 运行态核对（「规则」子页底部的折叠区）：GET /rules 只读镜像 */
+.rorun { margin: 10px 0 14px; border-top: 1px dashed var(--line); padding-top: 8px; }
+.rorun > summary {
+  cursor: pointer; font-size: 11px; color: var(--dim); padding: 2px 0 6px; list-style: none;
+}
+.rorun > summary::-webkit-details-marker { display: none; }
+.rorun > summary::before { content: '▸ '; color: #9aa7b6; }
+.rorun[open] > summary::before { content: '▾ '; }
+.rorun > summary:hover { color: var(--acc2); }
