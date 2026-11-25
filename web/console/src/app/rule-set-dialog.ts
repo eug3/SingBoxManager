@@ -8,7 +8,7 @@ import {
   signal,
 } from '@angular/core';
 import { Backend } from './models';
-import { AnyObj, ConfigDoc, addRuleSetRef, groups, ruleSetRefs } from './config-ops';
+import { AnyObj, ConfigDoc, RuleInsertPosition, addRuleSetRef, groups, ruleSetRefs } from './config-ops';
 import { ConfigDraftService } from './config-draft.service';
 
 /**
@@ -95,6 +95,12 @@ export class RuleSetDialog {
   readonly dragOver = signal(false);
   readonly dragging = signal('');
 
+  /**
+   * 新增引用的插入位置：域名桶要排到 IP 桶（cn_ip / hk_ip）之前，否则 CN IP 先命中直连；
+   * IP 桶则排到其后。auto = 并入该组已有规则 / 末尾（老行为）。
+   */
+  readonly position = signal<RuleInsertPosition>('domain');
+
   /** 克隆当前文档 → 修改 → 暂存（绝不改 baseDoc / 上一份草稿的引用） */
   private mutate(fn: (doc: ConfigDoc) => void): void {
     const base = this.work();
@@ -108,7 +114,7 @@ export class RuleSetDialog {
   add(tag: string): void {
     if (!tag || this.applied().includes(tag)) return;
     const group = this.group();
-    this.mutate((doc) => addRuleSetRef(doc, group, tag));
+    this.mutate((doc) => addRuleSetRef(doc, group, tag, this.position()));
   }
 
   /** 移除引用：从该分组的 rule_set 数组里删 tag；数组空则删整条规则（桶定义不动） */

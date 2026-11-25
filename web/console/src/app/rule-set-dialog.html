@@ -31,6 +31,15 @@
           }
         </div>
 
+        <div class="row">
+          <span>新增引用位置</span>
+          <select [value]="position()" (change)="position.set($any($event.target).value)">
+            <option value="domain">域名规则：插到 IP 桶之前（推荐）</option>
+            <option value="ip">IP 规则：插到 IP 桶之后</option>
+            <option value="auto">不动顺序：并入该组已有规则 / 末尾</option>
+          </select>
+        </div>
+
         <div class="rs-sec">
           可用规则集（{{ palette().length }}）
           <span class="dim small">· 点击或拖到上方添加</span>

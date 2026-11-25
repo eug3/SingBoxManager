@@ -1,6 +1,6 @@
 /** rule-model — 纯函数读取分流规则（route.rule_set / route.rules），不修改传入文档 */
 
-import { AnyObj, ConfigDoc } from './config-ops';
+import { AnyObj, ConfigDoc, isActionRule, isIpRule } from './config-ops';
 
 /**
  * 规则集（桶）摘要。
@@ -26,6 +26,10 @@ export interface RouteRuleInfo {
   ruleSetRefs: string[]; // 引用的 rule_set tag 列表
   outbound: string; // 出站 tag（无则空串）
   structural: true;
+  /** 纯动作规则（sniff / hijack-dns / resolve…）：排序时钉住，不许挪动 */
+  actionOnly: boolean;
+  /** IP 维度规则（显式 IP 字段或引用全 IP 桶）：列表里打「IP」标记，方便和域名规则对照 */
+  ipRule: boolean;
 }
 
 export interface RuleModel {
@@ -127,11 +131,27 @@ export function readRuleModel(doc: ConfigDoc): RuleModel {
     const r = asObj(item);
     if (!r) {
       // 非对象条目也保留下标，保证停用集合与数组位置一一对应
-      routeRules.push({ index, summary: String(item), ruleSetRefs: [], outbound: '', structural: true });
+      routeRules.push({
+        index,
+        summary: String(item),
+        ruleSetRefs: [],
+        outbound: '',
+        structural: true,
+        actionOnly: false,
+        ipRule: false,
+      });
       return;
     }
     const { summary, ruleSetRefs, outbound } = summarize(r);
-    routeRules.push({ index, summary, ruleSetRefs, outbound, structural: true });
+    routeRules.push({
+      index,
+      summary,
+      ruleSetRefs,
+      outbound,
+      structural: true,
+      actionOnly: isActionRule(r),
+      ipRule: isIpRule(r),
+    });
   });
   return { ruleSets, routeRules };
 }

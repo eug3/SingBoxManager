@@ -11,10 +11,12 @@ import {
 } from '@angular/core';
 import {
   ConfigDoc,
+  RuleInsertPosition,
   addRuleSet,
   addRuleSetRef,
   groups,
   nodes,
+  previewRuleSetRef,
   routeRuleSets,
 } from './config-ops';
 import { VaultService } from './vault.service';
@@ -69,6 +71,11 @@ export class RuleSetCreateDialog {
   readonly detour = signal('');
   /** 引用到哪个出站（分组 / 直连 / 拦截） */
   readonly outbound = signal('');
+  /**
+   * 引用插入位置：域名规则要排在 IP 规则（cn_ip / hk_ip）之前，否则 CN IP 先命中直连，
+   * 新加的域名桶永远轮不到；IP 规则则相反。
+   */
+  readonly position = signal<RuleInsertPosition>('domain');
   /** 表单错误（红字） */
   readonly err = signal('');
   /** NAS 桶清单（null = 还没取到/接口不可用，此时不提示存在性） */
@@ -131,6 +138,23 @@ export class RuleSetCreateDialog {
   readonly urlPlaceholder = computed(() => {
     const p = this.urlPrefix();
     return p ? `${p}<桶名>${this.urlExt()}` : 'https://<域名>/rule-set/<桶名>.srs';
+  });
+
+  /** 落点预演文案：并入第几条 / 插到第几条（cn_ip 之前） */
+  readonly insertHint = computed(() => {
+    const d = this.base();
+    const outbound = this.outbound().trim();
+    if (!d || !outbound) return '';
+    const pos = this.position();
+    if (pos === 'auto') return '跟随现状：该出站已有 rule_set 规则就并入，否则插到最后（final 兜底之前）';
+    try {
+      const t = previewRuleSetRef(d, outbound, this.tag().trim() || '<新桶>', pos);
+      if (t.mode === 'extend') return `并入 #${t.index}（该出站已有的规则，位置不变）`;
+      if (t.where === 'end') return `插到 #${t.index}（final 兜底之前）`;
+      return `插到 #${t.index}（${t.anchor || 'IP 规则'} ${t.where === 'before' ? '之前' : '之后'}）`;
+    } catch {
+      return '';
+    }
   });
 
   /** NAS 上查不到该桶时的提醒（只在清单取到、且 tag 有意义时） */
@@ -214,7 +238,7 @@ export class RuleSetCreateDialog {
         updateInterval: this.interval(),
         downloadDetour: this.detour(),
       });
-      addRuleSetRef(doc, outbound, tag);
+      addRuleSetRef(doc, outbound, tag, this.position());
     } catch (e) {
       this.err.set((e as Error)?.message ?? String(e));
       return;

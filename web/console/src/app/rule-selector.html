@@ -2,7 +2,7 @@
   <!-- 重启语义图例：桶内容 vs config 结构 -->
   <div class="rsellegend">
     <span class="rselleg free">改桶内容 = 免重启 · 约 60s 生效</span>
-    <span class="rselleg restart">改 config 结构（停用/启用规则）= 需重启</span>
+    <span class="rselleg restart">改 config 结构（启停/调顺序）= 需重启</span>
   </div>
 
   @if (!base()) {
@@ -28,25 +28,54 @@
       }
     </div>
 
-    <!-- ===== route.rules：勾选=启用，取消=停用（从 config 移除该条） ===== -->
+    <!-- ===== route.rules：勾选=启用/取消=停用；↑↓=调顺序（顺序即优先级） ===== -->
     <div class="rselhd">
-      路由规则 route.rules（{{ model().routeRules.length }} 条）· 勾选=启用，取消=停用（停用即从 config 移除该条，「应用并重启」后生效）
+      路由规则 route.rules（{{ model().routeRules.length }} 条）· 自上而下第一条命中即停 ·
+      域名规则要排在 IP 规则之前（否则 CN IP 先命中直连，后面的域名桶轮不到）·
+      勾选=启用，取消=停用（即从 config 移除该条）· 改动「应用并重启」后生效
     </div>
     <div class="rsellist">
       @for (r of model().routeRules; track r.index) {
-        <label class="rselrow" [class.off]="disabled().has(r.index)">
-          <input
-            type="checkbox"
-            [checked]="!disabled().has(r.index)"
-            (change)="toggle(r.index, $any($event.target).checked)"
-          />
+        <div class="rselrow" [class.off]="disabled().has(r.index)">
+          <label class="rselchk">
+            <input
+              type="checkbox"
+              [checked]="!disabled().has(r.index)"
+              (change)="toggle(r.index, $any($event.target).checked)"
+              [title]="r.actionOnly ? '动作规则（sniff / hijack-dns / resolve）：一般不要停用' : '取消勾选 = 从 config 移除该条'"
+            />
+          </label>
           <span class="rselidx">#{{ r.index }}</span>
           <span class="rselsum" [title]="r.summary">{{ r.summary }}</span>
           @for (ref of r.ruleSetRefs; track $index) {
             <span class="tag rule">{{ ref }}</span>
           }
-          <span class="rselbadge restart">结构·需重启</span>
-        </label>
+          @if (r.actionOnly) {
+            <span class="rselbadge act">动作</span>
+          } @else if (r.ipRule) {
+            <span class="rselbadge ip">IP</span>
+          }
+          <span class="rselmvwrap">
+            <button
+              type="button"
+              class="rselmv"
+              [disabled]="!canUp(r.index)"
+              (click)="move(r.index, -1)"
+              [title]="canUp(r.index) ? '上移一位（更早命中）' : '已是可动范围的最上面（动作规则不参与排序）'"
+            >
+              ↑
+            </button>
+            <button
+              type="button"
+              class="rselmv"
+              [disabled]="!canDown(r.index)"
+              (click)="move(r.index, 1)"
+              [title]="canDown(r.index) ? '下移一位（更晚命中）' : '已是最后一条'"
+            >
+              ↓
+            </button>
+          </span>
+        </div>
       } @empty {
         <div class="rselempty dim small">route.rules 为空</div>
       }

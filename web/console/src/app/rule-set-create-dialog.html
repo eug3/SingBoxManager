@@ -84,6 +84,18 @@
         </select>
       </div>
 
+      <div class="row">
+        <span>插入位置</span>
+        <select [value]="position()" (change)="position.set($any($event.target).value)">
+          <option value="domain">域名规则：排到 IP 桶之前（推荐）</option>
+          <option value="ip">IP 规则：排到 IP 桶之后</option>
+          <option value="auto">不动顺序：并入该组已有规则 / 末尾</option>
+        </select>
+      </div>
+      @if (insertHint()) {
+        <div class="hint dim">↳ {{ insertHint() }}</div>
+      }
+
       @if (bucketWarning()) {
         <div class="modal-note warn">⚠ {{ bucketWarning() }}</div>
       }

@@ -151,7 +151,7 @@ node-create-dialog.ts / .html     ⑤ 列头 ＋ 与配置页共用：表单（n
 ssh-cred-dialog.ts / .html 保存缺 SSH 凭据：user/password/port → setCredentials → 重试保存
 share-config.ts / .html    顶栏齿轮：存储模式/SMB/SFTP/本机目录/规则路径/只读端口 + 测试/保存
 group-board.ts / .html     分组看板：未分组+各分组列，拖 chip 改成员（=改 config，需重启）
-rule-selector.ts / .html   分流规则选择器：route.rules 启用/停用（=改 config，需重启）
+rule-selector.ts / .html   分流规则选择器：route.rules 启用/停用 + ↑↓ 调顺序（域名规则排 IP 桶之前；=改 config，需重启）
 
 —— 全局交互（取代原生 confirm()/alert()，浏览器拦截原生对话框时不会静默）——
 confirm-dialog.ts          页内确认框：原生 <dialog> + showModal（顶层/焦点约束/ESC），外观复用 .modal
@@ -250,6 +250,7 @@ backend 变化 / 密钥变化
 | 「全部测速」并发池在两处手写 | `util.runPool`（并发 6 不变） |
 | diff 算法内嵌在 config-pane（638 行） | `line-diff.ts`；config-pane 降到 ~490 行 |
 | 表单校验/组装内嵌在 config-pane | `node-form.ts`（buildNode 返回 ok/error，组件只展示） |
+| 规则顺序只能改 JSON | `config-ops.moveRule` + 面板 ↑↓；新建引用按域名/IP 选插入点（`ruleInsertPoint`/`previewRuleSetRef`） |
 | Go 单文件 router.go（661 行）混存储/SSH/HTTP | 拆成 store / ssh / http 三文件 |
 | Go handler 里重复的 CORS/OPTIONS 八连 | `httpx.preflight` 一行 |
 

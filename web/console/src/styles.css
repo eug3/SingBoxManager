@@ -821,6 +821,18 @@ button.chip.on { border-color: var(--acc); color: var(--acc); background: #eef7f
 .rselbadge.free { color: #0d7a4f; border-color: #b7e3cd; background: #eafaf1; }
 .rselbadge.local { color: #5a6a7d; border-color: var(--line); background: #f2f6fb; }
 .rselbadge.restart { color: #8a6100; border-color: #efd89b; background: #fff8e6; }
+/* 规则行：勾选框只是行内一个小控件（整行不再是 label），右侧 ↑↓ 调顺序 */
+.rselrow { cursor: default; }
+.rselchk { display: flex; align-items: center; cursor: pointer; }
+.rselbadge.ip { color: #5b4a86; border-color: #ddd4ef; background: #f6f3fb; }
+.rselbadge.act { color: #8a6100; border-color: #efd89b; background: #fff8e6; }
+.rselmvwrap { flex: 0 0 auto; display: flex; gap: 3px; margin-left: 4px; }
+.rselmv {
+  width: 20px; padding: 0; line-height: 16px; font-size: 10px;
+  border: 1px solid var(--line); background: #fff; color: var(--dim); cursor: pointer;
+}
+.rselmv:hover:enabled { color: var(--acc); border-color: var(--acc); background: #f2fbf5; }
+.rselmv:disabled { opacity: .32; cursor: default; }
 .rselempty { padding: 6px 8px; }
 
 /* 分组看板（配置页只读视图内；拖 chip 改分组成员 = 改 config 结构，需「应用并重启」） */

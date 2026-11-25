@@ -315,30 +315,171 @@ export function addRuleSet(doc: ConfigDoc, def: RuleSetDefInput): void {
   list.push(obj);
 }
 
+/** 引用的插入位置（③ 新建 / 规则集弹窗用） */
+export type RuleInsertPosition = 'auto' | 'domain' | 'ip';
+
 /**
- * 给某个出站加一条 rule_set 引用：
- *  · 该出站已有带 rule_set 的规则 → 扩展它的数组（字符串引用也归一化成数组）；
- *  · 否则在 final 兜底规则前插入 `{rule_set:[tag], outbound:group}`（没有兜底就追加）。
- * 不删定义、不动其它分组的引用。
+ * 规则集 tag 是不是「IP 类」——只按名字判定（远端 .srs 内容读不到）：
+ *  · cn_ip / hk_ip 这类「国别_IP」；
+ *  · rs-ip-aws / geoip-cn / xxx-ip 这类带 ip 段的；
+ *  · iplc-ss、geosite-cn 之类不会误判（iplc 不是 ip 边界）。
  */
-export function addRuleSetRef(doc: ConfigDoc, group: string, tag: string): void {
+export function isIpRuleSetTag(tag: string): boolean {
+  const t = String(tag ?? '').trim().toLowerCase();
+  if (!t) return false;
+  if (t === 'cn_ip' || t === 'hk_ip') return true;
+  return /(^|[-_])ip([-_]|$)|^geoip[-_]|[-_]ip[-_]/.test(t);
+}
+
+/** 该条规则是否带 IP 维度条件：显式 IP 字段，或引用的桶全是 IP 桶（混合桶算域名规则，保持靠前） */
+export function isIpRule(r: AnyObj): boolean {
+  for (const k of ['ip_cidr', 'source_ip_cidr', 'ip_is_private', 'source_ip_is_private', 'geoip', 'source_geoip']) {
+    if (r[k] !== undefined) return true;
+  }
+  const refs = ruleSetRefs(r);
+  return refs.length > 0 && refs.every(isIpRuleSetTag);
+}
+
+/** 「纯动作规则」：只有 action（sniff / hijack-dns / resolve …），不选路、不引用桶 —— 排序时不许跨过它们 */
+export function isActionRule(r: AnyObj): boolean {
+  if (typeof r['action'] !== 'string' || !r['action']) return false;
+  if (typeof r['outbound'] === 'string' && r['outbound']) return false;
+  return ruleSetRefs(r).length === 0 && !Array.isArray(r['rules']);
+}
+
+/** 插入点：插到 index 之前；anchor 是参照规则（用于 UI 文案「cn_ip 之前」） */
+export interface RuleInsertPoint {
+  index: number;
+  anchor: string;
+  where: 'before' | 'after' | 'end';
+}
+
+/** route.rules 的下标查找：最后一条非 final 规则之后的插入位（= final 之前） */
+function finalInsertIndex(rules: AnyObj[]): number {
+  const at = rules.findIndex((r) => r && isFinalRule(r));
+  return at >= 0 ? at : rules.length;
+}
+
+/** IP 桶规则（引用的桶全是 IP 类）的下标 */
+function ipBucketRuleIndexes(rules: AnyObj[], limit: number): number[] {
+  const out: number[] = [];
+  for (let i = 0; i < limit; i++) {
+    const r = rules[i];
+    if (!r) continue;
+    const refs = ruleSetRefs(r);
+    if (refs.length && refs.every(isIpRuleSetTag)) out.push(i);
+  }
+  return out;
+}
+
+/**
+ * 计算域名 / IP 引用的插入点（只读，不改文档；弹窗用它显示「将插到 #24 cn_ip 之前」）：
+ *  · domain：插到第一条「IP 桶规则」之前（= 现有域名块尾部、cn_ip 之前）；没有 IP 桶就 final 前；
+ *  · ip：插到最后一条「IP 桶规则」之后；没有就 final 前。
+ * 只认 IP 桶（cn_ip / hk_ip / rs-ip-*），不认 ip_is_private / 单 IP 直连这些安全钉，避免把域名规则插到它们前面。
+ */
+export function ruleInsertPoint(doc: ConfigDoc, position: Exclude<RuleInsertPosition, 'auto'>): RuleInsertPoint {
+  const rules = routeRules(doc);
+  const end = finalInsertIndex(rules);
+  const ipIdx = ipBucketRuleIndexes(rules, end);
+  if (position === 'domain') {
+    if (ipIdx.length) {
+      const i = ipIdx[0];
+      return { index: i, anchor: String(ruleSetRefs(rules[i])[0] ?? ''), where: 'before' };
+    }
+    return { index: end, anchor: 'final', where: 'end' };
+  }
+  if (ipIdx.length) {
+    const i = ipIdx[ipIdx.length - 1];
+    return { index: i + 1, anchor: String(ruleSetRefs(rules[i])[0] ?? ''), where: 'after' };
+  }
+  return { index: end, anchor: 'final', where: 'end' };
+}
+
+/** 预演 addRuleSetRef 会落到哪：弹窗用它显示「将插到 #24（cn_ip 之前）」 */
+export interface RuleRefTarget {
+  /** 承载该引用的规则下标（extend=并入这一条；insert=插在这个位置） */
+  index: number;
+  mode: 'extend' | 'insert';
+  /** 参照规则（insert 时的 UI 文案），extend 时为插入点参照 */
+  anchor: string;
+  where: 'before' | 'after' | 'end';
+}
+
+/**
+ * 给某个出站加 rule_set 引用的落点预演（只读）：
+ *  · auto：该出站已有带 rule_set 的规则 → 并入它；否则插到 final 兜底之前；
+ *  · domain：优先并入「插入点之前」的出站规则（保持域名优先），没有就插到 IP 桶之前；
+ *  · ip：优先并入「插入点之后」的出站规则，没有就插到最后一条 IP 桶之后。
+ */
+export function previewRuleSetRef(
+  doc: ConfigDoc,
+  group: string,
+  tag: string,
+  position: RuleInsertPosition = 'auto',
+): RuleRefTarget {
   const g = String(group ?? '').trim();
   const t = String(tag ?? '').trim();
   if (!g) throw new Error('引用目标出站不能为空');
   if (!t) throw new Error('规则集 tag 不能为空');
-  const route = ensureRoute(doc);
-  const rules = ensureRouteRules(route);
-  const existing = rules.find((r) => r && r['outbound'] === g && ruleSetRefs(r).length > 0);
-  if (existing) {
-    const refs = ruleSetRefs(existing);
-    if (!refs.includes(t)) refs.push(t);
-    existing['rule_set'] = refs;
-    return;
+  const rules = routeRules(doc);
+  if (position === 'auto') {
+    const i = rules.findIndex((r) => r && r['outbound'] === g && ruleSetRefs(r).length > 0);
+    if (i >= 0) return { index: i, mode: 'extend', anchor: '', where: 'end' };
+    return { index: finalInsertIndex(rules), mode: 'insert', anchor: 'final', where: 'end' };
   }
-  const at = rules.findIndex((r) => r && isFinalRule(r));
-  const rule: AnyObj = { rule_set: [t], outbound: g };
-  if (at >= 0) rules.splice(at, 0, rule);
-  else rules.push(rule);
+  const point = ruleInsertPoint(doc, position);
+  const i = rules.findIndex(
+    (r, k) =>
+      !!r &&
+      r['outbound'] === g &&
+      ruleSetRefs(r).length > 0 &&
+      (position === 'domain' ? k < point.index : k >= point.index),
+  );
+  if (i >= 0) return { index: i, mode: 'extend', anchor: point.anchor, where: point.where };
+  return {
+    index: Math.max(0, Math.min(point.index, finalInsertIndex(rules))),
+    mode: 'insert',
+    anchor: point.anchor,
+    where: point.where,
+  };
+}
+
+/**
+ * 给某个出站加一条 rule_set 引用，返回「最终承载该引用的规则下标」。
+ * 落点由 previewRuleSetRef 决定（弹窗预览与实际写入同一口径）；字符串引用归一化成数组，
+ * 不删定义、不动其它出站的引用。
+ */
+export function addRuleSetRef(
+  doc: ConfigDoc,
+  group: string,
+  tag: string,
+  position: RuleInsertPosition = 'auto',
+): number {
+  const t = String(tag ?? '').trim();
+  const target = previewRuleSetRef(doc, group, tag, position);
+  const rules = ensureRouteRules(ensureRoute(doc));
+  const i = Math.max(0, Math.min(target.index, rules.length));
+  if (target.mode === 'extend' && i < rules.length) {
+    const refs = ruleSetRefs(rules[i]);
+    if (!refs.includes(t)) refs.push(t);
+    rules[i]['rule_set'] = refs;
+    return i;
+  }
+  rules.splice(i, 0, { rule_set: [t], outbound: String(group ?? '').trim() });
+  return i;
+}
+
+/** 把一条规则从 from 挪到 to（原地移动，越界抛错），返回新下标 */
+export function moveRule(doc: ConfigDoc, from: number, to: number): number {
+  const rules = ensureRouteRules(ensureRoute(doc));
+  if (from < 0 || from >= rules.length || to < 0 || to >= rules.length) {
+    throw new Error(`规则下标越界：${from} → ${to}（共 ${rules.length} 条）`);
+  }
+  if (from === to) return to;
+  const [moved] = rules.splice(from, 1);
+  rules.splice(to, 0, moved);
+  return to;
 }
 
 /** 新分组的输入 */
@@ -398,7 +539,8 @@ export function validateDoc(doc: ConfigDoc): string[] {
     counter.set(t, (counter.get(t) ?? 0) + 1);
   }
   for (const [t, n] of counter) if (n > 1) issues.push(`tag 重复：${t} ×${n}`);
-  const tags = new Set(counter.keys());
+  // sing-box 内置出站（无需在 outbounds 里声明）：不要把 direct/block/dns 当成悬空引用
+  const tags = new Set([...counter.keys(), 'direct', 'block', 'dns']);
   for (const g of groups(doc)) {
     const members = Array.isArray(g['outbounds']) ? (g['outbounds'] as string[]) : [];
     for (const m of members) if (!tags.has(m)) issues.push(`组 ${String(g['tag'])} 引用了不存在的 ${m}`);
