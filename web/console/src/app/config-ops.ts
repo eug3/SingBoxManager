@@ -213,6 +213,180 @@ export function deleteNode(doc: ConfigDoc, tag: string): void {
   }
 }
 
+/* ─────────────────────── 规则集（route.rule_set）与引用 ─────────────────────── */
+
+/** route.rule_set 数组（缺省空） */
+export function routeRuleSets(doc: ConfigDoc): AnyObj[] {
+  const route = doc.root['route'] as AnyObj | undefined;
+  return Array.isArray(route?.['rule_set']) ? (route!['rule_set'] as AnyObj[]) : [];
+}
+
+/** rule_set 引用归一化：sing-box 允许字符串或字符串数组 */
+export function ruleSetRefs(r: AnyObj): string[] {
+  const v = r['rule_set'];
+  if (typeof v === 'string') return v ? [v] : [];
+  return Array.isArray(v) ? v.map(String).filter(Boolean) : [];
+}
+
+/** 非匹配条件字段：这些键不构成匹配条件（与 flow-model / rule-set-dialog 同一口径） */
+const NON_MATCH_KEYS = new Set([
+  'outbound',
+  'action',
+  'rule_set',
+  'type',
+  'mode',
+  'rules',
+  'invert',
+  'method',
+]);
+
+/**
+ * 「final 兜底规则」：带 outbound、没有任何匹配条件、也不是 logical 嵌套。
+ * 新引用要插在它前面（route.final 是独立字段，天然在所有 rules 之后）。
+ * 不带 outbound 的动作规则（sniff / hijack-dns）不算兜底。
+ */
+export function isFinalRule(r: AnyObj): boolean {
+  if (typeof r['outbound'] !== 'string' || !r['outbound']) return false;
+  if (ruleSetRefs(r).length || Array.isArray(r['rules'])) return false;
+  return Object.keys(r).every((k) => NON_MATCH_KEYS.has(k));
+}
+
+/** 取（必要时创建）route 对象 */
+function ensureRoute(doc: ConfigDoc): AnyObj {
+  let route = doc.root['route'];
+  if (!route || typeof route !== 'object' || Array.isArray(route)) {
+    route = {};
+    doc.root['route'] = route;
+  }
+  return route as AnyObj;
+}
+
+/** 取（必要时创建）route.rules 数组 */
+function ensureRouteRules(route: AnyObj): AnyObj[] {
+  if (!Array.isArray(route['rules'])) route['rules'] = [];
+  return route['rules'] as AnyObj[];
+}
+
+/** 新规则集定义（route.rule_set 的一条） */
+export interface RuleSetDefInput {
+  /** 规则集 tag（桶名，如 rs-openai） */
+  tag: string;
+  /** remote = 从 url 定时下载；local = 读路由本机 path */
+  type: 'remote' | 'local';
+  /** remote 的格式：binary（.srs）/ source（.json），缺省 binary */
+  format?: string;
+  /** remote 的下载地址 */
+  url?: string;
+  /** local 的文件路径 */
+  path?: string;
+  /** remote 的更新间隔，如 1m */
+  updateInterval?: string;
+  /** remote 的下载出站（可空 = 走 default） */
+  downloadDetour?: string;
+}
+
+/**
+ * 新增一条规则集定义到 route.rule_set（只写定义，不建引用、不碰文件）。
+ * tag 重复 / 必填缺失直接抛错（调用方负责展示）。
+ */
+export function addRuleSet(doc: ConfigDoc, def: RuleSetDefInput): void {
+  const tag = String(def.tag ?? '').trim();
+  if (!tag) throw new Error('规则集 tag 不能为空');
+  if (def.type !== 'remote' && def.type !== 'local') throw new Error('规则集类型只能是 remote / local');
+  const route = ensureRoute(doc);
+  if (!Array.isArray(route['rule_set'])) route['rule_set'] = [];
+  const list = route['rule_set'] as AnyObj[];
+  if (list.some((x) => x && String(x['tag']) === tag)) throw new Error(`规则集 ${tag} 已存在`);
+  const obj: AnyObj = { type: def.type, tag };
+  if (def.type === 'remote') {
+    const url = String(def.url ?? '').trim();
+    if (!url) throw new Error('remote 规则集必须填 url');
+    obj['format'] = def.format || 'binary';
+    obj['url'] = url;
+    const iv = String(def.updateInterval ?? '').trim();
+    if (iv) obj['update_interval'] = iv;
+    const detour = String(def.downloadDetour ?? '').trim();
+    if (detour) obj['download_detour'] = detour;
+  } else {
+    const path = String(def.path ?? '').trim();
+    if (!path) throw new Error('local 规则集必须填 path');
+    obj['path'] = path;
+  }
+  list.push(obj);
+}
+
+/**
+ * 给某个出站加一条 rule_set 引用：
+ *  · 该出站已有带 rule_set 的规则 → 扩展它的数组（字符串引用也归一化成数组）；
+ *  · 否则在 final 兜底规则前插入 `{rule_set:[tag], outbound:group}`（没有兜底就追加）。
+ * 不删定义、不动其它分组的引用。
+ */
+export function addRuleSetRef(doc: ConfigDoc, group: string, tag: string): void {
+  const g = String(group ?? '').trim();
+  const t = String(tag ?? '').trim();
+  if (!g) throw new Error('引用目标出站不能为空');
+  if (!t) throw new Error('规则集 tag 不能为空');
+  const route = ensureRoute(doc);
+  const rules = ensureRouteRules(route);
+  const existing = rules.find((r) => r && r['outbound'] === g && ruleSetRefs(r).length > 0);
+  if (existing) {
+    const refs = ruleSetRefs(existing);
+    if (!refs.includes(t)) refs.push(t);
+    existing['rule_set'] = refs;
+    return;
+  }
+  const at = rules.findIndex((r) => r && isFinalRule(r));
+  const rule: AnyObj = { rule_set: [t], outbound: g };
+  if (at >= 0) rules.splice(at, 0, rule);
+  else rules.push(rule);
+}
+
+/** 新分组的输入 */
+export interface NewGroupInput {
+  tag: string;
+  /** selector 手动选择 / urltest 按延迟自动 */
+  type: 'selector' | 'urltest';
+  /** 成员 tag（节点 / 其它分组 / DIRECT 等），按勾选顺序 */
+  members: string[];
+  /** urltest 的测试 URL（空 = sing-box 默认） */
+  url?: string;
+  /** urltest 的测试间隔（空 = 默认） */
+  interval?: string;
+  /** urltest 的容差 ms（空 = 默认） */
+  tolerance?: number | null;
+}
+
+/**
+ * 新增一个分组出站（selector / urltest），追加到 outbounds 末尾。
+ * 校验：tag 非空且不重复、类型合法、成员至少一个且都在现有 tag 名册里。
+ * 返回最终落库的 tag（重名时会自动加 -2 后缀，与新增节点同一口径）。
+ */
+export function addGroup(doc: ConfigDoc, input: NewGroupInput): string {
+  const raw = String(input.tag ?? '').trim();
+  if (!raw) throw new Error('分组 tag 不能为空');
+  if (!GROUP_TYPES.has(input.type)) throw new Error('分组类型只能是 selector / urltest');
+  const members = (input.members ?? []).map(String).filter(Boolean);
+  if (!members.length) throw new Error('分组至少要有一个成员');
+  const known = new Set([...outbounds(doc), ...endpoints(doc)].map((o) => String(o['tag'] ?? '')));
+  const missing = members.filter((m) => !known.has(m));
+  if (missing.length) throw new Error(`成员不存在：${missing.join('、')}`);
+  const tag = uniqueTag(doc, raw);
+  const g: AnyObj = { type: input.type, tag, outbounds: members };
+  if (input.type === 'urltest') {
+    const url = String(input.url ?? '').trim();
+    const iv = String(input.interval ?? '').trim();
+    if (url) g['url'] = url;
+    if (iv) g['interval'] = iv;
+    if (typeof input.tolerance === 'number' && Number.isFinite(input.tolerance) && input.tolerance >= 0) {
+      g['tolerance'] = Math.round(input.tolerance);
+    }
+  }
+  const ob = outbounds(doc);
+  ob.push(g);
+  doc.root['outbounds'] = ob;
+  return tag;
+}
+
 /** 结构校验（前端预检，最终仍以路由上的 sing-box check 为准） */
 export function validateDoc(doc: ConfigDoc): string[] {
   const issues: string[] = [];

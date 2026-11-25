@@ -137,14 +137,17 @@ backend-pane.ts / .html    一台路由的面板：概览/分组/连接/流向/�
 connections.ts / .html     「连接」子页：活跃/已关闭/全部三档 + 搜索/筛选/排序/分组/列设置 + 详情抽屉（订阅共享连接快照做差分）
 connections-model.ts       连接纯函数：快照差分(速率/空转/已关闭)/搜索正则/排序/筛选/分组/列定义
 overview.ts / .html        概览：速率/连接数/内存曲线 + 模式切换 + 网络信息（hist 缓存 localStorage）
-config-pane.ts / .html     「配置」子页：门禁→读取→暂存→校验→应用 + 分流规则/分组看板面板
+config-pane.ts / .html     「配置」子页：门禁→读取→暂存→校验→应用；工具条只留 刷新/编辑 JSON/更多▾；节点表检索 + 新增/编辑走 NodeCreateDialog
 rule-editor.ts / .html     「规则编辑」主 tab：左侧文件树（可新建/重命名/删除 JSON，支持右键菜单）+ 右侧 Monaco 读取/校验/格式化/发布
-flow-anim.ts / .html       「流向」子页：六列 band 流向图组件（数据加载/rAF 鱼/交互/全屏/缩放/普通·强调视图/微型图）
+flow-anim.ts / .html       「流向」子页：六列 band 流向图组件（数据加载/rAF 鱼/交互/全屏/缩放/普通·强调视图/微型图/列头 ＋ 新建）
 flow-model.ts              流向纯函数引擎：buildStatic/buildFlow/stepActivity/buildLayout/切线/延时分级
 
-—— 编辑弹窗（点 ③/④ 卡片或保存缺凭据时弹出）——
+—— 编辑/新建弹窗（点 ③/④ 卡片、列头 ＋、或保存缺凭据时弹出）——
 rule-set-dialog.ts / .html ③ 规则集：已应用 chips + palette 拖拽/＋ 增删引用
 group-dialog.ts / .html    ④ 分组：成员 checkbox（含嵌套分组）+ selector/urltest/负载均衡预设
+rule-set-create-dialog.ts / .html ③ 列头 ＋：写 route.rule_set 定义（remote/local）+ 引用到出站，一次到位
+group-create-dialog.ts / .html    ④ 列头 ＋：tag + 类型（selector/urltest/负载均衡）+ 直接勾成员
+node-create-dialog.ts / .html     ⑤ 列头 ＋ 与配置页共用：表单（node-form）/ 分享链接批量（share-link）两页签 + 加分组
 ssh-cred-dialog.ts / .html 保存缺 SSH 凭据：user/password/port → setCredentials → 重试保存
 share-config.ts / .html    顶栏齿轮：存储模式/SMB/SFTP/本机目录/规则路径/只读端口 + 测试/保存
 group-board.ts / .html     分组看板：未分组+各分组列，拖 chip 改成员（=改 config，需重启）
@@ -204,7 +207,18 @@ models.ts                  接口类型 + 常量（页面来源/延迟阈值/版
 ⑤ 方格右上延时点红黄绿、④ 卡右下平均延时点、所属组当前成员左下橙点。
 交互：点 ③/④ 开编辑弹窗；点 ⑤ 成员方格弹固定层（节点信息 + 「激活」= `PUT /proxies/<组>`
 切所属 Selector 的当前成员 + 「测速」= 单节点 `GET /proxies/<成员>/delay`，URLTest 只给测速）；
+**③④⑤ 列标题后面各有一个 ＋**（①②⑥ 没有）：③ 新建规则集、④ 新建分组、⑤ 新建节点。
+三个新建弹窗都只产出新 `ConfigDoc`（`docChange`），由宿主决定暂存链——流向页接
+`ConfigDraftService.stage`（顶部待保存条），配置页接 `enterReview`（文本暂存 + diff），
+与 ③④ 编辑弹窗口径一致；点「保存并重启」才写回路由。
 hover 高亮、⛶ 全屏、自适应⇄100%、右下角速率/内存微型图（ws /traffic + /memory）。
+
+**③ ＋ 的语义**：流向 ③ 的卡片来自 `route.rules`（`flow-model.buildStatic`），只往
+`route.rule_set` 塞定义不会出现在图上，所以弹窗一次写两件事——新增定义
+（remote/local、format、url/path、update_interval，URL 默认按现有 remote 桶的前缀拼）
+＋ 给选定出站加一条引用（已有 rule_set 规则就扩展数组，否则插在 final 兜底规则前，见
+`config-ops.addRuleSetRef`）。桶文件（NAS `<tag>.json/.srs`）不在弹窗里建：会用
+`/rule-set/index` 查一下并提示「先到规则编辑建桶并发布」，避免路由拉取 404。
 
 ### 3.2 「配置」子页的状态流
 
@@ -212,14 +226,19 @@ hover 高亮、⛶ 全屏、自适应⇄100%、右下角速率/内存微型图�
 backend 变化 / 密钥变化
    └─ effect ─▶ 无密钥？──▶ 连接门禁（像登录页：clash 密钥 + SSH 账号）
                 有密钥 ──▶ reload()（/router/config，记 original + sha）
-表单/导入/删除/Monaco 手改
+节点弹窗（新增/编辑/分享链接导入）/删除/分流规则/分组看板/Monaco 手改
    └─▶ raw ≠ original ⇒ pending（黄色「已暂存变更」横幅 + diff）
         ├─ 校验 ─▶ /router/check（路由上真跑 sing-box check）
         ├─ 应用 ─▶ /router/apply（带 expectSha 乐观锁；409=他人已改）
         └─ 撤销 ─▶ raw = original
 ```
 
-结构化编辑（表单/导入/删除）都走 `config-ops.ts`：改完按**原文件的缩进与行尾**
+工具条收成三档：刷新 / 编辑 JSON / 更多▾（重启 sing-box、分流规则、分组看板、路由凭据）；
+节点表带检索与「＋ 新增节点」，新增/编辑都开 `node-create-dialog`（与流向 ⑤ 同一个组件）。
+原来 分流规则 / 分组看板面板在只读视图里被渲染两次（两套实例各自一份停用集合，状态会打架），
+现已只保留一处。
+
+结构化编辑（节点/删除/看板/规则）都走 `config-ops.ts`：改完按**原文件的缩进与行尾**
 重新序列化（`serializeConfig`），所以 diff 里只多出个别「手写紧凑处被规范化」的格式行。
 
 ### 3.3 去重收敛点（本次重构）
@@ -229,7 +248,7 @@ backend 变化 / 密钥变化
 | 字节格式化在 overview / backend-pane / vault.service 各一份 | `util.fmtBytes`（统一 B/K/M/G） |
 | 延迟分级/文本在两个组件各一份、阈值常量两套 | `util.latClass/latText` + `models.LAT_LOW/LAT_MID` |
 | 「全部测速」并发池在两处手写 | `util.runPool`（并发 6 不变） |
-| diff 算法内嵌在 config-pane（638 行） | `line-diff.ts`；config-pane 降到 ~430 行 |
+| diff 算法内嵌在 config-pane（638 行） | `line-diff.ts`；config-pane 降到 ~490 行 |
 | 表单校验/组装内嵌在 config-pane | `node-form.ts`（buildNode 返回 ok/error，组件只展示） |
 | Go 单文件 router.go（661 行）混存储/SSH/HTTP | 拆成 store / ssh / http 三文件 |
 | Go handler 里重复的 CORS/OPTIONS 八连 | `httpx.preflight` 一行 |

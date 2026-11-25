@@ -670,7 +670,33 @@ button.win.on { color: var(--acc); border-color: var(--acc); background: #eefaf4
 .cfgdiff .add { color: #0f8f68; }
 .cfgdiff .del { color: #c8384a; }
 .cfgissues { border: 1px solid #f0d9b5; background: #fdf7ec; color: #8a5a12; font-size: 11px; padding: 8px 10px; margin: 8px 0; }
-.cfgnodeshd { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; font-size: 11px; color: var(--dim); }
+.cfgnodeshd { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 6px 0; font-size: 11px; color: var(--dim); flex-wrap: wrap; }
+.cfgnodeshd > span:first-child { flex: 1 1 auto; min-width: 0; }
+/* 节点表检索框（配置页）：小一号的搜索输入 + 清空钮 */
+.cfgsearchbox { position: relative; display: inline-flex; align-items: center; flex: 0 0 auto; }
+.cfgsearchbox input[type='search'] {
+  width: 220px; padding: 3px 24px 3px 8px; font-size: 11px; font-family: var(--mono);
+  border: 1px solid var(--line); background: #fff; color: var(--ink);
+}
+.cfgsearchbox input[type='search']:focus { outline: none; border-color: var(--acc); box-shadow: 0 0 0 2px #e3f2ea; }
+.cfgsearchbox input[type='search']::-webkit-search-cancel-button { display: none; }
+.cfgsearchbox .rs-clear { position: absolute; right: 4px; }
+/* 配置页「更多▾」下拉：遮罩铺满视口（点任意处收起），菜单绝对定位在按钮下方 */
+.cfgmorewrap { position: relative; display: inline-flex; }
+.cfgmorewrap > button.on { border-color: var(--acc); color: var(--acc); }
+.cfgmoremask { position: fixed; inset: 0; z-index: 30; }
+.cfgmoremenu {
+  position: absolute; top: calc(100% + 4px); right: 0; z-index: 31;
+  display: flex; flex-direction: column; min-width: 150px;
+  background: var(--panel); border: 1px solid var(--line); box-shadow: 0 8px 20px rgba(16, 30, 48, .18);
+}
+.cfgmoremenu button {
+  border: none; border-bottom: 1px solid #eef2f8; background: none; text-align: left;
+  padding: 6px 12px; font-size: 11px; color: var(--ink); cursor: pointer; white-space: nowrap;
+}
+.cfgmoremenu button:last-child { border-bottom: none; }
+.cfgmoremenu button:hover:enabled { background: #f4f8fd; color: var(--acc2); }
+.cfgmoremenu button:disabled { color: #b7c1cd; cursor: default; }
 .cfglog { border: 1px solid var(--line); background: #fbfdff; font-size: 10px; padding: 8px 10px; margin-top: 8px; white-space: pre-wrap; }
 
 /* 配置页：表单/导入面板 */
@@ -761,6 +787,13 @@ button.chip.on { border-color: var(--acc); color: var(--acc); background: #eef7f
 }
 .modal-body .row button { justify-self: start; }
 .modal-note { margin: 8px 16px 0; padding: 6px 10px; background: #f1faf6; border: 1px solid #bfe3d3; color: var(--acc); font-size: 11px; }
+.modal-note.warn { background: #fff8e6; border-color: #efd89b; color: #8a6100; }
+.modal-note.bad { background: #fdf0f0; border-color: #f0c9c9; color: var(--bad); }
+/* 弹窗里的页签（新建节点：表单 / 分享链接） */
+.ntabs { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ntab { padding: 3px 10px; font-size: 11px; border: 1px solid var(--line); background: #fff; color: var(--dim); cursor: pointer; }
+.ntab:hover { border-color: var(--acc2); color: var(--acc2); }
+.ntab.on { border-color: var(--acc); color: var(--acc); background: #eafaf1; }
 .probe { border: 1px dashed var(--line); padding: 8px 10px; font-size: 11px; line-height: 1.8; background: #fbfcfe; }
 .modal-ft { display: flex; align-items: center; gap: 8px; padding: 10px 16px 14px; border-top: 1px solid var(--line); flex-wrap: wrap; }
 
@@ -992,8 +1025,10 @@ button.chip.on { border-color: var(--acc); color: var(--acc); background: #eef7f
 }
 .flowbar .ffs:hover { color: var(--acc2); border-color: var(--acc2); }
 
-/* 右下角微型图：半透明白底面板，pointer-events:none 不挡 hover/点击 */
-.mini {
+/* 右下角微型图：半透明白底面板，pointer-events:none 不挡 hover/点击。
+   类名用 .flowmini 而不是 .mini：.mini 与表格里的小按钮 button.mini 撞过车
+   （position:absolute 会把「编辑/删除」按钮吸到右下角），故改名隔离。 */
+.flowmini {
   position: absolute;
   right: 10px;
   bottom: 10px;
@@ -1010,8 +1045,8 @@ button.chip.on { border-color: var(--acc); color: var(--acc); background: #eef7f
   pointer-events: none;
   z-index: 3;
 }
-.mini .minibox { display: block; }
-.mini .minihd {
+.flowmini .minibox { display: block; }
+.flowmini .minihd {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
@@ -1021,9 +1056,9 @@ button.chip.on { border-color: var(--acc); color: var(--acc); background: #eef7f
   color: #7c8ea3;
   padding: 0 1px 1px;
 }
-.mini .mininame { color: #9aa7b6; }
-.mini .minival { color: var(--ink); }
-.mini app-area-chart .chart { border-radius: 4px; }
+.flowmini .mininame { color: #9aa7b6; }
+.flowmini .minival { color: var(--ink); }
+.flowmini app-area-chart .chart { border-radius: 4px; }
 .flowcanvas.fit {
   /* 自适应模式：整图缩放进可视区，不出现滚动条 */
   overflow: hidden;
@@ -1100,6 +1135,12 @@ button.chip.on { border-color: var(--acc); color: var(--acc); background: #eef7f
 .fcolsub { fill: #9aa7b6; font-size: 8.5px; font-family: var(--mono); }
 .fpill { fill: #eef3fa; stroke: #dde6f2; stroke-width: 1; }
 .fpills { fill: #4a5c73; font-size: 9px; font-family: var(--mono); }
+/* 列头「＋」新建按钮（只有 ③ 规则集 / ④ 分组 / ⑤ 节点 有）：标题右边一个小方块 */
+.fadd { cursor: pointer; }
+.faddbox { fill: #f4f8fd; stroke: #cfdcec; stroke-width: 1; transition: fill .12s, stroke .12s; }
+.faddico { fill: none; stroke: #4a5c73; stroke-width: 1.2; stroke-linecap: round; transition: stroke .12s; }
+.fadd:hover .faddbox { fill: #eafaf1; stroke: var(--acc); }
+.fadd:hover .faddico { stroke: var(--acc); }
 
 /* 横带（band）：一条分组一条带，交替浅底 + 极淡分隔线（不是方框） */
 .fband { fill: transparent; }

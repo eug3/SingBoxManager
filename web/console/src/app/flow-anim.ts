@@ -43,6 +43,7 @@ import type {
   ClientInfo,
   ClientMap,
   DelayMap,
+  FlowCol,
   FlowEdgeGeom,
   FlowKind,
   FlowLayout,
@@ -247,6 +248,12 @@ export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
   readonly editRule = output<string>();
   /** 点 ④ 分组卡 → 打开该分组的成员/类型编辑弹窗（参数 = 分组 tag） */
   readonly editGroup = output<string>();
+  /** ③ 列头「＋」→ 新建规则集（写 config 定义并引用到出站） */
+  readonly addRule = output<void>();
+  /** ④ 列头「＋」→ 新建分组 */
+  readonly addGroup = output<void>();
+  /** ⑤ 列头「＋」→ 新建节点（表单 / 分享链接） */
+  readonly addNode = output<void>();
 
   private readonly clash = inject(ClashService);
   /** 全站唯一的连接快照轮询服务（本组件按 1.5s 订阅，取到就重排流向图） */
@@ -951,6 +958,18 @@ export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
 
   clearHover(): void {
     if (this.hover()) this.hover.set(null);
+  }
+
+  /**
+   * 列头「＋」：③ 新建规则集 / ④ 新建分组 / ⑤ 新建节点。
+   * 先 stopPropagation，别让画布的「点空白关弹层」顺手把刚开的弹层收掉。
+   */
+  onAdd(col: FlowCol, ev: MouseEvent): void {
+    ev.stopPropagation();
+    this.closePick();
+    if (col === 'rule') this.addRule.emit();
+    else if (col === 'group') this.addGroup.emit();
+    else if (col === 'node') this.addNode.emit();
   }
 
   /**

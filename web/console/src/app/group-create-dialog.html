@@ -1,0 +1,117 @@
+<!-- ④ 列头「＋」新建分组：tag + 类型 + 直接勾成员（改动即时暂存） -->
+<div class="modal-mask" (click)="onMask($event)">
+  <div class="modal" role="dialog" aria-modal="true" aria-label="新建分组">
+    <div class="modal-hd">
+      <b>＋ 新建分组</b>
+      <span class="dim small">selector / urltest · 直接勾成员</span>
+      <button class="x" (click)="close()" title="关闭">✕</button>
+    </div>
+
+    <div class="modal-body">
+      <div class="row">
+        <span>分组 tag</span>
+        <input
+          type="text"
+          [value]="tag()"
+          (input)="tag.set($any($event.target).value)"
+          placeholder="如 🚀 我的节点（与现有 tag 重名会自动加 -2）"
+        />
+      </div>
+
+      <div class="row">
+        <span>类型</span>
+        <select [value]="type()" (change)="type.set($any($event.target).value)">
+          <option value="selector">selector（手动选择）</option>
+          <option value="urltest">urltest（按延迟自动·最快）</option>
+          <option value="balance">负载均衡（urltest 严格最快·1m）</option>
+        </select>
+      </div>
+
+      @if (type() === 'balance') {
+        <div class="hint dim">
+          sing-box 无原生轮询负载均衡：此预设 = urltest + tolerance 0 + 1m 间隔（严格最快/故障切换近似）。
+        </div>
+      }
+      @if (type() === 'urltest') {
+        <div class="row">
+          <span>测试 URL</span>
+          <input
+            type="text"
+            [value]="url()"
+            (input)="url.set($any($event.target).value)"
+            placeholder="https://www.gstatic.com/generate_204（留空=默认）"
+          />
+        </div>
+        <div class="row">
+          <span>测试间隔</span>
+          <input
+            type="text"
+            [value]="interval()"
+            (input)="interval.set($any($event.target).value)"
+            placeholder="3m（留空=默认）"
+          />
+        </div>
+        <div class="row">
+          <span>容差 tolerance</span>
+          <input
+            type="number"
+            min="0"
+            [value]="tolerance()"
+            (input)="tolerance.set($any($event.target).value)"
+            placeholder="50（ms，留空=默认）"
+          />
+        </div>
+      }
+
+      <div class="rs-sec">成员（已勾 {{ members().length }} / {{ candidates().length }}）<span class="dim small">· 按勾选顺序</span></div>
+      <div class="rs-search">
+        <input
+          type="search"
+          [value]="q()"
+          (input)="q.set($any($event.target).value)"
+          (keydown.escape)="clearQ()"
+          placeholder="检索成员名 / 类型…"
+          aria-label="检索成员"
+        />
+        @if (q()) {
+          <button class="rs-clear" (click)="clearQ()" title="清空检索">✕</button>
+          <span class="dim small">{{ candidatesFiltered().length }} / {{ candidates().length }}</span>
+        }
+      </div>
+      <div class="gd-members">
+        @for (c of candidatesFiltered(); track c.tag) {
+          <label class="gd-row" [class.special]="c.special" [class.nested]="c.isGroup">
+            <input
+              type="checkbox"
+              [checked]="isMember(c.tag)"
+              (change)="toggleMember(c.tag, $any($event.target).checked)"
+            />
+            <span class="gd-tag">{{ c.tag }}</span>
+            <span class="gd-type">{{ c.isGroup ? '分组 · ' + c.type : c.type }}</span>
+          </label>
+        } @empty {
+          @if (q()) {
+            <div class="dim small">没有匹配「{{ q() }}」的成员</div>
+          } @else {
+            <div class="dim small">配置里没有可选的节点 / 分组</div>
+          }
+        }
+      </div>
+
+      @if (err()) {
+        <div class="modal-note bad">✗ {{ err() }}</div>
+      }
+
+      <div class="hint dim">
+        新分组追加在 outbounds 末尾（④ 列排在最后），成员按勾选顺序写入；嵌套分组也允许。
+        改动即时暂存到顶部「待保存条」，点「保存并重启」才写回路由。
+      </div>
+    </div>
+
+    <div class="modal-ft">
+      <button class="acc" (click)="submit()" [disabled]="!base()">创建并暂存</button>
+      <button (click)="close()">取消</button>
+      <span class="dim small">建好后可直接点 ④ 卡片继续改成员 / 类型</span>
+    </div>
+  </div>
+</div>

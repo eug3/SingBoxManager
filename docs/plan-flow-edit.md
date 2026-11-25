@@ -58,3 +58,59 @@ ng build 无 ERROR；浏览器：点 ③ 卡弹窗、拖/加/删 rs → 待保�
 - 故分组弹窗类型 select 增加第三项「负载均衡（urltest 严格最快·1m）」= 预设：type=urltest +
   tolerance=0 + interval=1m（check 通过）。以 tolerance===0 识别回显为 balance。
 - 界面注明：sing-box 无原生轮询负载均衡，此预设以 urltest 严格最快/故障切换近似。
+
+## 7. 列头 ＋ 新建（③ 规则集 / ④ 分组 / ⑤ 节点）+ 配置页简化（2026-11-25）
+
+**用户要求**：流向里规则集/分组/节点标题后面加 ＋ 号可新建，能复用的逻辑就复用；配置标签过于复杂，简化。
+
+### 7.1 列头 ＋
+
+- `flow-model.buildLayout` 给 ③④⑤ 的列头算一个 `add` 按钮几何（13×13 小方块 + 加号 path）：
+  紧贴标题末尾（标题宽度按 CJK 1em / 半角 0.56em 估算），右侧给计数 pill 让位；
+  ①②⑥（电脑/路由器/互联网）没有新建语义 → `add = null`。实测 1400/1024/900 宽都不与 pill 重叠。
+- `flow-anim` 渲染 `.fadd`（SVG `<g role=button>` + `<title>` 提示）并抛出
+  `addRule` / `addGroup` / `addNode`；点击先 `stopPropagation`，避免画布「点空白关 ⑤ 弹层」把弹窗收掉。
+- `backend-pane` 接收三个事件 → 打开对应新建弹窗，`docChange` 一律 `ConfigDraftService.stage`
+  （顶部待保存条，与 ③④ 编辑弹窗同一条链）。
+
+### 7.2 三个新建弹窗（都只产出 `ConfigDoc`，不直接写服务）
+
+| 弹窗 | 内容 | 复用的既有逻辑 |
+|---|---|---|
+| `rule-set-create-dialog` | tag / 类型 remote·local / format / url·path / update_interval / download_detour / 引用到哪个出站 | `config-ops.addRuleSet` + `addRuleSetRef`；URL 由「现有 remote 桶 URL 前缀 + tag + 扩展名」自动生成；`VaultService.listBuckets()` 查桶是否存在并提示 |
+| `group-create-dialog` | tag / 类型（selector、urltest、负载均衡预设）/ urltest 参数 / 成员勾选（含嵌套分组、DIRECT）/ 检索 | `config-ops.addGroup`（tag 重名自动 -2、成员必须存在）；成员列表与 `group-dialog` 同口径 |
+| `node-create-dialog` | 两页签：表单（按协议字段）/ 分享链接批量；两者共用「加入分组」 | `node-form.ts`（buildNode/formFromNode/emptyForm）+ `share-link.ts`（parseShareLinks）+ `config-ops.addNode/updateNode` |
+
+- ③ ＋ 必须同时写「定义」和「引用」：流向 ③ 的卡片来自 `route.rules`，只往 `route.rule_set`
+  塞定义不会出现在图上（`flow-model.buildStatic` 只按 rules+final 建有向图）。
+  引用写法与规则集弹窗一致：该出站已有 rule_set 规则就扩展数组，否则插在 final 兜底规则前。
+- 桶文件不在这里建（用户选定方案 A）：只查 `/rule-set/index` 提示「先到规则编辑建桶并发布 .srs，
+  否则路由拉取 404」，避免新建完路由日志刷 404。
+
+### 7.3 配置页简化（中度）
+
+- 修掉真 bug：`rule-selector` / `group-board` 原来在只读视图里被渲染两次（`config-pane.html`
+  200-207 与 393-400），两套实例各自一份「停用下标集合」，状态会打架；现在只保留一处。
+- 工具条从 8 个按钮收成三档：**刷新 / 编辑 JSON / 更多▾**（重启 sing-box、分流规则、分组看板、路由凭据）。
+- 节点新增/编辑从页面底部的内联长表单改成 `node-create-dialog`（与流向 ⑤ 同一个组件），
+  节点表只留检索框 + 「＋ 新增节点」+ 行内 编辑/删除，页面高度大幅缩短。
+- 导入分享链接不再是独立面板，移到节点弹窗的「分享链接导入」页签。
+- 顺手修掉一个类名撞车：流向右下角微型图面板的 `.mini` 与节点表小按钮 `button.mini`
+  同名，`position:absolute` 把「编辑/删除」吸到页面右下角、表格操作列变空；面板改名
+  `.flowmini`（HTML + CSS 5 个选择器），按钮恢复 `position:static` 留在单元格里。
+
+### 7.4 验收（2026-11-25，本地 mock + 无头 Chrome）
+
+- `ng build`（production）通过，仅既有 budget 警告（初始包 528.26 kB / 预算 500 kB；基线是 501.90 kB）。
+- 纯函数断言 12/12 PASS（esbuild 打包 config-ops 后直跑）：定义加入、引用插在兜底前、重复 tag 被拒、
+  字符串引用归一化成数组、local 缺 path 被拒、新分组追加末尾、重复分组名加 -2、member 不存在被拒等。
+- 无头浏览器（mock 8091 + 带 `/router/apply` 正文抓取的代理 8092）实测：
+  ① 流向页 3 个 ＋、1400/1024/900 宽均不与计数 pill 重叠；
+  ② ③ ＋ 建 `rs-mock-new` → URL 自动成 `http://x/rs-mock-new.srs` → 待保存条 → 保存并重启「✓ 保存成功」，
+     落盘 JSON 里出现定义 `{type:remote,tag,format:binary,url,update_interval:1m}` 且引用追加到该组已有 rule_set 数组；
+  ③ ④ ＋ 建「🧪 测试组」勾两个节点 → 落盘 `{type:selector,tag,outbounds:[两个节点]}`；
+  ④ ⑤ ＋ 表单建 `flow-new-node` 并勾「🚀 节点选择」→ 落盘 outbound + 已加入该组；
+  ⑤ ⑤ ＋ 分享链接页签：`ss://` 解析成功、坏 `vmess://` 逐条报错、「导入 N 个」计数正确；
+  ⑥ 配置页：工具条只剩 3 个、更多▾ 4 项、分流规则/分组看板各只 1 个实例、节点表检索 6→1 行、
+     行内「编辑」弹窗回填 tag/type/已勾 2 组、tag 禁用；配置页新建节点 → 跳到 diff 复核（+8/-0 行）；
+  ⑦ 回归：③ 卡片仍开规则集弹窗、⑤ 方格仍弹「激活/测速」固定层。

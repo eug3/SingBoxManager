@@ -45,6 +45,7 @@
   <div class="banner show">✗ {{ err() }}</div>
 }
 
+<!-- 工具条：只留三档 —— 刷新 / 编辑 JSON / 更多▾（重启、分流规则、分组看板、路由凭据） -->
 <div class="cfgbar">
   <span class="dim small">路由</span>
   <b>{{ host() }}</b>
@@ -54,15 +55,27 @@
   }
   <span class="spacer"></span>
   <button (click)="reload()" [disabled]="busy()">刷新</button>
-  <button (click)="restart()" [disabled]="busy() || !loaded()">重启 sing-box</button>
-  <button (click)="openAdd()" [disabled]="busy() || !loaded()">＋ 新增节点</button>
-  <button (click)="toggleImport()" [disabled]="busy() || !loaded()">导入分享链接</button>
-  <button (click)="rulesOpen.update(v => !v)" [disabled]="busy() || !loaded()">分流规则</button>
-  <button (click)="boardOpen.update(v => !v)" [disabled]="busy() || !loaded()">分组看板</button>
-  <button (click)="toggleCreds()" [disabled]="busy()">路由凭据</button>
   <button (click)="toggleEdit()" [disabled]="busy() || !loaded()">
     {{ editing() ? '退出编辑' : '编辑 JSON' }}
   </button>
+  <span class="cfgmorewrap">
+    <button (click)="moreOpen.set(!moreOpen())" [class.on]="moreOpen()" title="重启 / 分流规则 / 分组看板 / 路由凭据">
+      更多 ▾
+    </button>
+    @if (moreOpen()) {
+      <div class="cfgmoremask" (click)="moreOpen.set(false)"></div>
+      <div class="cfgmoremenu">
+        <button (click)="restart(); moreOpen.set(false)" [disabled]="busy() || !loaded()">重启 sing-box</button>
+        <button (click)="rulesOpen.update((v) => !v); moreOpen.set(false)" [disabled]="busy() || !loaded()">
+          {{ rulesOpen() ? '收起分流规则' : '分流规则' }}
+        </button>
+        <button (click)="boardOpen.update((v) => !v); moreOpen.set(false)" [disabled]="busy() || !loaded()">
+          {{ boardOpen() ? '收起分组看板' : '分组看板' }}
+        </button>
+        <button (click)="toggleCreds(); moreOpen.set(false)" [disabled]="busy()">路由凭据</button>
+      </div>
+    }
+  </span>
 </div>
 
 @if (pending()) {
@@ -130,44 +143,7 @@
   </div>
 }
 
-<!-- ===== 导入分享链接 ===== -->
-@if (importOpen()) {
-  <div class="cfgpanel">
-    <div class="cfgphead">导入分享链接（每行一个：ss / vmess / vless / trojan / hysteria2 / socks）</div>
-    <textarea
-      class="cfgimport"
-      rows="5"
-      placeholder="ss://... &#10;vmess://... &#10;vless://...#香港节点"
-      [value]="importText()"
-      (input)="onImportText($any($event.target).value)"
-    ></textarea>
-    @if (importResult().length) {
-      <div class="cfgimpres">
-        @for (r of importResult(); track $index) {
-          <div [class.bad]="!r.ok">
-            {{ r.ok ? '✓' : '✗' }} {{ r.ok ? r.node?.['tag'] : r.error }}
-            <span class="dim small">{{ r.ok ? (r.node?.['type'] + ' · ' + r.node?.['server'] + ':' + r.node?.['server_port']) : r.link.slice(0, 60) }}</span>
-          </div>
-        }
-      </div>
-      <div class="cfgimpgroups">
-        <span class="dim small">加入分组：</span>
-        @for (g of groupNames(); track g) {
-          <label class="chk">
-            <input type="checkbox" [checked]="importGroups().includes(g)" (change)="toggleImportGroup(g, $any($event.target).checked)" />
-            {{ g }}
-          </label>
-        }
-      </div>
-      <div class="cfgactions">
-        <button class="acc" (click)="importAll()" [disabled]="busy()">导入 {{ importResult().length }} 个</button>
-        <button (click)="toggleImport()">取消</button>
-      </div>
-    }
-  </div>
-}
-
-<!-- ===== 编辑视图 ===== -->
+<!-- ===== 编辑视图：整份 config.json + diff + 结构预检 ===== -->
 @if (editing()) {
   <div class="cfgwarn">
     ⚠ 编辑的是整份 <code>config.json</code>（含节点密钥/UUID）。保存会写回 {{ host() }} 并重启 sing-box（约 1 秒断流，失败自动回滚）。
@@ -197,18 +173,32 @@
     </div>
   }
 } @else if (loaded()) {
-  <!-- ===== 分流规则选择器（基准=原始配置；停用/启用=改 config 结构，需重启） ===== -->
+  <!-- 分流规则（只读开关；基准=当前文档） -->
   @if (rulesOpen()) {
     <app-rule-selector [base]="workDoc()" (docChange)="onRulesDoc($event)" />
   }
-  <!-- ===== 分组看板（基准=原始配置；拖拽改分组成员=改 config 结构，需重启） ===== -->
+  <!-- 分组看板（拖拽改分组成员；基准=当前文档） -->
   @if (boardOpen()) {
     <app-group-board [base]="workDoc()" (docChange)="onBoardDoc($event)" />
   }
+
+  <!-- 节点表：检索 + 新增（新增/编辑走与流向 ⑤ 同一套弹窗） -->
   <div class="cfgnodes">
     <div class="cfgnodeshd">
-      <span>条目 {{ nodeRows().length }} 个（代理节点 + endpoints，末尾含 direct/block 等特殊出站）</span>
-      <span class="dim small">凭证已掩码；改配置点「编辑 JSON」或上面的表单</span>
+      <span>条目 {{ nodeRowsFiltered().length }} / {{ nodeRows().length }} 个<span class="dim small">（代理节点 + endpoints，末尾含 direct/block 等特殊出站）</span></span>
+      <span class="cfgsearchbox">
+        <input
+          type="search"
+          [value]="nodeQ()"
+          (input)="nodeQ.set($any($event.target).value)"
+          placeholder="检索 tag / 类型 / 服务器 / 分组…"
+          aria-label="检索节点"
+        />
+        @if (nodeQ()) {
+          <button class="rs-clear" (click)="nodeQ.set('')" title="清空检索">✕</button>
+        }
+      </span>
+      <button (click)="openNodeAdd()" [disabled]="busy() || !loaded()">＋ 新增节点</button>
     </div>
     <div class="tblwrap" style="max-height: 360px; overflow: auto">
       <table>
@@ -216,7 +206,7 @@
           <tr><th>标签</th><th>类型</th><th>服务器</th><th>凭证</th><th>所属组</th><th>route 引用</th><th>操作</th></tr>
         </thead>
         <tbody>
-          @for (n of nodeRows(); track n.tag) {
+          @for (n of nodeRowsFiltered(); track n.tag) {
             <tr>
               <td>{{ n.tag }}</td>
               <td><span class="tag">{{ n.type }}</span></td>
@@ -226,7 +216,7 @@
               <td class="dim small">{{ n.routeRefs || '—' }}</td>
               <td class="nowrap">
                 @if (!n.special) {
-                  <button class="mini" (click)="openEdit(n.tag)" [disabled]="busy()">编辑</button>
+                  <button class="mini" (click)="openNodeEdit(n.tag)" [disabled]="busy()">编辑</button>
                   <button class="mini danger" (click)="askDelete(n.tag)" [disabled]="busy()">删除</button>
                 } @else {
                   <span class="dim small">—</span>
@@ -234,7 +224,7 @@
               </td>
             </tr>
           } @empty {
-            <tr><td colspan="7" class="dim small">没有解析到节点</td></tr>
+            <tr><td colspan="7" class="dim small">{{ nodeQ() ? '没有匹配的条目' : '没有解析到节点' }}</td></tr>
           }
         </tbody>
       </table>
@@ -242,162 +232,15 @@
   </div>
 }
 
-<!-- ===== 节点表单 ===== -->
-@if (formMode() !== 'none') {
-  <div class="cfgpanel" id="cfg-form">
-    <div class="cfgphead">{{ formMode() === 'add' ? '新增节点' : '编辑节点 ' + editingTag() }}</div>
-    <div class="cfgform">
-      <label>
-        <span>标签 tag</span>
-        <input [value]="form().tag" (input)="patch('tag', $any($event.target).value)" [disabled]="formMode() === 'edit'" placeholder="唯一，如 hk-01" />
-      </label>
-      <label>
-        <span>类型</span>
-        <select [value]="form().type" (change)="patch('type', $any($event.target).value)" [disabled]="formMode() === 'edit'">
-          @for (t of nodeTypes; track t) {
-            <option [value]="t" [selected]="t === form().type">{{ t }}</option>
-          }
-        </select>
-      </label>
-      <label>
-        <span>服务器</span>
-        <input [value]="form().server" (input)="patch('server', $any($event.target).value)" placeholder="domain 或 IP" />
-      </label>
-      <label>
-        <span>端口</span>
-        <input type="number" [value]="form().server_port" (input)="patch('server_port', +$any($event.target).value)" />
-      </label>
-
-      @switch (form().type) {
-        @case ('shadowsocks') {
-          <label>
-            <span>method</span>
-            <input [value]="form().method" (input)="patch('method', $any($event.target).value)" />
-          </label>
-          <label>
-            <span>password</span>
-            <input type="password" [value]="form().password" (input)="patch('password', $any($event.target).value)" />
-          </label>
-        }
-        @case ('vmess') {
-          <label class="wide">
-            <span>uuid</span>
-            <input [value]="form().uuid" (input)="patch('uuid', $any($event.target).value)" />
-          </label>
-          <label>
-            <span>security</span>
-            <select [value]="form().security" (change)="patch('security', $any($event.target).value)">
-              @for (s of ['auto', 'aes-128-gcm', 'chacha20-poly1305', 'none']; track s) {
-                <option [value]="s" [selected]="s === form().security">{{ s }}</option>
-              }
-            </select>
-          </label>
-          <label>
-            <span>alter_id</span>
-            <input type="number" [value]="form().alter_id" (input)="patch('alter_id', +$any($event.target).value)" />
-          </label>
-        }
-        @case ('vless') {
-          <label class="wide">
-            <span>uuid</span>
-            <input [value]="form().uuid" (input)="patch('uuid', $any($event.target).value)" />
-          </label>
-          <label>
-            <span>flow（可空）</span>
-            <input [value]="form().flow" (input)="patch('flow', $any($event.target).value)" placeholder="xtls-rprx-vision" />
-          </label>
-        }
-        @case ('socks') {
-          <label>
-            <span>版本</span>
-            <select [value]="form().socks_version" (change)="patch('socks_version', $any($event.target).value)">
-              <option value="5" [selected]="form().socks_version === '5'">5</option>
-              <option value="4" [selected]="form().socks_version === '4'">4</option>
-            </select>
-          </label>
-          <label>
-            <span>用户名（可空）</span>
-            <input [value]="form().uuid" (input)="patch('uuid', $any($event.target).value)" />
-          </label>
-          <label>
-            <span>密码（可空）</span>
-            <input type="password" [value]="form().password" (input)="patch('password', $any($event.target).value)" />
-          </label>
-        }
-        @default {
-          <label class="wide">
-            <span>密码 / token</span>
-            <input type="password" [value]="form().password" (input)="patch('password', $any($event.target).value)" />
-          </label>
-        }
-      }
-
-      @if (form().type !== 'shadowsocks' && form().type !== 'socks') {
-        <label class="chkline">
-          <input type="checkbox" [checked]="form().tls" (change)="patch('tls', $any($event.target).checked)" />
-          TLS
-        </label>
-        @if (form().tls) {
-          <label>
-            <span>SNI（可空=服务器名）</span>
-            <input [value]="form().tls_server_name" (input)="patch('tls_server_name', $any($event.target).value)" />
-          </label>
-          <label class="chkline">
-            <input type="checkbox" [checked]="form().tls_insecure" (change)="patch('tls_insecure', $any($event.target).checked)" />
-            跳过证书校验 (insecure)
-          </label>
-        }
-        <label>
-          <span>传输</span>
-          <select [value]="form().transport" (change)="patch('transport', $any($event.target).value)">
-            <option value="none" [selected]="form().transport === 'none'">tcp</option>
-            <option value="ws" [selected]="form().transport === 'ws'">ws</option>
-            <option value="grpc" [selected]="form().transport === 'grpc'">grpc</option>
-          </select>
-        </label>
-        @if (form().transport === 'ws') {
-          <label>
-            <span>ws path</span>
-            <input [value]="form().transport_path" (input)="patch('transport_path', $any($event.target).value)" />
-          </label>
-        }
-        @if (form().transport === 'grpc') {
-          <label>
-            <span>grpc service_name</span>
-            <input [value]="form().transport_service" (input)="patch('transport_service', $any($event.target).value)" />
-          </label>
-        }
-      }
-    </div>
-
-    <div class="cfgimpgroups">
-      <span class="dim small">加入分组：</span>
-      @for (g of groupNames(); track g) {
-        <label class="chk">
-          <input type="checkbox" [checked]="formGroups().includes(g)" (change)="toggleFormGroup(g, $any($event.target).checked)" />
-          {{ g }}
-        </label>
-      }
-    </div>
-
-    <div class="cfgactions">
-      <button class="acc" (click)="submitForm()" [disabled]="busy()">
-        {{ formMode() === 'add' ? '生成新配置' : '保存修改' }}
-      </button>
-      <button (click)="cancelForm()">取消</button>
-      <span class="dim small">保存只是暂存，页面顶部会出现「已暂存变更」，点「应用并重启」才写回路由</span>
-    </div>
-  </div>
+<!-- ===== 节点新增/编辑弹窗（表单 / 分享链接两页签；产出新文档走暂存复核） ===== -->
+@if (nodeDialog()) {
+  <app-node-create-dialog
+    [base]="doc()"
+    [editing]="nodeEditing()"
+    (docChange)="onNodeDoc($event)"
+    (closed)="closeNodeDialog()"
+  />
 }
-
-  <!-- ===== 分流规则选择器（基准=当前文档；停用/启用=改 config 结构，需重启） ===== -->
-  @if (rulesOpen()) {
-    <app-rule-selector [base]="workDoc()" (docChange)="onRulesDoc($event)" />
-  }
-  <!-- ===== 分组看板（基准=当前文档；拖拽改分组成员=改 config 结构，需重启） ===== -->
-  @if (boardOpen()) {
-    <app-group-board [base]="workDoc()" (docChange)="onBoardDoc($event)" />
-  }
 
 @if (log()) {
   <pre class="cfglog">{{ log() }}</pre>

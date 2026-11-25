@@ -1,0 +1,107 @@
+<!-- ③ 列头「＋」新建规则集：写 route.rule_set 定义 + 引用到出站（一次到位，③ 立即出现新卡） -->
+<div class="modal-mask" (click)="onMask($event)">
+  <div class="modal" role="dialog" aria-modal="true" aria-label="新建规则集">
+    <div class="modal-hd">
+      <b>＋ 新建规则集</b>
+      <span class="dim small">写 config 定义并引用到出站</span>
+      <button class="x" (click)="close()" title="关闭">✕</button>
+    </div>
+
+    <div class="modal-body">
+      <div class="row">
+        <span>规则集 tag（桶名）</span>
+        <input
+          type="text"
+          [value]="tag()"
+          (input)="setTag($any($event.target).value)"
+          placeholder="rs-openai（与 NAS 桶同名）"
+        />
+      </div>
+
+      <div class="row">
+        <span>类型</span>
+        <select [value]="type()" (change)="setType($any($event.target).value)">
+          <option value="remote">remote（从 URL 定时拉取，内容更新免重启）</option>
+          <option value="local">local（读路由本机文件，改内容需重启）</option>
+        </select>
+      </div>
+
+      @if (type() === 'remote') {
+        <div class="row">
+          <span>格式 format</span>
+          <select [value]="format()" (change)="setFormat($any($event.target).value)">
+            <option value="binary">binary（.srs，编译后的二进制）</option>
+            <option value="source">source（.json，源规则）</option>
+          </select>
+        </div>
+        <div class="row">
+          <span>URL</span>
+          <input
+            type="text"
+            [value]="url()"
+            (input)="setUrl($any($event.target).value)"
+            [placeholder]="urlPlaceholder()"
+          />
+        </div>
+        <div class="row">
+          <span>更新间隔</span>
+          <input
+            type="text"
+            [value]="interval()"
+            (input)="interval.set($any($event.target).value)"
+            placeholder="1m（留空=sing-box 默认）"
+          />
+        </div>
+        <div class="row">
+          <span>下载出站（可空）</span>
+          <input
+            type="text"
+            [value]="detour()"
+            (input)="detour.set($any($event.target).value)"
+            placeholder="留空=走 default；可填 DIRECT 或某个分组"
+          />
+        </div>
+      } @else {
+        <div class="row">
+          <span>本机路径 path</span>
+          <input
+            type="text"
+            [value]="path()"
+            (input)="path.set($any($event.target).value)"
+            placeholder="/etc/sing-box/rule-set/xxx.srs"
+          />
+        </div>
+      }
+
+      <div class="row">
+        <span>引用到出站</span>
+        <select [value]="outbound()" (change)="outbound.set($any($event.target).value)">
+          @for (t of targets(); track t.tag) {
+            <option [value]="t.tag" [selected]="t.tag === outbound()">{{ t.label }}</option>
+          } @empty {
+            <option value="">（没有可引用的出站：先去 ④ 新建分组）</option>
+          }
+        </select>
+      </div>
+
+      @if (bucketWarning()) {
+        <div class="modal-note warn">⚠ {{ bucketWarning() }}</div>
+      }
+
+      @if (err()) {
+        <div class="modal-note bad">✗ {{ err() }}</div>
+      }
+
+      <div class="hint dim">
+        只写 config 里的规则集定义与引用，不在这里建桶文件；桶内容仍去「规则编辑」里改并发布。
+        改动即时暂存到顶部「待保存条」，点「保存并重启」才写回路由。
+      </div>
+    </div>
+
+    <div class="modal-ft">
+      <button class="acc" (click)="submit()" [disabled]="!base()">创建并暂存</button>
+      <button (click)="close()">取消</button>
+      <span class="dim small">保存并重启后 ③ 才会出现「出站[桶名]」卡片</span>
+    </div>
+  </div>
+</div>

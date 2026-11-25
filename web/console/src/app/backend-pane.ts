@@ -30,12 +30,15 @@ import { Connections } from './connections';
 import { FlowAnim } from './flow-anim';
 import { RuleSetDialog } from './rule-set-dialog';
 import { GroupDialog } from './group-dialog';
+import { RuleSetCreateDialog } from './rule-set-create-dialog';
+import { GroupCreateDialog } from './group-create-dialog';
+import { NodeCreateDialog } from './node-create-dialog';
 import { SshCredDialog } from './ssh-cred-dialog';
 import { ConfigDraftService } from './config-draft.service';
 import { LiveStatService } from './live-stat.service';
 import { ConfirmService } from './confirm.service';
 import { ToastService } from './toast.service';
-import { groups, validateDoc, serializeConfig } from './config-ops';
+import { ConfigDoc, groups, validateDoc, serializeConfig } from './config-ops';
 import { ClashService } from './clash.service';
 import { fmtBytes, latClass, latText, runPool } from './util';
 import { SaveProgressDialog } from './save-progress';
@@ -58,6 +61,9 @@ interface LogLine {
     FlowAnim,
     RuleSetDialog,
     GroupDialog,
+    RuleSetCreateDialog,
+    GroupCreateDialog,
+    NodeCreateDialog,
     SshCredDialog,
   ],
   templateUrl: './backend-pane.html',
@@ -125,6 +131,10 @@ export class BackendPane implements OnDestroy {
   readonly editRuleTag = signal<string | null>(null);
   /** ④ 分组弹窗正在编辑的分组 tag（null = 弹窗关闭） */
   readonly editGroupTag = signal<string | null>(null);
+  /** ③④⑤ 列头「＋」的新建弹窗开关（规则集 / 分组 / 节点） */
+  readonly createRuleOpen = signal(false);
+  readonly createGroupOpen = signal(false);
+  readonly createNodeOpen = signal(false);
   /** SSH 凭据弹窗（save 发现缺凭据时打开；saved 后自动重试保存） */
   readonly credOpen = signal(false);
 
@@ -222,6 +232,9 @@ export class BackendPane implements OnDestroy {
       this.bsvc.globalKey();
       this.editRuleTag.set(null);
       this.editGroupTag.set(null);
+      this.createRuleOpen.set(false);
+      this.createGroupOpen.set(false);
+      this.createNodeOpen.set(false);
       this.credOpen.set(false);
       // 头部统计条只认这一个订阅：后端/密钥变了就退旧订新（连接页/流向图各自另订，服务内部合并成一条轮询）
       this.unsubLive?.();
@@ -464,6 +477,15 @@ export class BackendPane implements OnDestroy {
   openGroup(tag: string): void {
     if (!this.hasGroup(tag)) return;
     this.editGroupTag.set(tag);
+  }
+
+  /** 新建弹窗的编辑基准：当前草稿优先，否则刚读到的配置（与 ③④ 编辑弹窗同一口径） */
+  readonly workDoc = computed<ConfigDoc | null>(() => this.draft.draft() ?? this.draft.baseDoc());
+
+  /** 新建弹窗产出新文档 → 暂存到全局草稿（顶部待保存条），点「保存并重启」才写回路由 */
+  onCreateDoc(doc: ConfigDoc): void {
+    this.draft.stage(doc);
+    this.toast.ok('已暂存改动：点顶部「保存并重启」才写回路由');
   }
 
   /** 当前配置（草稿优先，否则已保存基准）里是否存在该 tag 的分组 */

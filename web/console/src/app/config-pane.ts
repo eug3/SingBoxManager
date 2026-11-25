@@ -5,36 +5,32 @@ import { BackendsService } from './backends.service';
 import { MonacoEditorComponent } from './monaco-editor';
 import { RuleSelector } from './rule-selector';
 import { GroupBoard } from './group-board';
-import { AnyObj, ConfigDoc, addNode, deleteImpact, deleteNode, findNode, groups, nodes, parseConfig, serializeConfig, updateNode, validateDoc } from './config-ops';
-import { ParsedNode, parseShareLinks } from './share-link';
-import { NodeForm, NODE_TYPES, buildNode, emptyForm, formFromNode } from './node-form';
+import { NodeCreateDialog } from './node-create-dialog';
+import { ConfigDoc, deleteImpact, deleteNode, groups, nodes, parseConfig, serializeConfig, validateDoc } from './config-ops';
 import { lineDiff } from './line-diff';
 import { errMsg } from './util';
 import { ConfirmService } from './confirm.service';
-
-/** 节点表单状态机：none=关闭 / add=新增 / edit=编辑既有节点 */
-type FormMode = 'none' | 'add' | 'edit';
 
 /**
  * 「配置」子页 — 路由 config.json 的状态编排（本组件只管状态与交互）：
  *
  *   连接门禁（缺 clash 密钥/SSH 凭据时像登录页一样要求补填）
  *   → 读取（记录原文 sha256，作为 apply 的乐观锁基准）
- *   → 只读节点表 / 节点表单增删改 / 分享链接导入 / Monaco 手改
+ *   → 只读节点表（新增/编辑走 NodeCreateDialog，与流向 ⑤ 同一套）/ Monaco 手改
  *   → 所有改动先「暂存」：enterReview 把文档序列化回文本，黄色横幅 + diff 预览
  *   → 校验（本地 JSON/结构预检 + 路由上 sing-box check）
  *   → 应用并重启（99 编排，expectSha 防并发覆盖，失败自动回滚）/ 撤销还原
  *
+ * 工具条收成三档：刷新 / 编辑 JSON / 更多▾（重启、分流规则、分组看板、路由凭据）。
  * 面板接入：分流规则 rule-selector 与分组看板 group-board 都产出新 ConfigDoc，
- * 统一走暂存复核管线；另有路由 SSH 凭据面板（只提交给 99 落盘，不存浏览器）
- * 与分享链接导入（share-link.ts 解析后批量 addNode）。
+ * 统一走暂存复核管线；节点增删改走 NodeCreateDialog（表单 / 分享链接两页签）。
  *
  * 结构化编辑逻辑在 config-ops.ts，表单转换在 node-form.ts，diff 在 line-diff.ts。
  */
 @Component({
   selector: 'app-config-pane',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [MonacoEditorComponent, RuleSelector, GroupBoard],
+  imports: [MonacoEditorComponent, RuleSelector, GroupBoard, NodeCreateDialog],
   templateUrl: './config-pane.html',
 })
 export class ConfigPane {
@@ -58,25 +54,19 @@ export class ConfigPane {
   readonly err = signal('');      // 红色错误横幅内容
   readonly log = signal('');      // 底部操作日志（读取/校验/应用/重启结果）
   readonly loaded = signal(false); // 是否成功读到过配置（只读表与多数按钮的前提）
+  /** 「更多▾」菜单开关（重启 / 分流规则 / 分组看板 / 路由凭据） */
+  readonly moreOpen = signal(false);
 
-  // —— 节点表单（模型/转换见 node-form.ts）——
-  readonly formMode = signal<FormMode>('none'); // 表单状态机：none→add/edit→提交后回 none
-  readonly form = signal<NodeForm>(emptyForm()); // 表单字段值（patch 单字段受控更新）
-  readonly formGroups = signal<string[]>([]); // 表单勾选的分组归属
-  readonly editingTag = signal(''); // edit 模式下正在改的节点 tag（add 模式为空）
-  readonly nodeTypes = NODE_TYPES;  // 类型下拉的可选协议清单
+  // —— 节点新增/编辑弹窗（表单与分享链接都在弹窗里，见 node-create-dialog.ts）——
+  readonly nodeDialog = signal(false);       // 弹窗开关
+  readonly nodeEditing = signal<string | null>(null); // null = 新增；有值 = 编辑该 tag
+  readonly nodeQ = signal('');               // 节点表检索词
 
   // —— 分流规则选择器（面板在页面底部；基准=当前文本 workDoc，产出新文档走暂存）——
   readonly rulesOpen = signal(false); // 分流规则面板开关
 
   // —— 分组看板（拖拽改分组成员=改 config 结构，同样走暂存复核）——
   readonly boardOpen = signal(false); // 分组看板面板开关
-
-  // —— 分享链接导入（解析见 share-link.ts）——
-  readonly importOpen = signal(false); // 导入面板开关
-  readonly importText = signal('');    // 粘贴的链接文本（每行一个）
-  readonly importGroups = signal<string[]>([]); // 导入节点要加入的分组
-  readonly importResult = signal<ParsedNode[]>([]); // 逐行解析结果（成功/失败预览）
 
   // —— 连接门禁（连不上时像登录页一样要求填凭据）——
   readonly gate = signal(false);      // true=显示连接页，遮住整个子页
@@ -150,7 +140,21 @@ export class ConfigPane {
     return d ? nodes(d) : [];
   });
 
-  /** 现有分组 tag 清单（节点表单/导入面板的勾选项） */
+  /** 检索后的节点表行（匹配 tag / 类型 / 服务器 / 所属组，不区分大小写） */
+  readonly nodeRowsFiltered = computed(() => {
+    const kw = this.nodeQ().trim().toLowerCase();
+    const all = this.nodeRows();
+    if (!kw) return all;
+    return all.filter(
+      (n) =>
+        n.tag.toLowerCase().includes(kw) ||
+        n.type.toLowerCase().includes(kw) ||
+        n.server.toLowerCase().includes(kw) ||
+        n.groups.some((g) => g.toLowerCase().includes(kw)),
+    );
+  });
+
+  /** 现有分组 tag 清单（节点弹窗/看板用） */
   readonly groupNames = computed(() => {
     const d = this.doc();
     return d ? groups(d).map((g) => String(g['tag'])) : [];
@@ -339,81 +343,34 @@ export class ConfigPane {
     }
   }
 
-  // ---------- 节点表单：新增 / 编辑 ----------
+  // ---------- 节点：新增 / 编辑（弹窗见 node-create-dialog.ts）----------
 
-  /** 打开新增表单：配置解析失败时拒绝（表单编辑依赖结构化文档） */
-  openAdd(): void {
+  /** 打开「新增节点」弹窗（解析失败时拒绝：弹窗依赖结构化文档） */
+  openNodeAdd(): void {
     if (!this.doc()) {
       this.err.set('当前配置无法解析，无法用表单编辑；请先修好 JSON');
       return;
     }
-    this.editingTag.set('');
-    this.form.set(emptyForm());
-    this.formGroups.set([]);
-    this.formMode.set('add');
-    this.scrollFormIntoView();
+    this.nodeEditing.set(null);
+    this.nodeDialog.set(true);
   }
 
-  /** 打开编辑表单：按 tag 找到节点回填字段，并预勾当前分组归属 */
-  openEdit(tag: string): void {
-    const d = this.doc();
-    if (!d) return;
-    const o = findNode(d, tag);
-    if (!o) return;
-    this.editingTag.set(tag);
-    this.form.set(formFromNode(tag, o));
-    // 编辑模式预勾当前归属，取消勾选 = 从该组移除（updateNode 会联动 default）
-    this.formGroups.set(groups(d).filter((g) => (g['outbounds'] as string[] | undefined)?.includes(tag)).map((g) => String(g['tag'])));
-    this.formMode.set('edit');
-    this.scrollFormIntoView();
+  /** 打开「编辑节点」弹窗（按 tag 回填） */
+  openNodeEdit(tag: string): void {
+    if (!this.doc()) return;
+    this.nodeEditing.set(tag);
+    this.nodeDialog.set(true);
   }
 
-  /** 关闭表单，丢弃未提交的字段值 */
-  cancelForm(): void {
-    this.formMode.set('none');
+  /** 弹窗产出新文档 → 暂存复核（与规则/看板同一条管线） */
+  onNodeDoc(d: ConfigDoc): void {
+    this.nodeDialog.set(false);
+    this.enterReview(d);
   }
 
-  /** 受控更新单个表单字段（模板里所有 input/select 都走这里） */
-  patch<K extends keyof NodeForm>(key: K, value: NodeForm[K]): void {
-    this.form.update((f) => ({ ...f, [key]: value }));
-  }
-
-  /** 表单里勾选/取消分组归属（取消=提交时从该组移除，default 由 updateNode 联动） */
-  toggleFormGroup(name: string, on: boolean): void {
-    this.formGroups.update((list) => this.toggledName(list, name, on));
-  }
-
-  /** 增/删一个分组名（去重追加；取消则移除），返回新数组不改入参 */
-  private toggledName(list: string[], name: string, on: boolean): string[] {
-    const has = list.includes(name);
-    if (on && !has) return [...list, name];
-    if (!on && has) return list.filter((x) => x !== name);
-    return list;
-  }
-
-  /** 提交表单：校验 + 组装（node-form.ts）→ 写进文档 → 进入暂存复核 */
-  submitForm(): void {
-    const d = this.doc();
-    if (!d) return;
-    const built = buildNode(this.form());
-    if (!built.ok) {
-      this.err.set(built.error);
-      return;
-    }
-    try {
-      if (this.formMode() === 'add') {
-        const tag = addNode(d, built.node, this.formGroups());
-        this.log.set(`已生成新节点 ${tag}（尚未应用，先看 diff 再点「应用并重启」）`);
-      } else {
-        const tag = this.editingTag();
-        updateNode(d, tag, built.node, this.formGroups());
-        this.log.set(`已修改节点 ${tag}（尚未应用）`);
-      }
-      this.formMode.set('none');
-      this.enterReview(d);
-    } catch (e) {
-      this.err.set((e as Error).message);
-    }
+  /** 关闭节点弹窗 */
+  closeNodeDialog(): void {
+    this.nodeDialog.set(false);
   }
 
   // ---------- 删除（引用联动，见 config-ops.deleteImpact/deleteNode）----------
@@ -448,38 +405,6 @@ export class ConfigPane {
     } catch (e) {
       this.err.set((e as Error).message);
     }
-  }
-
-  // ---------- 分享链接导入（解析见 share-link.ts）----------
-
-  toggleImport(): void {
-    this.importOpen.update((v) => !v);
-  }
-
-  onImportText(v: string): void {
-    this.importText.set(v);
-    this.importResult.set(parseShareLinks(v));
-  }
-
-  toggleImportGroup(name: string, on: boolean): void {
-    this.importGroups.update((list) => (on ? [...new Set([...list, name])] : list.filter((x) => x !== name)));
-  }
-
-  importAll(): void {
-    const d = this.doc();
-    if (!d) return;
-    const good = this.importResult().filter((r) => r.ok && r.node);
-    if (!good.length) {
-      this.err.set('没有可导入的链接（检查格式或协议是否支持）');
-      return;
-    }
-    const tags: string[] = [];
-    for (const r of good) tags.push(addNode(d, r.node as AnyObj, this.importGroups()));
-    this.log.set(`已导入 ${tags.length} 个节点：${tags.join('、')}（尚未应用）`);
-    this.importOpen.set(false);
-    this.importText.set('');
-    this.importResult.set([]);
-    this.enterReview(d);
   }
 
   // ---------- 分流规则选择器（模型见 rule-model.ts，交互见 rule-selector.ts）----------
@@ -562,12 +487,5 @@ export class ConfigPane {
   private enterReview(d: ConfigDoc): void {
     this.raw.set(serializeConfig(d, this.original()));
     this.editing.set(true);
-  }
-
-  /** 表单在清单下方，打开时滚到可见处 */
-  private scrollFormIntoView(): void {
-    setTimeout(() => {
-      document.getElementById('cfg-form')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    }, 60);
   }
 }

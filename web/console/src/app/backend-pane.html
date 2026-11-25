@@ -145,6 +145,9 @@
       [backend]="backend()"
       (editRule)="openRule($event)"
       (editGroup)="openGroup($event)"
+      (addRule)="createRuleOpen.set(true)"
+      (addGroup)="createGroupOpen.set(true)"
+      (addNode)="createNodeOpen.set(true)"
     />
   }
 
@@ -214,6 +217,28 @@
 }
 @if (editGroupTag(); as tag) {
   <app-group-dialog [group]="tag" [backend]="backend()" (closed)="editGroupTag.set(null)" />
+}
+<!-- ③④⑤ 列头「＋」的新建弹窗：产出新文档 → 暂存到全局草稿（与编辑弹窗同一条待保存条） -->
+@if (createRuleOpen()) {
+  <app-rule-set-create-dialog
+    [base]="workDoc()"
+    (docChange)="onCreateDoc($event)"
+    (closed)="createRuleOpen.set(false)"
+  />
+}
+@if (createGroupOpen()) {
+  <app-group-create-dialog
+    [base]="workDoc()"
+    (docChange)="onCreateDoc($event)"
+    (closed)="createGroupOpen.set(false)"
+  />
+}
+@if (createNodeOpen()) {
+  <app-node-create-dialog
+    [base]="workDoc()"
+    (docChange)="onCreateDoc($event)"
+    (closed)="createNodeOpen.set(false)"
+  />
 }
 <!-- 保存进度弹窗：保存并重启的每一步（读取/上传/校验/重启/健康检查）都有明确状态 -->
 @if (saveState(); as st) {

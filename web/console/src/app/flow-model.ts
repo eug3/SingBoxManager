@@ -1491,6 +1491,19 @@ export interface FlowBandGeom {
   members: number;
 }
 
+/** 列头「＋」按钮几何（③④⑤ 才有；点它新建对应条目） */
+export interface FlowAddGeom {
+  /** 按钮左上角（画布坐标） */
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  /** 加号图标的 path（两条线，省得模板里拼） */
+  d: string;
+  /** 悬停提示（SVG <title>） */
+  tip: string;
+}
+
 /** 列头几何（含右侧圆角计数 pill） */
 export interface FlowColGeom {
   key: FlowCol;
@@ -1512,6 +1525,10 @@ export interface FlowColGeom {
   pillText: string;
   /** 标题字号（窄列缩小一号） */
   titlePx: number;
+  /** 是否画右侧计数 pill：列太窄、＋ 与 pill 挤不下时让 pill 让位（总数在顶部统计条仍有） */
+  showPill: boolean;
+  /** 标题后面的「＋」新建按钮（①②⑥ 为 null） */
+  add: FlowAddGeom | null;
 }
 
 /** 节点块几何 */
@@ -1651,6 +1668,43 @@ const COL_WIDTH: Record<FlowCol, { min: number; max: number; weight: number }> =
 };
 
 const round1 = (n: number): number => Math.round(n * 10) / 10;
+
+/** ③④⑤ 列头「＋」按钮的悬停提示（①②⑥ 没有新建语义 → 不画按钮） */
+const ADD_TIPS: Partial<Record<FlowCol, string>> = {
+  rule: '新建规则集：写 config 定义并引用到某个出站',
+  group: '新建分组：selector / urltest，可勾成员',
+  node: '新建节点：表单或分享链接，可加入分组',
+};
+
+/** 标题文本宽度估算：CJK ≈ 1em、半角 ≈ 0.56em（列标题是固定短词，够用） */
+function titleWidth(s: string, px: number): number {
+  let n = 0;
+  for (const ch of s) n += (ch.codePointAt(0) ?? 0) > 0x2e80 ? 1 : 0.56;
+  return n * px;
+}
+
+/**
+ * 列头标题后面的「＋」按钮几何：紧贴标题末尾（固定 6px 间距，不压文字）。
+ * 列太窄、和右侧计数 pill 撞上时由调用方把 pill 藏掉（见下面 showPill 的判定）。
+ */
+function addButton(col: FlowCol, colX: number, mark: string, title: string, titlePx: number): FlowAddGeom | null {
+  const tip = ADD_TIPS[col];
+  if (!tip) return null;
+  const w = 13;
+  const h = 13;
+  const y = round1(FLOW_GEO.topGap + 6);
+  const x = round1(colX + 25 + titleWidth(`${mark} ${title}`, titlePx) + 6);
+  const cx = round1(x + w / 2);
+  const cy = round1(y + h / 2);
+  return {
+    x,
+    y,
+    w,
+    h,
+    d: `M${cx} ${round1(y + 3)}V${round1(y + h - 3)}M${round1(x + 3)} ${cy}H${round1(x + w - 3)}`,
+    tip,
+  };
+}
 
 /** 延时（ms）→ 色档；<=0 / 非数字 = 未测速（不画点） */
 export function latStateOf(delay: number | null | undefined): LatState {
@@ -1853,7 +1907,7 @@ export function buildLayout(flow: FlowLayout, size: FlowSize): FlowGeom {
     anchors.set(key, { x0: round1(x0), x1: round1(x1), cy: round1(y + h / 2) });
   };
 
-  // ── 列头（图标 + 列名 + 右侧圆角计数 pill + 副标题小字）──
+  // ── 列头（图标 + 列名 + 「＋」新建 + 右侧圆角计数 pill + 副标题小字）──
   FLOW_COLS.forEach((col, i) => {
     const head = FLOW_HEADERS[i];
     const colW = Math.max(72, Math.round(widths[col]));
@@ -1862,6 +1916,11 @@ export function buildLayout(flow: FlowLayout, size: FlowSize): FlowGeom {
     const pillText = String(total);
     const pillH = 14;
     const pillW = Math.max(20, Math.round(10 + pillText.length * 6.2));
+    const titlePx = colW < 112 ? 9.5 : 10.5;
+    const add = addButton(col, colX[col], head.mark, head.title, titlePx);
+    const pillX = round1(colX[col] + colW - 6 - pillW);
+    // ＋ 与 pill 撞车时把 pill 藏掉（列太窄的极端情况；总数在顶部统计条里也有）
+    const showPill = !add || add.x + add.w + 3 <= pillX;
     cols.push({
       key: col,
       mark: head.mark,
@@ -1874,12 +1933,14 @@ export function buildLayout(flow: FlowLayout, size: FlowSize): FlowGeom {
       y: G.topGap,
       w: colW,
       h: Math.max(120, viewH - G.topGap * 2),
-      pillX: round1(colX[col] + colW - 6 - pillW),
+      pillX,
       pillY: G.topGap + 6,
       pillW,
       pillH,
       pillText,
-      titlePx: colW < 112 ? 9.5 : 10.5,
+      titlePx,
+      showPill,
+      add,
     });
     slotAnchors.push({ x0: colX[col], x1: round1(colX[col] + colW), cy: centerY });
   });

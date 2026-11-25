@@ -12,7 +12,7 @@
     @if (stats().hitRules) {
       <span class="fstat">命中 <b>{{ stats().hitRules }}</b></span>
     }
-    <span class="fhint">采样 1.5s · 配置 30s · ①电脑 → ②路由器 → ③规则集 → ④分组 → ⑤组成员方格 → ⑥互联网 · 点 ③④ 卡片可编辑</span>
+    <span class="fhint">采样 1.5s · 配置 30s · ①电脑 → ②路由器 → ③规则集 → ④分组 → ⑤组成员方格 → ⑥互联网 · 点 ③④ 卡片可编辑 · 列头 ＋ 可新建规则集 / 分组 / 节点</span>
     @if (cfgErr()) {
       <span class="ferr">⚠ {{ cfgErr() }}</span>
     }
@@ -126,7 +126,7 @@
         </g>
       }
 
-      <!-- 列头：图标 + 列名 + 右侧圆角计数 pill + 副标题小字 -->
+      <!-- 列头：图标 + 列名 + 「＋」新建 + 右侧圆角计数 pill + 副标题小字 -->
       @for (c of geom().cols; track c.key) {
         <g>
           <use
@@ -140,22 +140,33 @@
           <text class="fcoltitle" [attr.x]="c.x + 25" [attr.y]="c.y + 19" [attr.font-size]="c.titlePx">
             {{ c.mark }} {{ c.title }}
           </text>
-          <rect
-            class="fpill"
-            [attr.x]="c.pillX"
-            [attr.y]="c.pillY"
-            [attr.width]="c.pillW"
-            [attr.height]="c.pillH"
-            [attr.rx]="c.pillH / 2"
-          />
-          <text
-            class="fpills"
-            [attr.x]="c.pillX + c.pillW / 2"
-            [attr.y]="c.pillY + c.pillH - 4"
-            text-anchor="middle"
-          >
-            {{ c.pillText }}
-          </text>
+          <!-- ③④⑤ 列名后面的「＋」：点它新建规则集 / 分组 / 节点（①②⑥ 没有该按钮） -->
+          @if (c.add; as a) {
+            <g class="fadd" role="button" [attr.aria-label]="a.tip" (click)="onAdd(c.key, $event)">
+              <title>{{ a.tip }}</title>
+              <rect class="faddbox" [attr.x]="a.x" [attr.y]="a.y" [attr.width]="a.w" [attr.height]="a.h" rx="3.5" />
+              <path class="faddico" [attr.d]="a.d" />
+            </g>
+          }
+          <!-- 计数 pill：列太窄、＋ 与 pill 挤不下时不画（总数在顶部统计条里仍有） -->
+          @if (c.showPill) {
+            <rect
+              class="fpill"
+              [attr.x]="c.pillX"
+              [attr.y]="c.pillY"
+              [attr.width]="c.pillW"
+              [attr.height]="c.pillH"
+              [attr.rx]="c.pillH / 2"
+            />
+            <text
+              class="fpills"
+              [attr.x]="c.pillX + c.pillW / 2"
+              [attr.y]="c.pillY + c.pillH - 4"
+              text-anchor="middle"
+            >
+              {{ c.pillText }}
+            </text>
+          }
           <text class="fcolsub" [attr.x]="c.x + 7" [attr.y]="c.y + 35">{{ c.sub }}</text>
         </g>
       }
@@ -337,7 +348,7 @@
   </div>
 
   <!-- 右下角微型图：clash ws /traffic（↑up ↓down）+ /memory，纯展示、不挡交互 -->
-  <div class="mini" aria-hidden="true">
+  <div class="flowmini" aria-hidden="true">
     <div class="minibox">
       <div class="minihd">
         <span class="mininame">速率</span>
