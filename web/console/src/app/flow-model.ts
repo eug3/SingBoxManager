@@ -1558,6 +1558,9 @@ export interface FlowSize {
 
 /** 节点锚点：左沿 / 右沿 / 垂直中心（连线与粒子都挂在这上面） */
 export interface FlowAnchor {
+  /** 出边起点覆盖（③ 方格：同一带的多个方格共用一个起点 → 视觉上是一条汇流线） */
+  outX?: number;
+  outY?: number;
   x0: number;
   x1: number;
   cy: number;
@@ -1870,18 +1873,22 @@ export function fitText(s: string, units: number): string {
 
 /** 两点之间的横向三次贝塞尔（起点右沿 → 终点左沿） */
 export function curvePath(a: FlowAnchor, b: FlowAnchor): string {
-  const dx = Math.max(10, (b.x0 - a.x1) * 0.5);
-  const c1x = a.x1 + dx;
-  const c2x = Math.max(a.x1 + 6, b.x0 - dx);
-  return `M${round1(a.x1)} ${round1(a.cy)} C${round1(c1x)} ${round1(a.cy)},${round1(c2x)} ${round1(b.cy)},${round1(b.x0)} ${round1(b.cy)}`;
+  const sx = a.outX ?? a.x1;
+  const sy = a.outY ?? a.cy;
+  const dx = Math.max(10, (b.x0 - sx) * 0.5);
+  const c1x = sx + dx;
+  const c2x = Math.max(sx + 6, b.x0 - dx);
+  return `M${round1(sx)} ${round1(sy)} C${round1(c1x)} ${round1(sy)},${round1(c2x)} ${round1(b.cy)},${round1(b.x0)} ${round1(b.cy)}`;
 }
 
 /** 同一条贝塞尔在 t∈[0,1] 处的点（粒子沿真实连线走） */
 export function bezierAt(a: FlowAnchor, b: FlowAnchor, t: number): { x: number; y: number } {
-  const dx = Math.max(10, (b.x0 - a.x1) * 0.5);
-  const x0 = a.x1;
-  const x1 = a.x1 + dx;
-  const x2 = Math.max(a.x1 + 6, b.x0 - dx);
+  const sy = a.outY ?? a.cy;
+  const sx = a.outX ?? a.x1;
+  const dx = Math.max(10, (b.x0 - sx) * 0.5);
+  const x0 = sx;
+  const x1 = sx + dx;
+  const x2 = Math.max(sx + 6, b.x0 - dx);
   const x3 = b.x0;
   const mt = 1 - t;
   const w0 = mt * mt * mt;
@@ -1890,7 +1897,7 @@ export function bezierAt(a: FlowAnchor, b: FlowAnchor, t: number): { x: number; 
   const w3 = t * t * t;
   return {
     x: w0 * x0 + w1 * x1 + w2 * x2 + w3 * x3,
-    y: w0 * a.cy + w1 * a.cy + w2 * b.cy + w3 * b.cy,
+    y: w0 * sy + w1 * sy + w2 * b.cy + w3 * b.cy,
   };
 }
 
@@ -2177,11 +2184,19 @@ export function buildLayout(flow: FlowLayout, size: FlowSize): FlowGeom {
       const gridX = round1(colX.rule + 4);
       const gridY = bandRuleGridY[k];
       const colW = widths.rule;
+      /** 每排方格的右端（x）与中心（y）：同排的出边共用这一个起点，视觉上合成一条线 */
+      const rowEdge = new Map<number, { x: number; y: number }>();
+      const placed: { it: (typeof rules)[number]; x: number; y: number; row: number }[] = [];
       rules.forEach((it, idx) => {
         const row = Math.floor(idx / tprRule);
         const col = idx % tprRule;
         const x = round1(gridX + col * step);
         const y = round1(gridY + row * step);
+        placed.push({ it, x, y, row });
+        const edge = rowEdge.get(row);
+        const right = round1(x + side);
+        if (!edge) rowEdge.set(row, { x: right, y: round1(y + side / 2) });
+        else if (right > edge.x) edge.x = right;
         nodes.push({
           key: it.key,
           col: 'rule',
@@ -2209,8 +2224,18 @@ export function buildLayout(flow: FlowLayout, size: FlowSize): FlowGeom {
           tip: it.tip || it.name,
           band: k,
         });
-        pushAnchor(it.key, x, x + colW, y, side);
       });
+      // 入边落到方格自身左沿；出边从「本排右端 + 排中心」出发（同排重合 → 一条线），
+      // 否则每个方格各画一条线，跨带斜穿会糊成一团
+      for (const { it, x, y, row } of placed) {
+        pushAnchor(it.key, x, rowEdge.get(row)?.x ?? round1(x + side), y, side);
+        const anc = anchors.get(it.key);
+        const edge = rowEdge.get(row);
+        if (anc && edge) {
+          anc.outX = edge.x;
+          anc.outY = edge.y;
+        }
+      }
     }
     // ④ 分组卡片：带内垂直居中
     const groups = bandNodes('group', k);
