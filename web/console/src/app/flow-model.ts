@@ -1750,11 +1750,11 @@ const COL_WIDTH: Record<FlowCol, { min: number; max: number; weight: number }> =
   // ① 要能放下 17 字符的 MAC 标签 → 最小宽度略加
   pc: { min: 112, max: 138, weight: 0.55 },
   router: { min: 100, max: 132, weight: 0.55 },
-  // ③ 现在是纯书图标方格（不写名字），列可以很窄；省下的宽度给 ⑤
-  rule: { min: 56, max: 96, weight: 0.32 },
+  // ③ 纯书图标方格：列宽按「一行能放 10 格」给（4 + 10*22 + 9*5 + 余量 ≈ 280）
+  rule: { min: 220, max: 292, weight: 1.0 },
   group: { min: 106, max: 143, weight: 0.55 },
-  // 省下来的宽度给 ⑤：每行能放更多方格
-  node: { min: 168, max: 420, weight: 1.6 },
+  // ⑤ 成员方格：③ 变宽后稍微让一点最小宽度，宽屏仍然优先给 ⑤
+  node: { min: 150, max: 420, weight: 1.6 },
   cloud: { min: 112, max: 150, weight: 0.6 },
 };
 
