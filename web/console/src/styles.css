@@ -1766,3 +1766,12 @@ dialog.cfm-dialog::backdrop { background: rgba(20, 32, 48, .35); }
 .rorun > summary::before { content: '▸ '; color: #9aa7b6; }
 .rorun[open] > summary::before { content: '▾ '; }
 .rorun > summary:hover { color: var(--acc2); }
+
+/* 新建桶弹窗：URL 前缀 + 格式/间隔 并排；现有桶多选列表限高滚动 */
+.duo { display: flex; gap: 6px; align-items: center; min-width: 0; }
+.duo > select { flex: 0 0 auto; }
+.duo > input { flex: 1 1 auto; min-width: 0; }
+.rs-picklist { max-height: 168px; overflow: auto; }
+/* ③ 非桶的「条件」方块（ip_cidr / port / final…）：虚线 + 灰一点，和真桶区分 */
+.fn.cond .fnbox { stroke-dasharray: 3 2; fill: #f7f9fc; }
+.fn.cond .fntilelabel { fill: #8794a5; }

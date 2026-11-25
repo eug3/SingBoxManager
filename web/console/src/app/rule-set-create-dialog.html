@@ -1,69 +1,136 @@
-<!-- ③ 列头「＋」新建规则集：写 route.rule_set 定义 + 引用到出站（一次到位，③ 立即出现新卡） -->
+<!-- ③ 列头「＋」：给一个分组（出口）配若干桶（入口）；分组可内联新建，桶可多选/批量新建 -->
 <div class="modal-mask" (click)="onMask($event)">
-  <div class="modal" role="dialog" aria-modal="true" aria-label="新建规则集">
+  <div class="modal" role="dialog" aria-modal="true" aria-label="新建桶并引用到分组">
     <div class="modal-hd">
-      <b>＋ 新建规则集</b>
-      <span class="dim small">写 config 定义并引用到出站</span>
+      <b>＋ 新建桶 · 引用到分组</b>
+      <span class="dim small">入口桶可多个 · 出口分组可新建</span>
       <button class="x" (click)="close()" title="关闭">✕</button>
     </div>
 
     <div class="modal-body">
+      <!-- ── 出口 ── -->
       <div class="row">
-        <span>规则集 tag（桶名）</span>
-        <input
-          type="text"
-          [value]="tag()"
-          (input)="setTag($any($event.target).value)"
-          placeholder="rs-openai（与 NAS 桶同名）"
-        />
+        <span>出口分组</span>
+        <select [value]="groupMode()" (change)="groupMode.set($any($event.target).value)">
+          <option value="existing">选现有分组</option>
+          <option value="new">＋ 新建一个分组</option>
+        </select>
       </div>
 
+      @if (groupMode() === 'existing') {
+        <div class="row">
+          <span></span>
+          <select [value]="groupTag()" (change)="groupTag.set($any($event.target).value)">
+            @for (t of groupOptions(); track t.tag) {
+              <option [value]="t.tag" [selected]="t.tag === groupTag()">{{ t.label }}</option>
+            } @empty {
+              <option value="">（配置里还没有分组：切到「＋ 新建一个分组」）</option>
+            }
+          </select>
+        </div>
+      } @else {
+        <div class="row">
+          <span>分组名 tag</span>
+          <input
+            type="text"
+            [value]="newGroupTag()"
+            (input)="newGroupTag.set($any($event.target).value)"
+            placeholder="如 SocialNetwork（出口名，④ 列会新增一张卡）"
+          />
+        </div>
+        <div class="row">
+          <span>分组类型</span>
+          <select [value]="newGroupType()" (change)="newGroupType.set($any($event.target).value)">
+            <option value="selector">selector（手动选择）</option>
+            <option value="urltest">urltest（按延迟自动）</option>
+          </select>
+        </div>
+        <div class="rs-sec">新分组成员（已勾 {{ newGroupMembers().length }}）<span class="dim small">· 按勾选顺序</span></div>
+        <div class="gd-members">
+          @for (c of memberCandidates(); track c.tag) {
+            <label class="gd-row" [class.special]="c.special" [class.nested]="c.isGroup">
+              <input
+                type="checkbox"
+                [checked]="isMember(c.tag)"
+                (change)="toggleMember(c.tag, $any($event.target).checked)"
+              />
+              <span class="gd-tag">{{ c.tag }}</span>
+              <span class="gd-type">{{ c.isGroup ? '分组 · ' + c.type : c.type }}</span>
+            </label>
+          } @empty {
+            <div class="dim small">配置里没有可选的节点 / 分组</div>
+          }
+        </div>
+      }
+
+      <!-- ── 入口：现有桶多选 ── -->
+      <div class="rs-sec">
+        入口桶（{{ bucketList().length }}）<span class="dim small">· 勾选要引用到这个分组的桶（可多选）</span>
+      </div>
+      <div class="gd-members rs-picklist">
+        @for (b of bucketList(); track b.tag) {
+          <label class="gd-row">
+            <input
+              type="checkbox"
+              [checked]="isPicked(b.tag)"
+              (change)="togglePick(b.tag, $any($event.target).checked)"
+            />
+            <span class="gd-tag">{{ b.tag }}</span>
+            <span class="gd-type">{{ b.refs ? '已被引用 ×' + b.refs : '未引用' }}</span>
+          </label>
+        } @empty {
+          <div class="dim small">config 里还没有规则集定义：在下面「批量新建」里填桶名</div>
+        }
+      </div>
+
+      <!-- ── 入口：批量新建 ── -->
+      <div class="row">
+        <span>批量新建桶</span>
+        <input
+          type="text"
+          [value]="newTagsText()"
+          (input)="newTagsText.set($any($event.target).value)"
+          placeholder="rs-social, rs-video（逗号 / 空格分隔；已存在的会改成引用）"
+        />
+      </div>
       <div class="row">
         <span>类型</span>
-        <select [value]="type()" (change)="setType($any($event.target).value)">
+        <select [value]="type()" (change)="type.set($any($event.target).value)">
           <option value="remote">remote（从 URL 定时拉取，内容更新免重启）</option>
           <option value="local">local（读路由本机文件，改内容需重启）</option>
         </select>
       </div>
-
       @if (type() === 'remote') {
         <div class="row">
-          <span>格式 format</span>
-          <select [value]="format()" (change)="setFormat($any($event.target).value)">
-            <option value="binary">binary（.srs，编译后的二进制）</option>
-            <option value="source">source（.json，源规则）</option>
-          </select>
-        </div>
-        <div class="row">
-          <span>URL</span>
+          <span>URL 前缀</span>
           <input
             type="text"
-            [value]="url()"
-            (input)="setUrl($any($event.target).value)"
+            [value]="urlPrefix()"
+            (input)="setPrefix($any($event.target).value)"
             [placeholder]="urlPlaceholder()"
           />
         </div>
         <div class="row">
-          <span>更新间隔</span>
-          <input
-            type="text"
-            [value]="interval()"
-            (input)="interval.set($any($event.target).value)"
-            placeholder="1m（留空=sing-box 默认）"
-          />
+          <span>格式 / 间隔</span>
+          <span class="duo">
+            <select [value]="format()" (change)="format.set($any($event.target).value)">
+              <option value="binary">.srs</option>
+              <option value="source">.json</option>
+            </select>
+            <input
+              type="text"
+              [value]="interval()"
+              (input)="interval.set($any($event.target).value)"
+              placeholder="1m"
+            />
+          </span>
         </div>
-        <div class="row">
-          <span>下载出站（可空）</span>
-          <input
-            type="text"
-            [value]="detour()"
-            (input)="detour.set($any($event.target).value)"
-            placeholder="留空=走 default；可填 DIRECT 或某个分组"
-          />
-        </div>
+        @if (urlSample()) {
+          <div class="hint dim">↳ 新桶 URL：{{ urlSample() }}{{ toCreate().length > 1 ? ' …（其余同前缀换桶名）' : '' }}</div>
+        }
       } @else {
         <div class="row">
-          <span>本机路径 path</span>
+          <span>本机路径</span>
           <input
             type="text"
             [value]="path()"
@@ -73,17 +140,7 @@
         </div>
       }
 
-      <div class="row">
-        <span>引用到出站</span>
-        <select [value]="outbound()" (change)="outbound.set($any($event.target).value)">
-          @for (t of targets(); track t.tag) {
-            <option [value]="t.tag" [selected]="t.tag === outbound()">{{ t.label }}</option>
-          } @empty {
-            <option value="">（没有可引用的出站：先去 ④ 新建分组）</option>
-          }
-        </select>
-      </div>
-
+      <!-- ── 落点 ── -->
       <div class="row">
         <span>插入位置</span>
         <select [value]="position()" (change)="position.set($any($event.target).value)">
@@ -96,24 +153,35 @@
         <div class="hint dim">↳ {{ insertHint() }}</div>
       }
 
+      @if (allTags().length) {
+        <div class="hint dim">
+          将引用 <b>{{ allTags().length }}</b> 个桶
+          @if (toCreate().length) {
+            · 新建 <b>{{ toCreate().length }}</b> 个（{{ toCreate().join('、') }}）
+          }
+          @if (alreadyThere().length) {
+            · 已存在转为引用（{{ alreadyThere().join('、') }}）
+          }
+        </div>
+      }
+
       @if (bucketWarning()) {
         <div class="modal-note warn">⚠ {{ bucketWarning() }}</div>
       }
-
       @if (err()) {
         <div class="modal-note bad">✗ {{ err() }}</div>
       }
 
       <div class="hint dim">
-        只写 config 里的规则集定义与引用，不在这里建桶文件；桶内容仍去「规则编辑」里改并发布。
-        改动即时暂存到顶部「待保存条」，点「保存并重启」才写回路由。
+        只写 config 里的桶定义与引用（`rule_set: [a,b]` = 任一命中即生效），不在这里建 NAS 桶文件；
+        桶内容仍去「规则编辑」改并发布。改动即时暂存到顶部「待保存条」，点「保存并重启」才写回路由。
       </div>
     </div>
 
     <div class="modal-ft">
       <button class="acc" (click)="submit()" [disabled]="!base()">创建并暂存</button>
       <button (click)="close()">取消</button>
-      <span class="dim small">保存并重启后 ③ 才会出现「出站[桶名]」卡片</span>
+      <span class="dim small">保存并重启后 ③ 列会出现对应的书图标方块</span>
     </div>
   </div>
 </div>

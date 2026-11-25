@@ -456,17 +456,38 @@ export function addRuleSetRef(
   tag: string,
   position: RuleInsertPosition = 'auto',
 ): number {
-  const t = String(tag ?? '').trim();
-  const target = previewRuleSetRef(doc, group, tag, position);
+  return addRuleSetRefs(doc, group, [tag], position);
+}
+
+/**
+ * 一次把**多个桶**引用到同一个出站：写一条 `{rule_set:[a,b,…], outbound}`（sing-box 里 OR）。
+ * 落点与单桶版本一致（previewRuleSetRef 用第一个 tag 预演）：能并入该出站已有规则就并入，
+ * 否则按「域名桶之前 / IP 桶之后」插入。返回承载这些引用的规则下标。
+ */
+export function addRuleSetRefs(
+  doc: ConfigDoc,
+  group: string,
+  tags: string[],
+  position: RuleInsertPosition = 'auto',
+): number {
+  const g = String(group ?? '').trim();
+  const list: string[] = [];
+  for (const raw of tags ?? []) {
+    const t = String(raw ?? '').trim();
+    if (t && !list.includes(t)) list.push(t);
+  }
+  if (!g) throw new Error('引用目标出站不能为空');
+  if (!list.length) throw new Error('至少要选/建一个规则集 tag');
+  const target = previewRuleSetRef(doc, g, list[0], position);
   const rules = ensureRouteRules(ensureRoute(doc));
   const i = Math.max(0, Math.min(target.index, rules.length));
   if (target.mode === 'extend' && i < rules.length) {
     const refs = ruleSetRefs(rules[i]);
-    if (!refs.includes(t)) refs.push(t);
+    for (const t of list) if (!refs.includes(t)) refs.push(t);
     rules[i]['rule_set'] = refs;
     return i;
   }
-  rules.splice(i, 0, { rule_set: [t], outbound: String(group ?? '').trim() });
+  rules.splice(i, 0, { rule_set: [...list], outbound: g });
   return i;
 }
 

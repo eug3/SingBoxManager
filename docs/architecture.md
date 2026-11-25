@@ -145,7 +145,7 @@ flow-model.ts              流向纯函数引擎：buildStatic/buildFlow/stepAct
 —— 编辑/新建弹窗（点 ③/④ 卡片、列头 ＋、或保存缺凭据时弹出）——
 rule-set-dialog.ts / .html ③ 规则集：已应用 chips + palette 拖拽/＋ 增删引用
 group-dialog.ts / .html    ④ 分组：成员 checkbox（含嵌套分组）+ selector/urltest/负载均衡预设
-rule-set-create-dialog.ts / .html ③ 列头 ＋：写 route.rule_set 定义（remote/local）+ 引用到出站，一次到位
+rule-set-create-dialog.ts / .html ③ 列头 ＋：新建桶 · 引用到分组（入口桶多选/批量新建，出口分组可内联新建）
 group-create-dialog.ts / .html    ④ 列头 ＋：tag + 类型（selector/urltest/负载均衡）+ 直接勾成员
 node-create-dialog.ts / .html     ⑤ 列头 ＋ 与配置页共用：表单（node-form）/ 分享链接批量（share-link）两页签 + 加分组
 ssh-cred-dialog.ts / .html 保存缺 SSH 凭据：user/password/port → setCredentials → 重试保存
@@ -201,7 +201,7 @@ models.ts                  接口类型 + 常量（页面来源/延迟阈值/版
 
 ### 3.1 「流向」子页（flow-model + flow-anim）
 
-六列 band 模型：①电脑(按 MAC 归并) → ②路由器 → ③规则集(按出站合并·每带1卡) →
+六列 band 模型：①电脑(按 MAC 归并) → ②路由器 → ③规则集(一个桶一块·书图标小方块) →
 ④分组 → ⑤组成员方格(逐行·跨组重复) → ⑥互联网(一朵云)。五个数据源合流：
 静态 config(30s) + 实时 connections(1.5s) + clients 名册(30s) + delays 测速(5s) + activity(字节增长)。
 动态语义：活跃边=绿点虚线、活跃节点=绿描边（停 4s 回落）；小鱼只游活跃链路（切线朝向+摆尾）；
@@ -214,7 +214,7 @@ models.ts                  接口类型 + 常量（页面来源/延迟阈值/版
 与 ③④ 编辑弹窗口径一致；点「保存并重启」才写回路由。
 hover 高亮、⛶ 全屏、自适应⇄100%、右下角速率/内存微型图（ws /traffic + /memory）。
 
-**③ ＋ 的语义**：流向 ③ 的卡片来自 `route.rules`（`flow-model.buildStatic`），只往
+**③ ＋ 的语义**：流向 ③ 的方块来自 `route.rules` 里引用的桶（`flow-model.buildStatic` 的 tiles），只往
 `route.rule_set` 塞定义不会出现在图上，所以弹窗一次写两件事——新增定义
 （remote/local、format、url/path、update_interval，URL 默认按现有 remote 桶的前缀拼）
 ＋ 给选定出站加一条引用（已有 rule_set 规则就扩展数组，否则插在 final 兜底规则前，见

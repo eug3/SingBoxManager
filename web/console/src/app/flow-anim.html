@@ -12,7 +12,7 @@
     @if (stats().hitRules) {
       <span class="fstat">命中 <b>{{ stats().hitRules }}</b></span>
     }
-    <span class="fhint">采样 1.5s · 配置 30s · ①电脑 → ②路由器 → ③规则集 → ④分组 → ⑤组成员方格 → ⑥互联网 · 点 ③④ 卡片可编辑 · 列头 ＋ 可新建规则集 / 分组 / 节点</span>
+    <span class="fhint">采样 1.5s · 配置 30s · ①电脑 → ②路由器 → ③规则集 → ④分组 → ⑤组成员方格 → ⑥互联网 · 点 ③ 方块 / ④ 卡片可编辑 · 列头 ＋ 可新建桶 / 分组 / 节点</span>
     @if (cfgErr()) {
       <span class="ferr">⚠ {{ cfgErr() }}</span>
     }
@@ -204,7 +204,8 @@
             (n.edit ? ' editable' : '') +
             (n.pick ? ' picked' : '') +
             (n.cur ? ' cur' : '') +
-            (n.col === 'node' ? ' pickable' : '')
+            (n.col === 'node' ? ' pickable' : '') +
+            (n.col === 'rule' && n.badge === '条件' ? ' cond' : '')
           "
           (mouseenter)="onEnter(n.key, $event)"
           (mouseleave)="clearHover()"

@@ -12,8 +12,9 @@ import {
 import {
   ConfigDoc,
   RuleInsertPosition,
+  addGroup,
   addRuleSet,
-  addRuleSetRef,
+  addRuleSetRefs,
   groups,
   nodes,
   previewRuleSetRef,
@@ -21,25 +22,32 @@ import {
 } from './config-ops';
 import { VaultService } from './vault.service';
 
-/** 命中框里的一行出站（分组 / 直连 / 拦截） */
+/** 可引用/可选的出站 */
 interface OutboundOption {
   tag: string;
   label: string;
   special: boolean;
 }
 
+/** 新分组的成员候选 */
+interface MemberCandidate {
+  tag: string;
+  type: string;
+  special: boolean;
+  isGroup: boolean;
+}
+
 /**
- * ③ 列头「＋」新建规则集弹窗 — 写一条 route.rule_set 定义，并引用到某个出站。
+ * ③ 列头「＋」：给一个分组（出口）配若干规则集桶（入口）。
  *
- * 为什么必须带「引用到出站」：流向 ③ 的卡片来自 route.rules（flow-model 只按 rules + final
- * 建有向图），只往 route rule_set 里塞定义不会出现在图上；所以这里一次把「定义」和
- * 「谁引用它」都写好，点保存并重启后才真正生效。
+ * 语义（用户口径）：
+ *  · 出口可以选现有分组，也可以**内联新建**一个分组（不需要先去 ④ 建）；
+ *  · 入口可以多选现有桶，也可以**批量新建**（一行一个/逗号分隔，共用同一 URL 前缀与格式）；
+ *  · 提交后写一条 `{rule_set:[a,b,…], outbound:分组}` —— 引用数组在 sing-box 里是 OR；
+ *    落点仍按「域名规则排到 IP 桶之前 / IP 规则排到其后」预览。
  *
- * 本组件只产出新文档（docChange），不直接写服务：流向页接 ConfigDraftService.stage，
- * 配置页接 enterReview —— 两条暂存链各自沿用原有语义。
- *
- * 桶文件本身（NAS 上的 <tag>.json/.srs）不在这里建：调用 /rule-set/index 查一下是否已存在，
- * 不存在就提示去「规则编辑」建好并发布，避免路由拉取 404。
+ * 只写 config（定义 + 引用），不建 NAS 桶文件；桶内容去「规则编辑」改并发布。
+ * 产出新文档（docChange），由调用方 stage 到 ConfigDraftService 或进入配置页复核。
  */
 @Component({
   selector: 'app-rule-set-create-dialog',
@@ -47,64 +55,78 @@ interface OutboundOption {
   templateUrl: './rule-set-create-dialog.html',
 })
 export class RuleSetCreateDialog {
-  /** 编辑基准（当前暂存草稿优先，没有则是刚读到的配置） */
   readonly base = input<ConfigDoc | null>(null);
-  /** 新文档（调用方负责暂存） */
   readonly docChange = output<ConfigDoc>();
   readonly closed = output<void>();
 
   private readonly vault = inject(VaultService);
 
-  /** 桶名 tag（与 NAS 桶同名，如 rs-openai） */
-  readonly tag = signal('');
-  /** remote = 从 url 定时拉；local = 读路由本机 path */
+  /* ── 出口（分组） ── */
+  /** existing = 选已有分组；new = 内联新建 */
+  readonly groupMode = signal<'existing' | 'new'>('existing');
+  readonly groupTag = signal('');
+  readonly newGroupTag = signal('');
+  readonly newGroupType = signal<'selector' | 'urltest'>('selector');
+  /** 新分组成员（按勾选顺序） */
+  readonly newGroupMembers = signal<string[]>([]);
+
+  /* ── 入口（桶） ── */
+  /** 勾选到的现有桶 */
+  readonly picked = signal<string[]>([]);
+  /** 批量新建：逗号 / 空格 / 换行分隔 */
+  readonly newTagsText = signal('');
+  /** 新建桶的类型与格式（remote 才有 format/interval/detour） */
   readonly type = signal<'remote' | 'local'>('remote');
-  /** remote 的格式：binary（.srs）/ source（.json） */
   readonly format = signal('binary');
-  /** remote 下载地址 */
-  readonly url = signal('');
-  /** local 文件路径 */
-  readonly path = signal('');
-  /** remote 更新间隔 */
   readonly interval = signal('1m');
-  /** remote 下载出站（可空） */
   readonly detour = signal('');
-  /** 引用到哪个出站（分组 / 直连 / 拦截） */
-  readonly outbound = signal('');
-  /**
-   * 引用插入位置：域名规则要排在 IP 规则（cn_ip / hk_ip）之前，否则 CN IP 先命中直连，
-   * 新加的域名桶永远轮不到；IP 规则则相反。
-   */
+  readonly path = signal('');
+  /** 手工改过 URL 前缀（默认取 config 里第一个 remote 桶的前缀） */
+  private prefixTouched = false;
+  readonly prefixInput = signal('');
+
+  /* ── 落点 ── */
   readonly position = signal<RuleInsertPosition>('domain');
-  /** 表单错误（红字） */
+
   readonly err = signal('');
-  /** NAS 桶清单（null = 还没取到/接口不可用，此时不提示存在性） */
+  /** NAS 桶清单（null = 没取到，不提示存在性） */
   readonly buckets = signal<string[] | null>(null);
 
-  /** 用户是否手工改过 URL（改过就不再跟着 tag 自动生成） */
-  private urlTouched = false;
-
   constructor() {
-    // 打开时：默认引用第一个分组；顺带查一次 NAS 桶清单（失败静默，只影响提示）
     effect(() => {
       const d = this.base();
-      const list = this.targets();
+      const list = this.groupOptions();
       untracked(() => {
         if (!d) return;
-        if (!this.outbound() && list.length) this.outbound.set(list[0].tag);
+        if (!this.groupTag() && list.length) this.groupTag.set(list[0].tag);
       });
     });
     void this.loadBuckets();
   }
 
-  /** 现有规则集 tag（重名检查） */
-  readonly existingTags = computed(() => {
+  /* ── 计算 ── */
+
+  /** 现有 rule_set 定义（tag + 被引用次数） */
+  readonly bucketList = computed<{ tag: string; refs: number }[]>(() => {
     const d = this.base();
-    return new Set(d ? routeRuleSets(d).map((r) => String(r['tag'] ?? '')) : []);
+    if (!d) return [];
+    const counts = new Map<string, number>();
+    const route = d.root['route'] as Record<string, unknown> | undefined;
+    for (const r of (route?.['rules'] as Record<string, unknown>[]) ?? []) {
+      const v = r?.['rule_set'];
+      const tags = typeof v === 'string' ? [v] : Array.isArray(v) ? v.map(String) : [];
+      for (const t of tags) counts.set(t, (counts.get(t) ?? 0) + 1);
+    }
+    return routeRuleSets(d).map((r) => {
+      const tag = String(r['tag'] ?? '');
+      return { tag, refs: counts.get(tag) ?? 0 };
+    });
   });
 
-  /** 可引用的出站：全部分组在前，direct/block/dns 这类特殊出站垫底 */
-  readonly targets = computed<OutboundOption[]>(() => {
+  readonly existingTags = computed(() => new Set(this.bucketList().map((b) => b.tag)));
+
+  /** 出口候选：分组在前，直连/拦截等特殊出站垫底 */
+  readonly groupOptions = computed<OutboundOption[]>(() => {
     const d = this.base();
     if (!d) return [];
     const gs = groups(d).map((g) => ({
@@ -118,8 +140,56 @@ export class RuleSetCreateDialog {
     return [...gs, ...sp];
   });
 
-  /** 现有 remote 规则的 URL 前缀（如 https://host/rule-set/）：新 URL 按它拼 */
+  /** 新分组成员候选：节点 + 现有分组 */
+  readonly memberCandidates = computed<MemberCandidate[]>(() => {
+    const d = this.base();
+    if (!d) return [];
+    const out: MemberCandidate[] = nodes(d).map((n) => ({
+      tag: n.tag,
+      type: n.type,
+      special: n.special,
+      isGroup: false,
+    }));
+    for (const g of groups(d)) {
+      out.push({ tag: String(g['tag']), type: String(g['type']), special: false, isGroup: true });
+    }
+    return out;
+  });
+
+  /** 批量新建的 tag（去重、过滤空） */
+  readonly parsedNew = computed<string[]>(() => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const raw of this.newTagsText().split(/[,，\s]+/)) {
+      const t = raw.trim();
+      if (!t || seen.has(t)) continue;
+      seen.add(t);
+      out.push(t);
+    }
+    return out;
+  });
+
+  /** 真正要新建的（配置里没有的） */
+  readonly toCreate = computed(() => this.parsedNew().filter((t) => !this.existingTags().has(t)));
+
+  /** 输入里已经存在、会被“改为引用”的 tag */
+  readonly alreadyThere = computed(() => this.parsedNew().filter((t) => this.existingTags().has(t)));
+
+  /** 最终引用到该分组的全部桶（勾选 + 输入） */
+  readonly allTags = computed(() => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const t of [...this.picked(), ...this.parsedNew()]) {
+      if (!t || seen.has(t)) continue;
+      seen.add(t);
+      out.push(t);
+    }
+    return out;
+  });
+
+  /* ── URL 前缀（新建 remote 桶共用） ── */
   readonly urlPrefix = computed(() => {
+    if (this.prefixTouched) return this.prefixInput();
     const d = this.base();
     if (!d) return '';
     for (const rs of routeRuleSets(d)) {
@@ -130,25 +200,31 @@ export class RuleSetCreateDialog {
     }
     return '';
   });
-
-  /** 按格式取的扩展名（binary=.srs / source=.json） */
   readonly urlExt = computed(() => (this.format() === 'source' ? '.json' : '.srs'));
-
-  /** URL 占位提示：有模板时给出完整形态 */
-  readonly urlPlaceholder = computed(() => {
-    const p = this.urlPrefix();
-    return p ? `${p}<桶名>${this.urlExt()}` : 'https://<域名>/rule-set/<桶名>.srs';
+  readonly urlPlaceholder = computed(() =>
+    this.urlPrefix() ? `${this.urlPrefix()}<桶名>${this.urlExt()}` : 'https://<域名>/rule-set/<桶名>.srs',
+  );
+  /** 新建桶的 URL 示例（第一条） */
+  readonly urlSample = computed(() => {
+    const t = this.toCreate()[0];
+    return t ? `${this.urlPrefix()}${t}${this.urlExt()}` : '';
   });
 
-  /** 落点预演文案：并入第几条 / 插到第几条（cn_ip 之前） */
+  /** 出口 tag（新建时用输入值） */
+  readonly outboundTag = computed(() =>
+    (this.groupMode() === 'new' ? this.newGroupTag() : this.groupTag()).trim(),
+  );
+
+  /** 落点预演 */
   readonly insertHint = computed(() => {
     const d = this.base();
-    const outbound = this.outbound().trim();
-    if (!d || !outbound) return '';
+    const outbound = this.outboundTag();
+    const tag = this.allTags()[0];
+    if (!d || !outbound || !tag) return '';
     const pos = this.position();
     if (pos === 'auto') return '跟随现状：该出站已有 rule_set 规则就并入，否则插到最后（final 兜底之前）';
     try {
-      const t = previewRuleSetRef(d, outbound, this.tag().trim() || '<新桶>', pos);
+      const t = previewRuleSetRef(d, outbound, tag, pos);
       if (t.mode === 'extend') return `并入 #${t.index}（该出站已有的规则，位置不变）`;
       if (t.where === 'end') return `插到 #${t.index}（final 兜底之前）`;
       return `插到 #${t.index}（${t.anchor || 'IP 规则'} ${t.where === 'before' ? '之前' : '之后'}）`;
@@ -157,16 +233,38 @@ export class RuleSetCreateDialog {
     }
   });
 
-  /** NAS 上查不到该桶时的提醒（只在清单取到、且 tag 有意义时） */
+  /** NAS 上缺哪些新桶 */
   readonly bucketWarning = computed(() => {
-    const name = this.tag().trim();
     const list = this.buckets();
-    if (!name || !list || this.type() !== 'remote') return '';
-    if (list.includes(name)) return '';
-    return `NAS 桶清单里没有 ${name}：先到「规则编辑」建桶并发布 .srs，否则路由拉取会 404（不影响本次暂存）。`;
+    if (!list) return '';
+    const missing = this.toCreate().filter((t) => !list.includes(t));
+    if (!missing.length) return '';
+    return `NAS 桶清单里没有：${missing.join('、')} —— 先去「规则编辑」建桶并发布，否则路由拉取会 404（不影响本次暂存）。`;
   });
 
-  /** 取 NAS 桶清单（同源 /rule-set/index；失败保留 null） */
+  /* ── 交互 ── */
+
+  togglePick(tag: string, on: boolean): void {
+    this.picked.update((list) => (on ? [...new Set([...list, tag])] : list.filter((t) => t !== tag)));
+  }
+
+  isPicked(tag: string): boolean {
+    return this.picked().includes(tag);
+  }
+
+  toggleMember(tag: string, on: boolean): void {
+    this.newGroupMembers.update((list) => (on ? [...new Set([...list, tag])] : list.filter((t) => t !== tag)));
+  }
+
+  isMember(tag: string): boolean {
+    return this.newGroupMembers().includes(tag);
+  }
+
+  setPrefix(v: string): void {
+    this.prefixTouched = true;
+    this.prefixInput.set(v);
+  }
+
   private async loadBuckets(): Promise<void> {
     try {
       const list = await this.vault.listBuckets();
@@ -176,69 +274,60 @@ export class RuleSetCreateDialog {
     }
   }
 
-  /** 改 tag：没手工改过 URL 时按模板同步生成 */
-  setTag(v: string): void {
-    this.tag.set(v);
-    if (!this.urlTouched) this.syncAutoUrl();
-  }
+  /* ── 提交 ── */
 
-  /** 切格式：URL 扩展名跟着变（手工改过则不动） */
-  setFormat(v: string): void {
-    this.format.set(v);
-    if (!this.urlTouched) this.syncAutoUrl();
-  }
-
-  /** 手工改 URL：之后不再自动覆盖 */
-  setUrl(v: string): void {
-    this.urlTouched = true;
-    this.url.set(v);
-  }
-
-  setType(v: string): void {
-    this.type.set(v === 'local' ? 'local' : 'remote');
-  }
-
-  /** 按「现有桶 URL 前缀 + tag + 扩展名」拼 URL */
-  private syncAutoUrl(): void {
-    const prefix = this.urlPrefix();
-    const name = this.tag().trim();
-    if (!prefix || !name) return;
-    this.url.set(prefix + name + this.urlExt());
-  }
-
-  /** 提交：克隆基准 → 写定义 + 引用 → 抛给调用方暂存 */
   submit(): void {
     const base = this.base();
     if (!base) {
       this.err.set('配置还没读到，稍后再试');
       return;
     }
-    const tag = this.tag().trim();
-    if (!tag) {
-      this.err.set('规则集 tag（桶名）不能为空');
+    const tags = this.allTags();
+    if (!tags.length) {
+      this.err.set('至少要选一个现有桶，或填一个新桶名');
       return;
     }
-    if (this.existingTags().has(tag)) {
-      this.err.set(`规则集 ${tag} 已经存在（同一个 tag 不能重复定义）`);
+    const mode = this.groupMode();
+    const group = this.outboundTag();
+    if (!group) {
+      this.err.set(mode === 'new' ? '新分组的 tag 不能为空' : '要选一个出口分组');
       return;
     }
-    const outbound = this.outbound().trim();
-    if (!outbound) {
-      this.err.set('要选一个引用它的出站：没有分组就先去 ④ 新建分组');
+    if (mode === 'new') {
+      if (this.groupOptions().some((g) => g.tag === group)) {
+        this.err.set(`分组 ${group} 已存在：把出口改回「选现有分组」即可`);
+        return;
+      }
+      if (!this.newGroupMembers().length) {
+        this.err.set('新分组至少要勾一个成员（节点或分组）');
+        return;
+      }
+    }
+    if (this.type() === 'local' && this.toCreate().length > 1) {
+      this.err.set('local 类型一次只能建一个桶（路径各不相同）：批量新建请用 remote');
+      return;
+    }
+    if (this.type() === 'remote' && !this.urlPrefix().trim()) {
+      this.err.set('配置里没有可参考的 remote URL 前缀：请先在「URL 前缀」里填 https://…/rule-set/');
       return;
     }
     const doc: ConfigDoc = structuredClone(base);
     try {
-      addRuleSet(doc, {
-        tag,
-        type: this.type(),
-        format: this.format(),
-        url: this.url(),
-        path: this.path(),
-        updateInterval: this.interval(),
-        downloadDetour: this.detour(),
-      });
-      addRuleSetRef(doc, outbound, tag, this.position());
+      if (mode === 'new') {
+        addGroup(doc, { tag: group, type: this.newGroupType(), members: this.newGroupMembers() });
+      }
+      for (const tag of this.toCreate()) {
+        addRuleSet(doc, {
+          tag,
+          type: this.type(),
+          format: this.format(),
+          url: this.type() === 'remote' ? `${this.urlPrefix()}${tag}${this.urlExt()}` : '',
+          path: this.type() === 'local' ? this.path() : '',
+          updateInterval: this.interval(),
+          downloadDetour: this.detour(),
+        });
+      }
+      addRuleSetRefs(doc, group, tags, this.position());
     } catch (e) {
       this.err.set((e as Error)?.message ?? String(e));
       return;
@@ -252,7 +341,6 @@ export class RuleSetCreateDialog {
     this.closed.emit();
   }
 
-  /** 点遮罩空白处关闭（点弹窗本体不关） */
   onMask(ev: MouseEvent): void {
     if (ev.target === ev.currentTarget) this.close();
   }

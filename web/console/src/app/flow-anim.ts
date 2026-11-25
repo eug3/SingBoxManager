@@ -429,9 +429,8 @@ export class FlowAnim implements OnInit, AfterViewInit, OnDestroy {
         dim: h ? !near.has(n.key) : emp ? !n.active : false,
         emp: !h && emp && !!n.active,
         edit:
-          n.mode === 'card' &&
-          ((n.col === 'rule' && groupTags.has(ruleGroupTag(n.key))) ||
-            (n.col === 'group' && groupTags.has(nameOfKey(n.key)))),
+          (n.col === 'rule' && groupTags.has(ruleGroupTag(n.key))) ||
+          (n.col === 'group' && n.mode === 'card' && groupTags.has(nameOfKey(n.key))),
         pick: n.key === picked,
         cur: !!row && !!now && now === row.node,
       };

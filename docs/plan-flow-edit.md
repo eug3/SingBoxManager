@@ -114,3 +114,37 @@ ng build 无 ERROR；浏览器：点 ③ 卡弹窗、拖/加/删 rs → 待保�
   ⑥ 配置页：工具条只剩 3 个、更多▾ 4 项、分流规则/分组看板各只 1 个实例、节点表检索 6→1 行、
      行内「编辑」弹窗回填 tag/type/已勾 2 组、tag 禁用；配置页新建节点 → 跳到 diff 复核（+8/-0 行）；
   ⑦ 回归：③ 卡片仍开规则集弹窗、⑤ 方格仍弹「激活/测速」固定层。
+
+## 8. ③ 改「一个桶一块」小方块 + 新建桶弹窗（多桶 / 内联分组，2026-11-25）
+
+### 8.1 为什么要改
+原来 ③ 是**按出站合并的一张卡**（`组[rs-x +2]`），一个分组只有一张卡：
+- 分组名在 ③ 和 ④ 各出现一次，重复；
+- 一个分组引用多个桶时看不出来是哪几个桶、各走多少；
+- 「给分组配几个桶」只能一个一个建，且分组不存在时还得先去 ④ 建。
+
+用户口径：③ 是「从哪个集合来的流量」→ 应该像 ⑤ 节点一样是**小方块 + 书图标**，一块一个桶。
+
+### 8.2 改动
+- `flow-model.ts`：
+  - 新增 `StaticRuleTile`（key=`rule:组[桶]`、group/tag/kind/refs/bucket/order/match/tip）与 `buildRuleTiles()`；
+  - `StaticRule` 增加 `ruleTags`（一条规则引用的全部桶；logical 递归两层）；
+  - `buildFlow` 的 ③ 基线改为 tiles；结构边 ③方块→④卡；`ruleLabelOf` 直接产出 `组[桶]`（与静态 tile 同拼法，实时命中落到对应方块上）；
+  - 布局：③ 画 22×22 方块（`G.ruleSquare`）+ 右侧桶名（超长省略），方块可点开 ③ 弹窗；
+  - 非桶规则（ip_cidr/port/final…）也占一块，打 `cond` 类（虚线 + 灰）区分；
+  - 列头副标题「一个桶一块 · 点开编辑」。
+- `rule-set-create-dialog.ts/.html` 重写为「新建桶 · 引用到分组」：
+  - **出口**：现有分组下拉，或「＋ 新建一个分组」（tag / selector·urltest / 直接勾成员）；
+  - **入口**：现有桶多选（显示「已被引用 ×N / 未引用」）+ 批量新建（逗号/空格分隔，共用 URL 前缀与格式）；
+  - 输入里出现的**已存在 tag 自动改成引用**（不再报「已存在」）；
+  - 提交写一条 `{rule_set:[a,b,…], outbound:分组}`，落点仍按「域名桶之前 / IP 桶之后」预演；
+  - local 类型限制一次一个桶（路径不同）。
+- `config-ops.ts`：新增 `addRuleSetRefs(doc, group, tags[], position)`；`addRuleSetRef` 转为单元素委托。
+- 文案：③ 列头 ＋ 提示改为「新建桶：可多选/批量建，引用到分组（分组也可新建）」；流向页提示「③ 方块 / ④ 卡片可编辑」。
+
+### 8.3 验收（mock + 无头 Chrome）
+- 纯函数 7/7 新增断言全 PASS：多桶插到 cn_ip 之前、并入已有规则、去重/空值、空 tags 抛错、ip 位置插到 IP 桶之后；旧套件（config-ops 12、调序 30）不回归。
+- UI：③ 出现书图标小方块（`rs-github`/`rs-msft`/`rs-tg`/`cn_ip`…），点方块打开「③ 规则集 · 组名」弹窗；`final` 等条件块为虚线灰块。
+- 新建流程（mock）：出口新建 `SocialNetwork`（selector，2 成员）、勾 `rs-tg`+`rs-netflix`、批量新建 `rs-video, rs-social` → 落盘
+  `{rule_set:["rs-tg","rs-netflix","rs-video","rs-social"], outbound:"SocialNetwork"}` 插在 `cn_ip` **之前**，
+  两个新桶定义 URL 为 `http://x/rs-video.srs` / `http://x/rs-social.srs`，保存并重启 `✓ 保存成功`。
