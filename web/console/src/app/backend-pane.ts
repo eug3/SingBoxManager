@@ -42,7 +42,7 @@ import { ToastService } from './toast.service';
 import { ConfigDoc, groups, validateDoc, serializeConfig } from './config-ops';
 import { readRuleModel } from './rule-model';
 import { ClashService } from './clash.service';
-import { fmtBytes, latClass, latText, runPool } from './util';
+import { fmtBytes, isNetworkErr, latClass, latText, runPool } from './util';
 import { SaveProgressDialog } from './save-progress';
 
 /** 后端子页签（App 也用它记住每个后端的当前子页） */
@@ -149,6 +149,8 @@ export class BackendPane implements OnDestroy {
   readonly saveElapsed = signal(0);
   /** 失败原文 / 标题 / 建议 */
   readonly saveError = signal('');
+  /** 成功但有非致命问题（例如配置已写回、刷新基准失败） */
+  readonly saveWarn = signal('');
   readonly saveFailTitle = signal('保存失败');
   readonly saveFailHint = signal('');
   /** 成功摘要：写入字节数、是否实际变更 */
@@ -544,6 +546,7 @@ export class BackendPane implements OnDestroy {
     this.saveSize.set(text.length);
     this.saveChanged.set(undefined);
     this.saveError.set('');
+    this.saveWarn.set('');
     this.saveStep.set(0);
     this.saveState.set('running');
     this.startSaveClock();
@@ -569,7 +572,9 @@ export class BackendPane implements OnDestroy {
     }
     // 成功：草稿已被服务清空
     this.saveStep.set(5);
+    this.saveWarn.set(this.draft.warn());
     this.saveState.set('ok');
+    if (this.draft.warn()) this.toast.show(this.draft.warn(), 'bad', 9000);
   }
 
   /** 进度时钟：显示已用时 */
@@ -600,6 +605,7 @@ export class BackendPane implements OnDestroy {
 
   /** 失败原文 → 标题（按后端 apply 的失败标记分类） */
   private saveFailTitleOf(err: string): string {
+    if (isNetworkErr(err)) return '与 99 服务的连接中断';
     if (/STALE/.test(err)) return '配置已被他人修改';
     if (/sing-box check 未通过|CHECK_FAILED/i.test(err)) return '语法校验未通过';
     if (/自动回滚|ROLLBACK_OK/i.test(err)) return '新配置不健康，已自动回滚';
@@ -610,6 +616,7 @@ export class BackendPane implements OnDestroy {
 
   /** 失败原文 → 出错的步骤序号（对应 SAVE_STEPS：0读取 1上传 2校验 3重启 4健康检查） */
   private saveFailStepOf(err: string): number {
+    if (isNetworkErr(err)) return 0; // 请求没走完：卡在「读取当前配置」这步如实展示
     if (/STALE/.test(err)) return 0; // 基准版本不符：卡在读当前配置
     if (/上传失败/.test(err)) return 1;
     if (/sing-box check 未通过|CHECK_FAILED/i.test(err)) return 2;
@@ -620,6 +627,9 @@ export class BackendPane implements OnDestroy {
 
   /** 失败原文 → 可操作建议 */
   private saveFailHintOf(err: string): string {
+    if (isNetworkErr(err)) {
+      return '请求没完整走完（浏览器报 status 0）：多为页面到 99 的链路瞬断、或服务正在重启，不一定代表没写成功。先看路由上「规则」表是否已是新顺序；不是就点「重试」。';
+    }
     if (/STALE/.test(err)) return '有人在这期间改过路由配置：点「重试」会先拉取最新版本，再重新应用你的改动。';
     if (/sing-box check 未通过|CHECK_FAILED/i.test(err)) return '新配置没通过 sing-box 语法检查，路由未被改动。按上面的报错修正后重试。';
     if (/自动回滚|ROLLBACK_OK/i.test(err)) return '新配置重启后不健康，系统已自动回滚到原配置，路由仍是可用状态。看上面的日志定位问题。';
@@ -627,6 +637,14 @@ export class BackendPane implements OnDestroy {
     if (/上传失败/.test(err)) return '写临时文件到路由失败：多为路由磁盘满或 /tmp 只读，登录路由查一下空间。';
     return '按上面的错误原文排查；路由未被改坏时原配置保持不变。';
   }
+
+  /** 失败弹窗底部说明：只有真回滚过才说回滚，网络类错误如实说「以路由实际为准」 */
+  readonly saveFailFoot = computed(() => {
+    const err = this.saveError();
+    if (isNetworkErr(err)) return '写入结果以路由实际状态为准（规则表 / 分流面板能看出来）';
+    if (/自动回滚|ROLLBACK_OK/i.test(err)) return '已自动回滚到原配置，路由保持可用';
+    return '路由未被改坏时原配置保持不变';
+  });
 
   /** 进度弹窗「重试」：重新走一遍保存 */
   retrySave(): void {

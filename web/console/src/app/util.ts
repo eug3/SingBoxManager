@@ -101,3 +101,14 @@ export async function runPool<T>(
   };
   await Promise.all(Array.from({ length: Math.max(1, concurrency) }, lane));
 }
+
+/**
+ * 浏览器层面的网络失败（不是服务端业务错误）：
+ * Angular 的 HttpErrorResponse 在「请求没走完」时 status=0、statusText=undefined，
+ * 文案形如 `Http failure response for /router/config?host=…: 0 undefined`；
+ * 另有 Chrome 的 net::ERR_* 与超时。这类错误不代表写没写成功，文案不能按业务错误处理。
+ */
+export function isNetworkErr(err: unknown): boolean {
+  const msg = typeof err === 'string' ? err : String((err as { message?: string })?.message ?? err ?? '');
+  return /Http failure response/i.test(msg) || /\bstatus 0\b|: 0 undefined|net::ERR_|ERR_CONNECTION|ERR_NETWORK|ERR_EMPTY_RESPONSE|timeout|Timed out/i.test(msg);
+}

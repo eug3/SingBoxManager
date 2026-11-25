@@ -40,6 +40,8 @@ export class ConfigDraftService {
   readonly saving = signal(false);
   /** 最近一次 load/save 的错误文案（待保存条 / 弹窗里展示） */
   readonly error = signal('');
+  /** 非致命警告：配置已写回成功、但保存后的「重读基准」失败（网络抖动/链路瞬断） */
+  readonly warn = signal('');
   /** save 被「缺 SSH 凭据」挡住：backend-pane 据此打开凭据弹窗，填完重试 */
   readonly needCreds = signal(false);
 
@@ -47,6 +49,7 @@ export class ConfigDraftService {
   async load(backend: Backend): Promise<void> {
     this.loading.set(true);
     this.error.set('');
+    this.warn.set('');
     this.needCreds.set(false);
     this.draft.set(null);
     try {
@@ -71,6 +74,7 @@ export class ConfigDraftService {
   stage(doc: ConfigDoc): void {
     this.draft.set(doc);
     this.error.set('');
+    this.warn.set('');
   }
 
   /** 放弃全部暂存改动 */
@@ -90,6 +94,7 @@ export class ConfigDraftService {
     if (!doc || this.saving()) return;
     this.saving.set(true);
     this.error.set('');
+    this.warn.set('');
     this.needCreds.set(false);
     try {
       // 凭据预检：99 上没配这台 host 的 SSH 账号/口令就别白跑 apply
@@ -108,7 +113,7 @@ export class ConfigDraftService {
       const text = serializeConfig(doc, this.originalText());
       await this.router.apply(backend, text, this.originalSha());
       this.draft.set(null);
-      await this.load(backend); // 重新拉基准（新 sha），待保存条随之消失
+      await this.refreshAfterSave(backend); // 重新拉基准（新 sha），待保存条随之消失
     } catch (e) {
       const msg = errMsg(e);
       this.error.set(msg);
@@ -116,5 +121,21 @@ export class ConfigDraftService {
     } finally {
       this.saving.set(false);
     }
+  }
+
+  /**
+   * 保存成功后的「重读基准」：/router/config 偶发失败（浏览器 status 0 = 链路瞬断、
+   * 99 到路由的 SSH 抖动）不代表没写成功 —— apply 已经返回且健康检查通过。
+   * 这里重试 3 次；仍失败就把 error 降级成 warn，避免把「已生效」误报成「保存失败」。
+   */
+  private async refreshAfterSave(backend: Backend): Promise<void> {
+    for (let i = 0; i < 3; i++) {
+      await this.load(backend);
+      if (!this.error()) return;
+      if (i < 2) await new Promise((r) => setTimeout(r, 500 + i * 900));
+    }
+    const msg = this.error();
+    this.error.set('');
+    this.warn.set(`配置已写回并重启成功，但刷新配置失败（${msg || '未知错误'}）：点顶部「刷新」重新读取即可。`);
   }
 }

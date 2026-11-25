@@ -75,6 +75,9 @@ export const SAVE_STEPS: { key: SaveStep; label: string; hint: string }[] = [
             <div class="sp-result ok">
               <div><b>配置已写回并生效</b>@if (changed() === false) { <span class="dim">（内容与线上一致，未产生变更）</span> }</div>
               <div class="dim small">用时 {{ elapsedText() }}@if (size()) { · 写入 {{ size() }} B }</div>
+              @if (warn()) {
+                <div class="sp-warn">⚠ {{ warn() }}</div>
+              }
             </div>
           }
 
@@ -103,7 +106,7 @@ export const SAVE_STEPS: { key: SaveStep; label: string; hint: string }[] = [
               <button class="acc" (click)="close.emit()">完成</button>
             }
             @case ('fail') {
-              <span class="dim small">路由未被改坏时已自动回滚到原配置</span>
+              <span class="dim small">{{ failFoot() }}</span>
               <button (click)="close.emit()">关闭</button>
               <button class="acc" (click)="retry.emit()">重试</button>
             }
@@ -140,6 +143,10 @@ export class SaveProgressDialog {
   readonly size = input<number>(0);
   /** 是否产生实际变更（false = 内容与线上一致） */
   readonly changed = input<boolean | undefined>(undefined);
+  /** 成功态下的非致命警告（例如「已写回但刷新配置失败」） */
+  readonly warn = input<string>('');
+  /** 失败态底部说明（父组件按错误类型给；网络类错误不能说「已自动回滚」） */
+  readonly failFoot = input<string>('路由未被改坏时已自动回滚到原配置');
 
   readonly close = output<void>();
   readonly retry = output<void>();

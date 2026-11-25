@@ -126,3 +126,29 @@ sing-box 的 `route.rules` 是**自上而下第一条命中即停**。TUN 进来
   底部「命中 12 · final 12 · 0 命中 2 条」；折叠区运行态表可展开（4 行）。
 - 拖动第 0 行到末行 → 顺序变化 + 待保存条出现；`↓` 按钮 → 顺序交换 → 保存并重启 → `✓ 保存成功`；
   落盘 `route.rules` 顺序与表格一致（`rs-github` 在前、`rs-tg` 在后）。
+
+## 6. 保存结果的三种形态（2026-11-25，修「已生效却报保存失败」）
+
+现场：保存到 172.16.8.1（乙）时弹窗显示 `✗ 语法校验`，原文
+`Http failure response for /router/config?host=172.16.8.1: 0 undefined`，底部还写着「已自动回滚」。
+实际上 **status 0 = 浏览器层面的网络失败**（请求没走完，不是 sing-box 语法错），而且这条请求是
+`/router/config`——它只在 **apply 成功之后**「重读基准」时才会被调用。旧代码把它一起丢进
+`error` → 弹「保存失败」，且未知错误默认落在「语法校验」这一步，误导性很强。
+
+| 形态 | 判定 | 弹窗 |
+|---|---|---|
+| apply 业务失败（check 不通 / STALE / 回滚） | 99 返回 `{ok:false,error}` | `✗ 保存失败` + 落在真实步骤 + 真实回滚提示 |
+| apply 网络失败（status 0 / net::ERR_*） | `isNetworkErr()` | `✗ 保存失败`，标题「与 99 服务的连接中断」，底部「写入结果以路由实际状态为准」，不再谎称已回滚 |
+| apply 成功、重读 `/router/config` 失败 | `ConfigDraftService.refreshAfterSave()` 重试 3 次仍失败 | `✓ 保存成功` + ⚠「配置已写回并重启成功，但刷新配置失败（…）：点顶部『刷新』重新读取即可」 |
+
+实现要点：
+- `config-draft.service.ts`：`warn` 信号（非致命）+ `refreshAfterSave()`（3 次、退避 0.5s/1.4s），
+  重试耗尽后把 `error` 降级进 `warn`，`save()` 仍按成功返回；
+- `util.isNetworkErr()`：`Http failure response` / `status 0` / `net::ERR_*` / `timeout`；
+- `backend-pane`：`saveWarn` 透传给进度弹窗；网络类错误标题/步骤/底部文案分开；
+- `save-progress`：成功态支持 `warn` 行，失败态底部文案改成 `failFoot` 输入（只有真回滚才说回滚）。
+
+验收（本地 mock + 掐链路的 chaos 代理，三种形态各跑一遍）：
+1. apply 成功 + 3.2s 内所有 `/router/config` 被掐断 → `✓ 保存成功` + ⚠ 刷新失败警告（原文保留 status 0）；
+2. `POST /router/apply` 被掐断 → `✗ 与 99 服务的连接中断` / 失败步骤落在「读取当前配置」/ 底部「以路由实际状态为准」；
+3. apply 返回 `sing-box check 未通过` → `✗ 语法校验未通过` / 红叉落在「语法校验」/ 底部「原配置保持不变」。
