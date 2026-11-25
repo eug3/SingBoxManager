@@ -1332,7 +1332,7 @@ export function buildFlow(
       ...n,
       name: tag,
       band: n.band ?? bandIdxOf(groupPartOf2(full)),
-      tip: `${n.tip}\n命中 ${n.count} 条`,
+      tip: n.count > 0 ? `${n.tip}\n命中 ${n.count} 条` : n.tip,
     };
   });
   // ⑤ 行在合并之后统一补齐：所属带 / 中间分组（经由）/ 延时状态 / 实时条数
@@ -1689,7 +1689,7 @@ export interface FlowGeom {
 export const FLOW_HEADERS: { mark: string; title: string; sub: string; icon: string }[] = [
   { mark: '①', title: '电脑', sub: '按源 IP', icon: '#ico-pc' },
   { mark: '②', title: '路由器', sub: 'sing-box', icon: '#ico-router' },
-  { mark: '③', title: '规则集', sub: '一个桶一块 · 点开编辑', icon: '#ico-rule' },
+  { mark: '③', title: '规则集', sub: '一个桶一格 · 悬停看名字', icon: '#ico-rule' },
   { mark: '④', title: '分组', sub: 'Selector / URLTest', icon: '#ico-group' },
   { mark: '⑤', title: '节点', sub: '组成员方格', icon: '#ico-node' },
   { mark: '⑥', title: '互联网', sub: '悬停看目标', icon: '#ico-cloud' },
@@ -1725,8 +1725,10 @@ export const FLOW_GEO = {
   tilePadX: 8,
   /** ③ 小方块（书图标）/ ④ 分组卡片 */
   ruleH: 22,
-  /** ③ 小方块的边长（名字写在方块右侧） */
+  /** ③ 小方块的边长（纯图标，名字只在悬停提示里） */
   ruleSquare: 22,
+  /** ③ 方格之间的间距 */
+  ruleTileGap: 5,
   ruleGap: 3,
   groupH: 32,
   /** ① 电脑方块（方块内放次数，IP 标签在下方） */
@@ -1748,8 +1750,8 @@ const COL_WIDTH: Record<FlowCol, { min: number; max: number; weight: number }> =
   // ① 要能放下 17 字符的 MAC 标签 → 最小宽度略加
   pc: { min: 112, max: 138, weight: 0.55 },
   router: { min: 100, max: 132, weight: 0.55 },
-  // ③④ 再切掉 2/5（用户要求）：262→158、238→143；标签截断更多但 tooltip 全量
-  rule: { min: 120, max: 158, weight: 0.62 },
+  // ③ 现在是纯书图标方格（不写名字），列可以很窄；省下的宽度给 ⑤
+  rule: { min: 56, max: 96, weight: 0.32 },
   group: { min: 106, max: 143, weight: 0.55 },
   // 省下来的宽度给 ⑤：每行能放更多方格
   node: { min: 168, max: 420, weight: 1.6 },
@@ -1892,6 +1894,11 @@ export function bezierAt(a: FlowAnchor, b: FlowAnchor, t: number): { x: number; 
   };
 }
 
+/** ③ 规则集方格每行放几个（纯图标方格，列窄也能放两三个） */
+export function ruleTilesPerRow(colW: number): number {
+  return Math.max(1, Math.floor((colW - 8) / (FLOW_GEO.ruleSquare + FLOW_GEO.ruleTileGap)));
+}
+
 /** ⑤ 成员网格每行放几个方格（列宽 150 → 5 个，190 → 6 个） */
 export function tilesPerRow(colW: number): number {
   const usable = colW - FLOW_GEO.tilePadX * 2;
@@ -1950,6 +1957,8 @@ export function buildLayout(flow: FlowLayout, size: FlowSize): FlowGeom {
   const bands: FlowBandGeom[] = [];
   const bandCY: number[] = [];
   const bandGridY: number[] = [];
+  /** ③ 方格网格的起始 y（带内按 ③ 自身网格高度居中） */
+  const bandRuleGridY: number[] = [];
   let by = G.topGap + G.headerH + G.bandTopGap;
   bandsIn.forEach((b, k) => {
     const members = bandNodes('node', k);
@@ -1957,7 +1966,9 @@ export function buildLayout(flow: FlowLayout, size: FlowSize): FlowGeom {
     const groups = bandNodes('group', k);
     const rows = Math.max(1, Math.ceil(members.length / tpr));
     const gridH = members.length ? rows * G.tile + (rows - 1) * G.tileGap : 0;
-    const ruleH = rules.length ? rules.length * G.ruleH + (rules.length - 1) * G.ruleGap : 0;
+    const tprRule = ruleTilesPerRow(widths.rule);
+    const ruleRows = rules.length ? Math.ceil(rules.length / tprRule) : 0;
+    const ruleH = ruleRows ? ruleRows * G.ruleSquare + (ruleRows - 1) * G.ruleTileGap : 0;
     const groupH = groups.length ? groups.length * G.groupH + (groups.length - 1) * 4 : 0;
     const contentH = Math.max(gridH, ruleH, groupH, G.minBandH);
     const h = contentH + G.bandPadY * 2;
@@ -1974,6 +1985,7 @@ export function buildLayout(flow: FlowLayout, size: FlowSize): FlowGeom {
     });
     bandCY.push(round1(by + G.bandPadY + contentH / 2));
     bandGridY.push(round1(by + G.bandPadY + (contentH - gridH) / 2));
+    bandRuleGridY.push(round1(by + G.bandPadY + (contentH - ruleH) / 2));
     by += h + G.bandGap;
   });
   const bandsBottom = by - G.bandGap;
@@ -2156,20 +2168,24 @@ export function buildLayout(flow: FlowLayout, size: FlowSize): FlowGeom {
   // ── ③④⑤：逐带摆（带内竖向居中）──
   bandsIn.forEach((b, k) => {
     const cy = bandCY[k];
-    // ③ 小方块：一个桶一块（书图标，名字写在方块右侧），同组多块在带内纵向堆叠
+    const tprRule = ruleTilesPerRow(widths.rule);
+    // ③ 规则集方格：纯书图标，横向一行排满再换行（和 ⑤ 成员方格同款；名字只在悬停提示里）
     const rules = bandNodes('rule', k);
     if (rules.length) {
-      const blockH = rules.length * G.ruleH + (rules.length - 1) * G.ruleGap;
-      let y = Math.round(cy - blockH / 2);
-      const x = colX.rule;
-      const colW = widths.rule;
       const side = G.ruleSquare;
-      const units = Math.max(4, Math.floor((colW - side - 12) / G.namePx));
-      for (const it of rules) {
+      const step = side + G.ruleTileGap;
+      const gridX = round1(colX.rule + 4);
+      const gridY = bandRuleGridY[k];
+      const colW = widths.rule;
+      rules.forEach((it, idx) => {
+        const row = Math.floor(idx / tprRule);
+        const col = idx % tprRule;
+        const x = round1(gridX + col * step);
+        const y = round1(gridY + row * step);
         nodes.push({
           key: it.key,
           col: 'rule',
-          label: fitText(it.name, units),
+          label: '',
           badge: it.badge ?? '',
           count: it.count,
           kind: it.kind,
@@ -2186,16 +2202,15 @@ export function buildLayout(flow: FlowLayout, size: FlowSize): FlowGeom {
           countY: 0,
           countAnchor: 'end',
           tint: it.kind === 'direct' ? 'direct' : it.kind === 'block' ? 'block' : 'col-rule',
-          labelY: round1(y + side / 2 + 3.5),
+          labelY: 0,
           badgeY: 0,
-          labelX: round1(x + side + 5),
+          labelX: 0,
           labelAnchor: 'start',
           tip: it.tip || it.name,
           band: k,
         });
         pushAnchor(it.key, x, x + colW, y, side);
-        y += G.ruleH + G.ruleGap;
-      }
+      });
     }
     // ④ 分组卡片：带内垂直居中
     const groups = bandNodes('group', k);

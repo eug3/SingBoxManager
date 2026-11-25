@@ -130,9 +130,11 @@ ng build 无 ERROR；浏览器：点 ③ 卡弹窗、拖/加/删 rs → 待保�
   - 新增 `StaticRuleTile`（key=`rule:组[桶]`、group/tag/kind/refs/bucket/order/match/tip）与 `buildRuleTiles()`；
   - `StaticRule` 增加 `ruleTags`（一条规则引用的全部桶；logical 递归两层）；
   - `buildFlow` 的 ③ 基线改为 tiles；结构边 ③方块→④卡；`ruleLabelOf` 直接产出 `组[桶]`（与静态 tile 同拼法，实时命中落到对应方块上）；
-  - 布局：③ 画 22×22 方块（`G.ruleSquare`）+ 右侧桶名（超长省略），方块可点开 ③ 弹窗；
+  - 布局：③ 画 22×22 纯图标方格（`G.ruleSquare` + `G.ruleTileGap`），**横向一行排满再换行**
+    （`ruleTilesPerRow()`，与 ⑤ 成员方格同款）；**不写桶名**，悬停 tooltip 显示「规则集 tag / 出站 / 条件 / 命中」；
+    ③ 列宽收窄到 56–96（省下的宽度给 ⑤），方块仍可点开 ③ 弹窗；
   - 非桶规则（ip_cidr/port/final…）也占一块，打 `cond` 类（虚线 + 灰）区分；
-  - 列头副标题「一个桶一块 · 点开编辑」。
+  - 列头副标题「一个桶一格 · 悬停看名字」。
 - `rule-set-create-dialog.ts/.html` 重写为「新建桶 · 引用到分组」：
   - **出口**：现有分组下拉，或「＋ 新建一个分组」（tag / selector·urltest / 直接勾成员）；
   - **入口**：现有桶多选（显示「已被引用 ×N / 未引用」）+ 批量新建（逗号/空格分隔，共用 URL 前缀与格式）；
