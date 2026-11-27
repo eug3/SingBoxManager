@@ -592,13 +592,16 @@ export interface RuleSetGroup {
  * 读出「可拆解的分组」：只取引用了 rule_set 的规则。
  * 动作规则（sniff / hijack-dns）、纯条件规则（ip_cidr / port …）不参与拆解合并。
  */
-export function ruleSetGroups(doc: ConfigDoc): RuleSetGroup[] {
+export function ruleSetGroups(doc: ConfigDoc, outbound?: string): RuleSetGroup[] {
   const out: RuleSetGroup[] = [];
   routeRules(doc).forEach((r, i) => {
     if (!r) return;
     const tags = ruleSetRefs(r);
     if (!tags.length) return;
-    out.push({ index: i, outbound: String(r['outbound'] ?? ''), tags });
+    const ob = String(r['outbound'] ?? '');
+    // 传了 outbound 就只看这个出口下的规则（右键「拆解与合并」按出口分组收敛）
+    if (outbound !== undefined && ob !== outbound) return;
+    out.push({ index: i, outbound: ob, tags });
   });
   return out;
 }
@@ -664,7 +667,7 @@ export function applyRuleGroups(doc: ConfigDoc, plan: RuleGroupPlan[]): void {
  *  · 至少保留 1 个分组（用户要求：config 里必须始终有一个之前建的 outbound）。
  * 返回被删掉的 tag。
  */
-export function pruneOrphanGroups(doc: ConfigDoc): string[] {
+export function pruneOrphanGroups(doc: ConfigDoc, only?: readonly string[]): string[] {
   const list = doc.root['outbounds'];
   if (!Array.isArray(list)) return [];
   const arr = list as AnyObj[];
@@ -683,10 +686,13 @@ export function pruneOrphanGroups(doc: ConfigDoc): string[] {
       if (t) used.add(t);
     }
   }
+  const allow = only && only.length ? new Set(only.map(String)) : null;
   const groupCount = arr.filter((o) => isGroup(o)).length;
-  const removable = arr.filter(
-    (o) => isGroup(o) && !used.has(String(o['tag'] ?? '')) && String(o['tag'] ?? '') !== '',
-  );
+  const removable = arr.filter((o) => {
+    const tag = String(o['tag'] ?? '');
+    if (!isGroup(o) || !tag || used.has(tag)) return false;
+    return allow ? allow.has(tag) : true;
+  });
   // 至少留一个分组：最多删到只剩 1 个
   const allowed = Math.max(0, Math.min(removable.length, groupCount - 1));
   const doomed = new Set(removable.slice(0, allowed).map((o) => String(o['tag'] ?? '')));

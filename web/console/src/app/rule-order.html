@@ -135,5 +135,10 @@
 
 <!-- 拆解与合并弹窗（保存后走 docChange → 宿主暂存） -->
 @if (regroupOpen()) {
-  <app-rule-regroup-dialog [doc]="doc()" (docChange)="onRegroup($event)" (closed)="regroupOpen.set(false)" />
+  <app-rule-regroup-dialog
+    [doc]="doc()"
+    [outbound]="regroupOutbound()"
+    (docChange)="onRegroup($event)"
+    (closed)="regroupOpen.set(false)"
+  />
 }

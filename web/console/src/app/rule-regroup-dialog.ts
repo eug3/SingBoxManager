@@ -35,6 +35,8 @@ let seq = 0;
 })
 export class RuleRegroupDialog implements OnInit {
   readonly doc = input<ConfigDoc | null>(null);
+  /** 右键那条规则所属的出口：弹窗只列这个出口下的规则（不把全部组摊开） */
+  readonly outbound = input<string>('');
   readonly docChange = output<ConfigDoc>();
   readonly closed = output<void>();
 
@@ -55,7 +57,7 @@ export class RuleRegroupDialog implements OnInit {
     if (this.inited) return;
     this.inited = true;
     const d = this.doc();
-    const list = d ? ruleSetGroups(d) : [];
+    const list = d ? ruleSetGroups(d, this.outbound() || undefined) : [];
     this.rows.set(
       list.map((g) => ({ ...g, id: ++seq, anchor: g.index ?? -1 })),
     );
@@ -88,7 +90,7 @@ export class RuleRegroupDialog implements OnInit {
         tags: [...r.tags],
       }));
       applyRuleGroups(clone, plan);
-      return pruneOrphanGroups(clone);
+      return pruneOrphanGroups(clone, [this.outbound() || '']);
     } catch {
       return [];
     }
@@ -175,7 +177,9 @@ export class RuleRegroupDialog implements OnInit {
         tags: [...r.tags],
       }));
       applyRuleGroups(doc, plan);
-      pruneOrphanGroups(doc);
+      // 只清理「本出口」在本次改动后变成孤儿的出站：右键拆解只针对一个出口分组，
+      // 不能顺手把别的空组删掉
+      pruneOrphanGroups(doc, [this.outbound() || '']);
     } catch (e) {
       this.err.set((e as Error)?.message ?? String(e));
       return;

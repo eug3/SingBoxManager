@@ -94,6 +94,8 @@ export class RuleOrder {
   readonly menu = signal<{ x: number; y: number; index: number } | null>(null);
   /** 拆解与合并弹窗是否打开 */
   readonly regroupOpen = signal(false);
+  /** 右键那条规则的出口（弹窗只针对这一个出口分组） */
+  readonly regroupOutbound = signal('');
 
   /** 右键某行：弹出菜单（没有 rule_set 引用的行也能弹，只是项禁用） */
   onRowContext(r: RouteRuleInfo, ev: MouseEvent): void {
@@ -105,8 +107,11 @@ export class RuleOrder {
     this.menu.set(null);
   }
 
-  /** 菜单项「拆解与合并…」 */
+  /** 菜单项「拆解与合并…」：按右键那条规则的出口收敛弹窗内容 */
   openRegroup(): void {
+    const m = this.menu();
+    const row = m ? this.rows().find((r) => r.index === m.index) : undefined;
+    this.regroupOutbound.set(row?.outbound ?? '');
     this.menu.set(null);
     this.regroupOpen.set(true);
   }

@@ -3,7 +3,7 @@
   <div class="modal rr-modal" role="dialog" aria-modal="true" aria-label="拆解与合并规则集">
     <div class="modal-hd">
       <b>拆解与合并</b>
-      <span class="dim small">把桶在组之间拖动 · 一组 = 一条规则的多桶引用</span>
+      <span class="dim small">出口 <b>{{ outbound() || '—' }}</b> · 只列这个出口下的规则 · 一组 = 一条规则的多桶引用</span>
       <button class="x" (click)="close()" title="关闭">✕</button>
     </div>
 
