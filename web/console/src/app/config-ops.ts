@@ -1057,10 +1057,8 @@ export function groupRuleRefs(doc: ConfigDoc, group: string): string[] {
   const out: string[] = [];
   for (const r of routeRules(doc)) {
     if (String(r['outbound'] ?? '') !== group) continue;
-    const rs = r['rule_set'];
-    if (!Array.isArray(rs)) continue;
-    for (const t of rs) {
-      const s = String(t);
+    // rule_set 可能是字符串也可能是数组（sing-box 两种都收）
+    for (const s of ruleSetRefs(r)) {
       if (!out.includes(s)) out.push(s);
     }
   }
@@ -1072,11 +1070,10 @@ export function groupsWithRuleRefs(doc: ConfigDoc): { group: string; refs: strin
   const map = new Map<string, { group: string; refs: string[]; rules: number }>();
   for (const r of routeRules(doc)) {
     const g = String(r['outbound'] ?? '');
-    const rs = r['rule_set'];
-    if (!g || !Array.isArray(rs) || !rs.length) continue;
+    const rs = ruleSetRefs(r);
+    if (!g || !rs.length) continue;
     const e = map.get(g) ?? { group: g, refs: [], rules: 0 };
-    for (const t of rs) {
-      const s = String(t);
+    for (const s of rs) {
       if (!e.refs.includes(s)) e.refs.push(s);
     }
     e.rules += 1;
@@ -1115,7 +1112,7 @@ export function applyGroupRefs(
   const hits: number[] = [];
   rules.forEach((r, i) => {
     if (String(r['outbound'] ?? '') !== group) return;
-    if (Array.isArray(r['rule_set'])) hits.push(i);
+    if (ruleSetRefs(r).length) hits.push(i);
   });
   const target = [...new Set(refs.map(String))];
 
@@ -1140,7 +1137,7 @@ export function applyGroupRefs(
     let lastRs = -1;
     let lastAction = -1;
     rules.forEach((r, i) => {
-      if (Array.isArray(r['rule_set'])) lastRs = i;
+      if (ruleSetRefs(r).length) lastRs = i;
       const hasOutbound = typeof r['outbound'] === 'string' && r['outbound'];
       if (!hasOutbound && (r['action'] || r['inbound'])) lastAction = i;
     });
@@ -1151,7 +1148,7 @@ export function applyGroupRefs(
   }
 
   const before = new Set<string>();
-  for (const i of hits) for (const t of rules[i]['rule_set'] as unknown[]) before.add(String(t));
+  for (const i of hits) for (const t of ruleSetRefs(rules[i])) before.add(t);
   const added = target.filter((t) => !before.has(t));
   const removed = [...before].filter((t) => !target.includes(t));
   const first = hits[0];
