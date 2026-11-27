@@ -265,3 +265,15 @@ sing-box 的 `route.rules` 是**自上而下第一条命中即停**。TUN 进来
 验收：用 32 的真配置跑同一条合并 → 落盘 `{"port":[6969,2710,1337]}`（数字）、规则 35→33、
 无 `port:[]` 空壳、`validateDoc` 通过；把候选送 99 的 `/router/check`，**真内核 sing-box check 通过**
 （同时验证字符串版本会被拒）；mock UI 端到端合并后 applied 配置里 `typeof port[0] === 'number'`。
+
+## 10. 配置页纵向布局：节点表 100% 高度 + 编辑器为底部提示让位（2026-11-27）
+
+- **节点表不再写死 `max-height:360px`**：配置 tab 一律走 `.bp-fill`（内容区撑满、内部滚动），
+  只读视图包一层 `.cfg-ro`（flex 列）→ `.cfgnodes` 吃满剩余高度 → `.tblwrap` 内部滚动；
+  「分流规则 / 分组看板」打开时限高 42vh 各自滚动。
+- **编辑器为底部提示自动让位**：`.cfgedit` 改为 `flex: 1 1 0; min-height: 140px`，
+  `.cfgdiff`（24vh）、`.cfgissues`（16vh）可收缩、各自内部滚动，`.cfglog` 限高 96px；
+  出现 diff / 格式化提示 / 操作日志时编辑器上缩，而不是整页出现滚动条。
+- 实测（99 线上 + 32 真配置，1400×900）：只读视图面板 605px → 节点表 469px（内容 651 内部滚动），
+  页面无滚动条；编辑视图编辑器 413px；mock 里点「⇧ 格式化」后编辑器 359 → 180px、diff 140px、
+  日志 32px，页面 `scrollHeight == clientHeight`（无滚动条）。

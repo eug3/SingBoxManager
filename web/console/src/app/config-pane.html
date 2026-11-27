@@ -191,6 +191,7 @@
   }
   </div>
 } @else if (loaded()) {
+  <div class="cfg-ro">
   <!-- 分流规则（只读开关；基准=当前文档） -->
   @if (rulesOpen()) {
     <app-rule-selector [base]="workDoc()" (docChange)="onRulesDoc($event)" />
@@ -218,7 +219,7 @@
       </span>
       <button (click)="openNodeAdd()" [disabled]="busy() || !loaded()">＋ 新增节点</button>
     </div>
-    <div class="tblwrap" style="max-height: 360px; overflow: auto">
+    <div class="tblwrap">
       <table>
         <thead>
           <tr><th>标签</th><th>类型</th><th>服务器</th><th>凭证</th><th>所属组</th><th>route 引用</th><th>操作</th></tr>
@@ -249,6 +250,7 @@
         </tbody>
       </table>
     </div>
+  </div>
   </div>
 }
 

@@ -1824,8 +1824,8 @@ dialog.cfm-dialog::backdrop { background: rgba(20, 32, 48, .35); }
 }
 .rr-add button:hover { color: var(--acc2); border-color: var(--acc); }
 
-/* 配置页：编辑视图用「撑满 + 内部滚动」的 flex 列，编辑器默认 100% 高度
-   （不再写死 420px，也不用 JS 量窗口；backend-pane 在 config 编辑时加 .bp-fill） */
+/* 配置页：整个子页 = 撑满高度的 flex 列（backend-pane 对 config tab 一律加 .bp-fill），
+   内部各块自己滚：节点表 100% 高度、编辑器 100% 剩余高度、底部提示出现时编辑器自动让位 */
 app-config-pane {
   display: flex;
   flex-direction: column;
@@ -1833,7 +1833,31 @@ app-config-pane {
   min-width: 0;   /* flex 子项默认 min-width:auto，会让宽表格把整页顶宽（右侧列被裁掉） */
   width: 100%;
   flex: 1 1 auto;
+  overflow: hidden;
 }
+/* 只读视图：节点表吃掉全部剩余高度，表格内部滚动（原来是写死 360px 上限） */
+.cfg-ro {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+.cfg-ro > app-rule-selector,
+.cfg-ro > app-group-board { flex: 0 1 auto; max-height: 42vh; overflow: auto; }
+.cfg-ro > .cfgnodes {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.cfg-ro .tblwrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+/* 底部操作日志：限高自己滚，别把节点表/编辑器挤没 */
+.cfglog { flex: 0 0 auto; max-height: 96px; overflow: auto; }
 /* 配置页里的表格容器：宽度受宿主约束，横向溢出在容器内部滚动 */
 app-config-pane .tblwrap {
   min-width: 0;
@@ -1860,8 +1884,8 @@ app-config-pane .tblwrap {
 .cfgedit {
   display: flex;
   flex-direction: column;
-  flex: 1 1 auto;
-  min-height: 200px;
+  flex: 1 1 0;
+  min-height: 140px;
   margin: 4px 0 6px;
 }
 .cfgedit app-monaco-editor { flex: 1 1 auto; min-height: 0; }
@@ -1884,3 +1908,6 @@ app-config-pane .tblwrap {
 .rr-note { font-size: 11px; color: #8a5a12; }
 /* 右键菜单副标题（几个桶 / 条件规则） */
 .ctxitem .ctxsub { float: right; color: #98a5b6; font-size: 10px; margin-left: 10px; }
+
+/* 配置页门禁（未连接时的表单）：撑满高度时自己滚 */
+app-config-pane .cfggate { flex: 1 1 auto; min-height: 0; overflow: auto; }

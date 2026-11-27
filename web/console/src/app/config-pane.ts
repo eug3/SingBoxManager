@@ -6,7 +6,6 @@ import {
   effect,
   inject,
   input,
-  output,
   signal,
 } from '@angular/core';
 import { Backend } from './models';
@@ -94,8 +93,6 @@ export class ConfigPane {
   readonly credsAllow = signal<string[]>([]);         // 99 允许配置凭据的主机白名单
 
   constructor() {
-    // 编辑视图要求内容区撑满高度（编辑器默认 100%）；只读视图恢复整页滚动
-    effect(() => this.fillChange.emit(this.editing()));
     // 后端或全局密钥变化时自动重读；没密钥直接进连接页，别停在「读取中」
     effect(() => {
       const b = this.backend();
@@ -272,11 +269,6 @@ export class ConfigPane {
 
   /** 格式化时发现的「需要看一眼」的情况（类型冲突改名 / 旧 tag 残留） */
   readonly fmtWarn = signal<string[]>([]);
-
-  /** 编辑视图是否要求宿主（backend-pane）把内容区做成「撑满高度、内部滚动」——
-   *  编辑时给编辑器 100% 高度，只读时恢复普通整页滚动。 */
-  readonly fillChange = output<boolean>();
-
 
   /**
    * 格式化（只改暂存区，不写回路由）：
