@@ -1830,7 +1830,22 @@ app-config-pane {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  min-width: 0;   /* flex 子项默认 min-width:auto，会让宽表格把整页顶宽（右侧列被裁掉） */
+  width: 100%;
   flex: 1 1 auto;
+}
+/* 配置页里的表格容器：宽度受宿主约束，横向溢出在容器内部滚动 */
+app-config-pane .tblwrap {
+  min-width: 0;
+  max-width: 100%;
+}
+/* 节点表：单行不换行；「所属组」可能很长，超宽省略 + 悬停看全量，避免把「操作」列挤出可视区 */
+.cfgnodes .tblwrap th,
+.cfgnodes .tblwrap td { white-space: nowrap; }
+.cfgnodes .tblwrap td.gcell {
+  max-width: 34ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .cfg-edit {
   display: flex;

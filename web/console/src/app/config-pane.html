@@ -230,7 +230,9 @@
               <td><span class="tag">{{ n.type }}</span></td>
               <td class="dim">{{ n.server }}</td>
               <td class="dim">{{ n.special ? '—' : '已设置' }}</td>
-              <td class="dim small">{{ n.groups.length ? n.groups.join('、') : '—' }}</td>
+              <td class="dim small gcell" [title]="n.groups.length ? n.groups.join('、') : '—'">
+                {{ n.groups.length ? n.groups.join('、') : '—' }}
+              </td>
               <td class="dim small">{{ n.routeRefs || '—' }}</td>
               <td class="nowrap">
                 @if (!n.special) {
