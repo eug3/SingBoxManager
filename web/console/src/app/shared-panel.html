@@ -16,7 +16,21 @@
     </div>
   </div>
 
-  <div class="shp-cols">
+  @if (draftSvc.dirty()) {
+    <div class="shp-draftbar">
+      <b>已暂存修改</b>
+      <span class="dim small">目标路由：{{ draftTarget()?.name || draftTarget()?.api || backend()?.name || backend()?.api }}</span>
+      <span class="spacer"></span>
+      <button class="acc" (click)="saveDraft()" [disabled]="draftSvc.saving()">
+        {{ draftSvc.saving() ? '保存中…' : '保存并重启' }}
+      </button>
+      <button (click)="discardDraft()" [disabled]="draftSvc.saving()">丢弃</button>
+    </div>
+  }
+
+  <div class="shp-half">
+    <div class="shp-half-title dim small">① 共享节点池</div>
+    <div class="shp-cols">
     <!-- 左：当前来源路由的节点 -->
     <section class="shp-col">
       <div class="shp-hd">
@@ -114,5 +128,82 @@
       }
       <div class="shp-foot dim small">存本浏览器（localStorage）；换设备用「导出 / 导入 JSON」搬。池内节点保留完整密钥字段，别外发。</div>
     </section>
+    </div>
+  </div>
+
+  <div class="shp-half">
+    <div class="shp-half-title dim small">
+      ② 共享规则池 —— 拖「组名」进来，另一台路由同名出站的规则统一用同一套规则集（出站本身/组内节点不动）
+    </div>
+    <div class="shp-cols">
+
+    <!-- 左：当前路由里挂了规则集的组名 -->
+    <section class="shp-col">
+      <div class="shp-hd">
+        <b>{{ backend()?.name || backend()?.api || '未选路由' }}</b>
+        <span class="dim small">{{ groupRows().length }} 个组名挂了规则集</span>
+      </div>
+      <div class="shp-tip dim small">把行拖到右边的规则池，或用行尾「＋」加入</div>
+      <div class="shp-list">
+        @for (g of groupRows(); track g.group) {
+          <div class="shp-row shp-grow" draggable="true" (dragstart)="onGroupDragStart(g, $event)" [title]="'拖到右侧规则池：' + g.group">
+            <span class="shp-gtag">{{ g.group }}</span>
+            <span class="shp-refs">
+              @for (r of g.refs; track r) {
+                <span class="shp-ref">{{ r }}</span>
+              }
+            </span>
+            <span class="dim small">{{ g.refs.length }} 集 / {{ g.rules }} 条规则</span>
+            <button class="shp-add" (click)="addGroupRow(g)" title="加入共享规则池">＋</button>
+          </div>
+        } @empty {
+          <div class="dim small">这个路由没有「引用规则集」的组名。</div>
+        }
+      </div>
+    </section>
+
+    <!-- 右：共享规则池 -->
+    <section
+      class="shp-col shp-pool"
+      [class.over]="overRules()"
+      (dragover)="onRulesDragOver($event)"
+      (dragleave)="onRulesDragLeave()"
+      (drop)="onRulesDrop($event)"
+    >
+      <div class="shp-hd">
+        <b>共享规则池</b>
+        <span class="dim small">{{ rulesTotal() }} 个组名 · 拖到这里即可加入</span>
+      </div>
+      <div class="shp-list">
+        @for (g of rulesGroups(); track g.sourceApi) {
+          <div class="shp-src">
+            <div class="shp-src-hd">来自 <b>{{ g.sourceName }}</b> · {{ g.items.length }} 个</div>
+            @for (r of g.items; track r.id) {
+              <div class="shp-row shp-rrule">
+                <span class="shp-gtag">{{ r.group }}</span>
+                <span class="shp-refs">
+                  @for (x of r.refs; track x) {
+                    <span class="shp-ref">{{ x }}</span>
+                  }
+                </span>
+                <button class="acc mini" (click)="applyRules(r)" title="把这条规则集的组合套用到当前路由（同组名的规则）">
+                  套用到本路由
+                </button>
+                <button class="shp-del" (click)="pool.removeRule(r.id)" title="从共享规则池移除">✕</button>
+              </div>
+            }
+          </div>
+        } @empty {
+          <div class="dim small">规则池是空的：把左边某个组名拖进来（组名下的整套规则集一起共享）。</div>
+        }
+      </div>
+      @if (rulesNote()) {
+        <div class="shp-note">{{ rulesNote() }}</div>
+      }
+      <div class="shp-foot dim small">
+        套用只改「outbound = 该组名」规则的 rule_set 引用；出站本身、组内节点、优先级位置都不动。
+      </div>
+    </section>
+    </div>
   </div>
 </div>

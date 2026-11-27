@@ -1049,3 +1049,71 @@ export function applyRegroupRows(doc: ConfigDoc, rows: RegroupRowPlan[]): void {
   rules.length = 0;
   rules.push(...nextRules);
 }
+
+/* ────────────────── 共享规则池：组名 → 整套 rule_set 引用 ────────────────── */
+
+/** 某个出站（组名）下，所有规则引用的 rule_set 并集（按出现顺序去重） */
+export function groupRuleRefs(doc: ConfigDoc, group: string): string[] {
+  const out: string[] = [];
+  for (const r of routeRules(doc)) {
+    if (String(r['outbound'] ?? '') !== group) continue;
+    const rs = r['rule_set'];
+    if (!Array.isArray(rs)) continue;
+    for (const t of rs) {
+      const s = String(t);
+      if (!out.includes(s)) out.push(s);
+    }
+  }
+  return out;
+}
+
+/** 有 rule_set 引用的出站（组名）清单：面板左栏用 */
+export function groupsWithRuleRefs(doc: ConfigDoc): { group: string; refs: string[]; rules: number }[] {
+  const map = new Map<string, { group: string; refs: string[]; rules: number }>();
+  for (const r of routeRules(doc)) {
+    const g = String(r['outbound'] ?? '');
+    const rs = r['rule_set'];
+    if (!g || !Array.isArray(rs) || !rs.length) continue;
+    const e = map.get(g) ?? { group: g, refs: [], rules: 0 };
+    for (const t of rs) {
+      const s = String(t);
+      if (!e.refs.includes(s)) e.refs.push(s);
+    }
+    e.rules += 1;
+    map.set(g, e);
+  }
+  return [...map.values()].sort((a, b) => b.refs.length - a.refs.length || a.group.localeCompare(b.group));
+}
+
+/**
+ * 把「组名」在目标文档里统一成同一套 rule_set 引用：
+ *   · 只动 outbound = group **且引用了 rule_set** 的规则（带 port/ip_cidr 等条件的例外规则不碰）；
+ *   · 第一条保留位置换成 refs（精确同一套），同 outbound 的其余 rule_set 规则删掉；
+ *   · outbound 本身（组名 / 组内节点 / 其它设置）一点不改 —— 正是「规则集共享，出口各自不同」。
+ */
+export function applyGroupRefs(
+  doc: ConfigDoc,
+  group: string,
+  refs: string[],
+): { ok: boolean; reason?: string; added: string[]; removed: string[]; removedRules: number } {
+  const rules = routeRules(doc);
+  const hits: number[] = [];
+  rules.forEach((r, i) => {
+    if (String(r['outbound'] ?? '') !== group) return;
+    if (Array.isArray(r['rule_set'])) hits.push(i);
+  });
+  if (!hits.length) {
+    return { ok: false, reason: `目标路由没有 outbound =「${group}」且引用规则集的规则`, added: [], removed: [], removedRules: 0 };
+  }
+  const target = [...new Set(refs.map(String))];
+  const before = new Set<string>();
+  for (const i of hits) for (const t of rules[i]['rule_set'] as unknown[]) before.add(String(t));
+  const added = target.filter((t) => !before.has(t));
+  const removed = [...before].filter((t) => !target.includes(t));
+  const first = hits[0];
+  rules[first]['rule_set'] = target;
+  // 从后往前删掉同 outbound 的其它 rule_set 规则（保留第一条的位置）
+  const drop = new Set(hits.slice(1));
+  for (let i = rules.length - 1; i >= 0; i -= 1) if (drop.has(i)) rules.splice(i, 1);
+  return { ok: true, added, removed, removedRules: hits.length - 1 };
+}

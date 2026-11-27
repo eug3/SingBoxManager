@@ -1,5 +1,5 @@
 import { Injectable, signal } from '@angular/core';
-import { AnyObj, ConfigDoc, endpoints, outbounds } from './config-ops';
+import { AnyObj, ConfigDoc, endpoints, outbounds, routeRules } from './config-ops';
 
 /** 节点所在的顶层数组：普通出站 or endpoints（masque-client 等） */
 export type PoolKind = 'outbound' | 'endpoint';
@@ -22,12 +22,26 @@ export interface PoolNode {
   addedAt: number;
 }
 
-interface PoolState {
-  version: 1;
-  nodes: PoolNode[];
+/** 共享规则池的一条：某个「组名（出站 tag）」下挂的整套 rule_set 引用 */
+export interface PoolRules {
+  id: string;
+  sourceApi: string;
+  sourceName: string;
+  /** 组名 / 出站 tag（如 🚀 节点选择）；目标路由只要有同名 outbound 的规则即可套用 */
+  group: string;
+  /** 这套组名用到的 rule_set 引用（顺序保留；去重后的并集） */
+  refs: string[];
+  addedAt: number;
 }
 
-const KEY = 'sbm.sharedPool.v1';
+interface PoolState {
+  version: 2;
+  nodes: PoolNode[];
+  rules: PoolRules[];
+}
+
+const KEY = 'sbm.sharedPool.v2';
+const KEY_V1 = 'sbm.sharedPool.v1';
 
 /**
  * 共享池 — 跨后端的「可复用配置元素」仓库。
@@ -40,26 +54,45 @@ const KEY = 'sbm.sharedPool.v1';
  */
 @Injectable({ providedIn: 'root' })
 export class SharedPoolService {
-  readonly nodes = signal<PoolNode[]>(this.load());
+  readonly nodes = signal<PoolNode[]>([]);
+  readonly rules = signal<PoolRules[]>([]);
 
-  private load(): PoolNode[] {
+  constructor() {
+    const st = this.load();
+    this.nodes.set(st.nodes);
+    this.rules.set(st.rules);
+  }
+
+  private load(): { nodes: PoolNode[]; rules: PoolRules[] } {
+    const empty = { nodes: [] as PoolNode[], rules: [] as PoolRules[] };
     try {
-      const raw = localStorage.getItem(KEY);
-      if (!raw) return [];
-      const st = JSON.parse(raw) as PoolState;
-      if (!st || st.version !== 1 || !Array.isArray(st.nodes)) return [];
-      return st.nodes
-        .filter((n) => n && typeof n.tag === 'string' && n.node && typeof n.node === 'object')
-        .map((n) => ({ ...n, kind: n.kind === 'endpoint' ? 'endpoint' : 'outbound' }));
+      const raw = localStorage.getItem(KEY) ?? localStorage.getItem(KEY_V1);
+      if (!raw) return empty;
+      const st = JSON.parse(raw) as Partial<PoolState> & { version?: number };
+      const nodes = Array.isArray(st.nodes)
+        ? st.nodes
+            .filter((n) => n && typeof n.tag === 'string' && n.node && typeof n.node === 'object')
+            .map((n) => ({ ...n, kind: n.kind === 'endpoint' ? 'endpoint' : 'outbound' }) as PoolNode)
+        : [];
+      const rules = Array.isArray(st.rules)
+        ? st.rules.filter(
+            (r) => r && typeof r.group === 'string' && Array.isArray(r.refs) && typeof r.sourceApi === 'string',
+          )
+        : [];
+      return { nodes, rules };
     } catch {
-      return [];
+      return empty;
     }
   }
 
-  private save(list: PoolNode[]): void {
-    this.nodes.set(list);
+  private save(next: { nodes?: PoolNode[]; rules?: PoolRules[] } = {}): void {
+    const nodes = next.nodes ?? this.nodes();
+    const rules = next.rules ?? this.rules();
+    this.nodes.set(nodes);
+    this.rules.set(rules);
     try {
-      localStorage.setItem(KEY, JSON.stringify({ version: 1, nodes: list } satisfies PoolState));
+      localStorage.setItem(KEY, JSON.stringify({ version: 2, nodes, rules } satisfies PoolState));
+      localStorage.removeItem(KEY_V1);
     } catch {
       /* 隐私模式写不进去：内存里仍有，本会话可用 */
     }
@@ -88,16 +121,56 @@ export class SharedPoolService {
       node: structuredClone(node),
       addedAt: Date.now(),
     };
-    this.save(same ? list.map((n) => (n.id === same.id ? entry : n)) : [entry, ...list]);
+    this.save({ nodes: same ? list.map((n) => (n.id === same.id ? entry : n)) : [entry, ...list] });
     return { ok: true, dup: !!same };
   }
 
   removeNode(id: string): void {
-    this.save(this.nodes().filter((n) => n.id !== id));
+    this.save({ nodes: this.nodes().filter((n) => n.id !== id) });
   }
 
   clear(): void {
-    this.save([]);
+    this.save({ nodes: [], rules: [] });
+  }
+
+  /* ── 共享规则池：组名 → 整套 rule_set 引用 ── */
+
+  /** 把「组名 + 它挂的全部规则集」加入规则池（同来源同组名 = 更新） */
+  addRuleGroup(
+    source: { api: string; name: string },
+    group: string,
+    refs: string[],
+  ): { ok: boolean; dup: boolean; reason?: string } {
+    const g = String(group ?? '').trim();
+    if (!g) return { ok: false, dup: false, reason: '没有组名，无法共享' };
+    if (!refs.length) return { ok: false, dup: false, reason: '这个组名没有挂规则集，没什么可共享的' };
+    const list = this.rules();
+    const same = list.find((r) => r.sourceApi === source.api && r.group === g);
+    const entry: PoolRules = {
+      id: same?.id ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      sourceApi: source.api,
+      sourceName: source.name || source.api,
+      group: g,
+      refs: [...new Set(refs)],
+      addedAt: Date.now(),
+    };
+    this.save({ rules: same ? list.map((r) => (r.id === same.id ? entry : r)) : [entry, ...list] });
+    return { ok: true, dup: !!same };
+  }
+
+  removeRule(id: string): void {
+    this.save({ rules: this.rules().filter((r) => r.id !== id) });
+  }
+
+  /** 规则池按来源分组 */
+  rulesBySource(): { sourceName: string; sourceApi: string; items: PoolRules[] }[] {
+    const map = new Map<string, { sourceName: string; sourceApi: string; items: PoolRules[] }>();
+    for (const r of this.rules()) {
+      const g = map.get(r.sourceApi) ?? { sourceName: r.sourceName, sourceApi: r.sourceApi, items: [] };
+      g.items.push(r);
+      map.set(r.sourceApi, g);
+    }
+    return [...map.values()];
   }
 
   /** 按来源分组（面板展示用） */
@@ -146,7 +219,7 @@ export class SharedPoolService {
   }
 
   exportJson(): string {
-    return JSON.stringify({ version: 1, nodes: this.nodes() }, null, 2);
+    return JSON.stringify({ version: 2, nodes: this.nodes(), rules: this.rules() }, null, 2);
   }
 
   /** 导入 JSON（与导出的格式一致；同来源同 tag 覆盖） */
@@ -157,7 +230,14 @@ export class SharedPoolService {
       const valid = incoming.filter(
         (n) => n && typeof n.tag === 'string' && n.node && typeof n.node === 'object' && typeof n.sourceApi === 'string',
       );
-      if (!valid.length) return { ok: false, added: 0, error: '没有可导入的节点（结构不符）' };
+      const incomingRulesRaw = Array.isArray((st as PoolState)?.rules) ? (st as PoolState).rules : [];
+      const incomingRules = incomingRulesRaw.filter(
+        (r) => r && typeof r.group === 'string' && Array.isArray(r.refs),
+      );
+      // 允许只带 rules（或只带 nodes）导入
+      if (!valid.length && !incomingRules.length) {
+        return { ok: false, added: 0, error: '没有可导入的节点或规则池条目（结构不符）' };
+      }
       const list = [...this.nodes()];
       let added = 0;
       for (const n of valid) {
@@ -177,7 +257,25 @@ export class SharedPoolService {
           added += 1;
         }
       }
-      this.save(list);
+      const rl = [...this.rules()];
+      for (const r of incomingRules) {
+        if (!r || typeof r.group !== 'string' || !Array.isArray(r.refs)) continue;
+        const entry: PoolRules = {
+          id: r.id || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+          sourceApi: r.sourceApi || 'imported',
+          sourceName: r.sourceName || r.sourceApi || 'imported',
+          group: r.group,
+          refs: [...new Set(r.refs.map((x) => String(x)))],
+          addedAt: r.addedAt || Date.now(),
+        };
+        const i = rl.findIndex((x) => x.sourceApi === entry.sourceApi && x.group === entry.group);
+        if (i >= 0) rl[i] = entry;
+        else {
+          rl.unshift(entry);
+          added += 1;
+        }
+      }
+      this.save({ nodes: list, rules: rl });
       return { ok: true, added };
     } catch (e) {
       return { ok: false, added: 0, error: (e as Error)?.message ?? 'JSON 解析失败' };
