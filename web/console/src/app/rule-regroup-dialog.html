@@ -1,16 +1,17 @@
-<!-- 规则子页右键「拆解与合并」：把引用 rule_set 的规则摊成组，拖桶在组之间搬（拆解 / 合并） -->
+<!-- 规则子页右键「拆解与合并」：只针对一个出口分组；桶 chip 与条件规则行都可拖 -->
 <div class="modal-mask" (click)="onMask($event)">
-  <div class="modal rr-modal" role="dialog" aria-modal="true" aria-label="拆解与合并规则集">
+  <div class="modal rr-modal" role="dialog" aria-modal="true" aria-label="拆解与合并">
     <div class="modal-hd">
       <b>拆解与合并</b>
-      <span class="dim small">出口 <b>{{ outbound() || '—' }}</b> · 只列这个出口下的规则 · 一组 = 一条规则的多桶引用</span>
+      <span class="dim small">出口 <b>{{ outbound() || '—' }}</b> · 只列这个出口下的规则 · 桶拖 chip / 条件拖整行</span>
       <button class="x" (click)="close()" title="关闭">✕</button>
     </div>
 
     <div class="modal-body">
       <div class="rr-hint dim small">
-        拖左肩的桶 chip 到其它组 = 改引用归属；把一个组拖空 = 这条规则被删（空的组保存后自动消失）；
-        新增组需要选一个出口。只动「引用 rule_set 的规则」，动作规则 / 纯条件规则 / final 不受影响。
+        ① <b>桶引用组</b>：把桶 chip 拖到别的组 = 改引用归属（拆解 / 合并）；
+        ② <b>条件规则</b>（port / ip_cidr …）：字段相同的行可以互相拖（拖整行 = 合成一条，数组取并集）；
+        拖空的行保存后自动消失。
       </div>
 
       @if (!doc()) {
@@ -21,13 +22,22 @@
             <div
               class="rr-row"
               [class.over]="over() === row.id"
-              [class.empty]="!row.tags.length"
+              [class.empty]="isEmpty(row)"
               [class.isnew]="row.index === null"
+              [class.cond]="row.kind === 'cond'"
               (dragover)="onDragOver(row, $event)"
               (dragleave)="onDragLeave(row, $event)"
               (drop)="onDrop(row, $event)"
             >
               <div class="rr-hd">
+                @if (row.kind === 'cond') {
+                  <span
+                    class="rr-handle"
+                    draggable="true"
+                    (dragstart)="onRowDragStart(row, $event)"
+                    [title]="row.mergeable ? '拖到另一条同字段的条件规则上 = 合并成一条' : '这条含多个字段/标量，只能整行拖到字段完全相同的规则上'"
+                  >⇄</span>
+                }
                 <span class="rr-idx">{{ row.index === null ? '新组' : '#' + row.index }}</span>
                 @if (row.index === null) {
                   <select class="rr-out" [value]="row.outbound" (change)="setOutbound(row, $any($event.target).value)">
@@ -38,33 +48,58 @@
                 } @else {
                   <span class="rr-out-txt">出口 <b>{{ row.outbound || '—' }}</b></span>
                 }
-                <span class="spacer"></span>
-                <span class="dim small">{{ row.tags.length }} 个桶</span>
-                <button class="rr-mini" (click)="addRow(row)" title="在这条规则后面新增一个组">＋ 组</button>
-                <button class="rr-mini del" (click)="removeRow(row)" title="删掉这行（其中的桶一并丢弃）">✕</button>
-              </div>
-              <div class="rr-chips">
-                @for (tag of row.tags; track tag) {
-                  <span
-                    class="rr-chip"
-                    draggable="true"
-                    (dragstart)="onDragStart(row, tag, $event)"
-                    title="拖到别的组：{{ tag }}"
-                  >{{ tag }}</span>
-                } @empty {
-                  <span class="dim small">空组 —— 把桶拖进来，或保存后自动消失</span>
+                @if (row.kind === 'cond') {
+                  <span class="rr-kind">条件 · {{ row.sig || '（空）' }}</span>
                 }
+                <span class="spacer"></span>
+                <span class="dim small">
+                  @if (row.kind === 'bucket') { {{ row.buckets.length }} 个桶 } @else { {{ condChips(row).length }} 个值 }
+                </span>
+                <button class="rr-mini" (click)="addRow(row)" title="在这条规则后面新增一个桶引用组">＋ 组</button>
+                <button class="rr-mini del" (click)="removeRow(row)" title="删掉这行（其中的桶 / 条件一并丢弃）">✕</button>
               </div>
+
+              @if (row.kind === 'bucket') {
+                <div class="rr-chips">
+                  @for (tag of row.buckets; track tag) {
+                    <span
+                      class="rr-chip"
+                      draggable="true"
+                      (dragstart)="onChipDragStart(row, $event, tag)"
+                      title="拖到别的组：{{ tag }}"
+                    >{{ tag }}</span>
+                  } @empty {
+                    <span class="dim small">空组 —— 把桶拖进来，或保存后自动消失</span>
+                  }
+                </div>
+              } @else {
+                <div class="rr-chips">
+                  @for (c of condChips(row); track c.field + '=' + c.value) {
+                    <span
+                      class="rr-chip"
+                      [class.fixed]="!row.mergeable"
+                      [attr.draggable]="row.mergeable ? 'true' : null"
+                      (dragstart)="onChipDragStart(row, $event, c.field + '::' + c.value)"
+                      [title]="row.mergeable ? '拖到同字段的另一条规则：' + c.field + '=' + c.value : '多字段规则只能整行拖（用左侧 ⇄）'"
+                    ><i class="rr-field">{{ c.field }}</i>{{ c.value }}</span>
+                  } @empty {
+                    <span class="dim small">空行 —— 保存后这条规则会被删掉</span>
+                  }
+                </div>
+              }
             </div>
           } @empty {
-            <div class="dim small">当前没有「引用规则集」的规则可以拆解。</div>
+            <div class="dim small">这个出口下没有可拆解/合并的规则。</div>
           }
         </div>
 
         <div class="rr-add">
           <button (click)="addRow(null)">＋ 新增组（末尾）</button>
           @if (emptyCount()) {
-            <span class="dim small">{{ emptyCount() }} 个空组保存后会消失</span>
+            <span class="dim small">{{ emptyCount() }} 个空行保存后会消失</span>
+          }
+          @if (note()) {
+            <span class="rr-note">{{ note() }}</span>
           }
         </div>
 
@@ -73,13 +108,12 @@
             ⚠ 保存时会清掉没人指向的分组：{{ prunePreview().join('、') }}（至少保留 1 个分组）
           </div>
         }
-
         @if (err()) {
           <div class="modal-note bad">✗ {{ err() }}</div>
         }
         <div class="hint dim">
-          保存只改 config（route.rules 的 rule_set 分组 + 清理没人用的分组出站，至少保留 1 个分组），
-          改动进顶部「待保存条」，点「保存并重启」才写回路由。
+          保存只改 config 的 route.rules（分组 + 清理没人用的出站），改动进顶部「待保存条」，
+          点「保存并重启」才写回路由。条件规则的优先级只会在合并的两行之间取靠前的位置。
         </div>
       }
     </div>

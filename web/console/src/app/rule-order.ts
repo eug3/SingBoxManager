@@ -122,11 +122,37 @@ export class RuleOrder {
     this.docChange.emit(doc);
   }
 
-  /** 当前右键行的桶数（0 = 不能拆解） */
-  readonly menuRefs = computed(() => {
+  /** 当前右键行（null = 菜单没开） */
+  private readonly menuRow = computed(() => {
     const m = this.menu();
-    if (!m) return 0;
-    return this.rows().find((r) => r.index === m.index)?.ruleSetRefs.length ?? 0;
+    if (!m) return null;
+    return this.rows().find((r) => r.index === m.index) ?? null;
+  });
+
+  /** 当前右键行的桶数（纯条件规则为 0，但仍可拆解合并） */
+  readonly menuRefs = computed(() => this.menuRow()?.ruleSetRefs.length ?? 0);
+
+  /**
+   * 能不能对它做「拆解与合并」：
+   *  · 引用 rule_set 的规则 → 桶可以拖；
+   *  · 纯条件规则（port / ip_cidr / domain_suffix…）→ 同字段的行可以合并；
+   *  · 动作规则（sniff/hijack-dns）与没有条件的兜底规则不行。
+   */
+  readonly menuEnabled = computed(() => {
+    const r = this.menuRow();
+    if (!r || r.actionOnly) return false;
+    return r.ruleSetRefs.length > 0 || r.condition.trim().length > 0;
+  });
+
+  /** 禁用时给的理由 */
+  readonly menuHint = computed(() => {
+    const r = this.menuRow();
+    if (!r) return '';
+    if (r.actionOnly) return '动作规则（sniff / hijack-dns）不能拆解';
+    if (!r.ruleSetRefs.length && !r.condition.trim()) return '这条规则没有条件（兜底规则），不能拆解';
+    return r.ruleSetRefs.length
+      ? '把这条规则的桶摊开，拖到别的组'
+      : '把同字段的条件规则拖到一起合并（数组取并集）';
   });
 
   /* ── 拖动状态 ── */

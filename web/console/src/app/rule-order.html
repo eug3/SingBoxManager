@@ -124,11 +124,16 @@
   <div class="ctxmenu" [style.left.px]="m.x" [style.top.px]="m.y">
     <button
       class="ctxitem"
-      [disabled]="menuRefs() === 0"
-      [title]="menuRefs() === 0 ? '这条规则没有引用规则集（动作规则 / 纯条件规则），不能拆解' : '把这条规则的桶摊开，拖到别的组'"
-      (click)="menuRefs() ? openRegroup() : closeMenu()"
+      [disabled]="!menuEnabled()"
+      [title]="menuHint()"
+      (click)="menuEnabled() ? openRegroup() : closeMenu()"
     >
       ⇄ 拆解与合并…
+      @if (menuRefs()) {
+        <span class="ctxsub">{{ menuRefs() }} 个桶</span>
+      } @else if (menuEnabled()) {
+        <span class="ctxsub">条件规则</span>
+      }
     </button>
   </div>
 }

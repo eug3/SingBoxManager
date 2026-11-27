@@ -859,3 +859,204 @@ export function normalizeOutboundTags(doc: ConfigDoc): TagNormalizeResult {
   for (const l of leftovers.slice(0, 5)) res.warnings.push(`旧 tag 残留：${l}`);
   return res;
 }
+
+/* ────────────────── 拆解与合并：纯条件规则（port / ip_cidr …） ────────────────── */
+
+/** 规则里这些键的值是数组（数组内 OR，数组之间 AND） */
+const ARRAY_COND_KEYS = new Set([
+  'ip_cidr',
+  'ip_is_private', // 布尔，但这里只处理数组
+  'port',
+  'port_range',
+  'source_ip_cidr',
+  'source_port',
+  'source_port_range',
+  'domain',
+  'domain_suffix',
+  'domain_keyword',
+  'domain_regex',
+  'geosite',
+  'geoip',
+  'process_name',
+  'process_path',
+  'package_name',
+  'network',
+  'protocol',
+  'client',
+  'user',
+]);
+
+/** 弹窗里的一条「纯条件规则」行 */
+export interface CondRuleRow {
+  index: number;
+  outbound: string;
+  /** 数组型条件（可合并）：字段名 → 值列表 */
+  arrays: { field: string; values: string[] }[];
+  /** 标量型条件（原样保留，不参与拖动） */
+  scalars: { field: string; value: unknown }[];
+  /** 可以参与合并（恰好一个数组字段、没有标量、没有 rule_set / action） */
+  mergeable: boolean;
+  /** 合并签名：字段集合排序拼串（相同才能合并） */
+  sig: string;
+}
+
+const ABSENT = new Set(['outbound', 'rule_set', 'action', 'invert']);
+
+/**
+ * 取某个出口下的「纯条件规则」（没有 rule_set、没有 action，只剩条件 + outbound），
+ * 供「拆解与合并」弹窗的第二类行使用。
+ */
+export function condRuleRows(doc: ConfigDoc, outbound?: string): CondRuleRow[] {
+  const out: CondRuleRow[] = [];
+  routeRules(doc).forEach((r, i) => {
+    if (!r || r['rule_set'] || r['action']) return;
+    const ob = String(r['outbound'] ?? '');
+    if (outbound !== undefined && ob !== outbound) return;
+    const arrays: { field: string; values: string[] }[] = [];
+    const scalars: { field: string; value: unknown }[] = [];
+    for (const [k, v] of Object.entries(r)) {
+      if (ABSENT.has(k)) continue;
+      if (Array.isArray(v) && ARRAY_COND_KEYS.has(k)) {
+        arrays.push({ field: k, values: v.map((x) => String(x)) });
+      } else {
+        scalars.push({ field: k, value: v });
+      }
+    }
+    if (!arrays.length && !scalars.length) return; // 纯 outbound 的兜底规则，不参与
+    arrays.sort((a, b) => a.field.localeCompare(b.field));
+    const sig = arrays.map((a) => a.field).join(',');
+    out.push({
+      index: i,
+      outbound: ob,
+      arrays,
+      scalars,
+      mergeable: arrays.length === 1 && scalars.length === 0,
+      sig,
+    });
+  });
+  return out;
+}
+
+/** 合并两条条件规则的字段（同字段集合才能合并；数组取并集，标量必须相等） */
+export function mergeCondData(
+  a: AnyObj,
+  b: AnyObj,
+): { ok: true; merged: AnyObj } | { ok: false; reason: string } {
+  const keysA = Object.keys(a).filter((k) => !ABSENT.has(k)).sort();
+  const keysB = Object.keys(b).filter((k) => !ABSENT.has(k)).sort();
+  if (keysA.join(',') !== keysB.join(',')) {
+    return { ok: false, reason: `条件字段不同（${keysA.join('+') || '空'} vs ${keysB.join('+') || '空'}），不能合并` };
+  }
+  const merged: AnyObj = {};
+  for (const k of keysA) {
+    const va = a[k];
+    const vb = b[k];
+    if (Array.isArray(va) && Array.isArray(vb)) {
+      const seen = new Set<string>();
+      const arr: unknown[] = [];
+      for (const x of [...va, ...vb]) {
+        const key = JSON.stringify(x);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        arr.push(x);
+      }
+      merged[k] = arr;
+    } else if (JSON.stringify(va) === JSON.stringify(vb)) {
+      merged[k] = va;
+    } else {
+      return { ok: false, reason: `字段 ${k} 的取值不同（${JSON.stringify(va)} vs ${JSON.stringify(vb)}），不能合并` };
+    }
+  }
+  return { ok: true, merged };
+}
+
+/** 条件对象是否「实质为空」：没有键，或所有数组都是空数组 */
+export function condIsEmpty(cond: AnyObj | null | undefined): boolean {
+  if (!cond) return true;
+  for (const v of Object.values(cond)) {
+    if (Array.isArray(v)) {
+      if (v.length) return false;
+    } else {
+      return false;
+    }
+  }
+  return true;
+}
+
+/** 去掉条件里已经拖空的数组字段（保留标量） */
+export function tidyCond(cond: AnyObj | null | undefined): AnyObj {
+  const out: AnyObj = {};
+  for (const [k, v] of Object.entries(cond ?? {})) {
+    if (Array.isArray(v) && v.length === 0) continue;
+    out[k] = v;
+  }
+  return out;
+}
+
+/** 弹窗保存用的一行（桶引用 / 条件规则 二选一） */
+export interface RegroupRowPlan {
+  index: number | null;
+  anchor: number;
+  outbound: string;
+  buckets: string[];
+  cond: AnyObj | null;
+}
+
+/**
+ * 按弹窗结果重写 route.rules：
+ *  · index 存在 → 原地替换（保留原规则其它字段；buckets/cond 都空 → 删掉这条规则）；
+ *  · index=null → 插在 anchor 之后（buckets/cond 都空 → 不落盘）；
+ *  · 未参与的行原样保留。
+ */
+export function applyRegroupRows(doc: ConfigDoc, rows: RegroupRowPlan[]): void {
+  const rules = ensureRouteRules(ensureRoute(doc));
+  const byIndex = new Map<number, RegroupRowPlan>();
+  for (const r of rows) if (r.index !== null) byIndex.set(r.index, r);
+  const inserts = new Map<number, RegroupRowPlan[]>();
+  for (const r of rows) {
+    if (r.index !== null) continue;
+    if (!r.buckets.length && !r.cond) continue;
+    const list = inserts.get(r.anchor) ?? [];
+    list.push(r);
+    inserts.set(r.anchor, list);
+  }
+  const build = (orig: AnyObj | null, row: RegroupRowPlan): AnyObj | null => {
+    // cond 空对象 / 全空数组 = 这条条件规则被拖空了 → 删掉
+    // （否则会写出 {"port": []} 这种永远不命中的空壳规则）
+    const hasCond = !condIsEmpty(row.cond);
+    if (row.buckets.length === 0 && !hasCond) return null;
+    const next: AnyObj = orig ? { ...orig } : {};
+    delete next['rule_set'];
+    if (row.buckets.length) next['rule_set'] = [...row.buckets];
+    if (hasCond) {
+      // 条件行：用新条件整体替换旧条件字段（保留 invert 等不在 cond 里的字段）
+      for (const k of Object.keys(next)) {
+        if (k === 'outbound' || k === 'rule_set' || k === 'invert') continue;
+        delete next[k];
+      }
+      Object.assign(next, row.cond!);
+    }
+    next['outbound'] = row.outbound;
+    return next;
+  };
+  const nextRules: AnyObj[] = [];
+  rules.forEach((r, i) => {
+    const row = byIndex.get(i);
+    if (!row) {
+      nextRules.push(r);
+    } else {
+      const built = build(r, row);
+      if (built) nextRules.push(built);
+    }
+    for (const add of inserts.get(i) ?? []) {
+      const built = build(null, add);
+      if (built) nextRules.push(built);
+    }
+  });
+  for (const add of inserts.get(-1) ?? []) {
+    const built = build(null, add);
+    if (built) nextRules.push(built);
+  }
+  rules.length = 0;
+  rules.push(...nextRules);
+}
