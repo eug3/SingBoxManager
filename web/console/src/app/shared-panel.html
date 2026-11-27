@@ -95,7 +95,23 @@
                 @if (isShared(n)) {
                   <span class="pill-share" title="同配置的节点已在共享池里：不能重复勾选 / 拖入">share</span>
                 }
+                <button
+                  class="shp-view-btn"
+                  (click)="toggleView(n, $event)"
+                  [title]="'查看这个节点的完整配置'"
+                >{{ viewTag() === n.tag ? '收起' : '查看' }}</button>
               </label>
+              @if (viewTag() === n.tag) {
+                <div class="shp-view">
+                  <div class="shp-view-hd">
+                    <b>{{ n.tag }}</b>
+                    <span class="dim small">{{ n.type }} · {{ n.kind === 'endpoint' ? 'endpoints' : 'outbounds' }} · 只读</span>
+                    <span class="spacer"></span>
+                    <button (click)="copyView(n, $event)">复制 JSON</button>
+                  </div>
+                  <pre>{{ viewJson(n) }}</pre>
+                </div>
+              }
             } @empty {
               <div class="dim small">这个路由没有可共享的节点。</div>
             }

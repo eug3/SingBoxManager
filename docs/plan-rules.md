@@ -401,3 +401,13 @@ sing-box 的 `route.rules` 是**自上而下第一条命中即停**。TUN 进来
 类型不同拒绝、endpoint 覆盖回 endpoints、池内编辑各分支）；`npm run test:ops` 共 **107 断言 ALL PASS**；
 mock 端到端：池内把端口改成 9999 → 拖到「日本 02」被拒 → 拖到同名「香港 01」覆盖 → 保存并重启 →
 落盘 `{"type":"shadowsocks","tag":"🇭🇰 香港 01","server_port":9999}`。
+
+### 11.12 左栏节点可查看完整配置（2026-11-27）
+反馈：共享编辑左栏（路由侧节点）也要能看配置。
+
+- 每行行尾「查看」→ 就地展开**只读** JSON 块（完整对象，含 tls/transport/密钥），再点「收起」；
+- 块头显示 `类型 · outbounds/endpoints · 只读`，右侧「复制 JSON」一键复制；
+- 点「查看/复制」不会触发复选框（`preventDefault + stopPropagation`）；
+- pre 限高 260px 内部滚动，不挤占其它行。
+
+验收（mock）：展开「🇭🇰 香港 01」看到完整 JSON、复选框未被勾选、再点收起正常；线上 32 真配置同款可用。

@@ -103,6 +103,28 @@ export class SharedPanel implements OnInit {
   readonly dragPoolId = signal<string | null>(null);
   /** 左栏某个节点行正被池条目悬停 */
   readonly overRow = signal<string | null>(null);
+  /** 左栏里正在「查看配置」的节点 tag（null = 没展开） */
+  readonly viewTag = signal<string | null>(null);
+
+  /** 节点完整配置的只读 JSON 文本 */
+  viewJson(row: SourceNode): string {
+    return JSON.stringify(row.raw, null, 2);
+  }
+
+  toggleView(row: SourceNode, ev: MouseEvent): void {
+    ev.preventDefault();
+    ev.stopPropagation();
+    this.viewTag.set(this.viewTag() === row.tag ? null : row.tag);
+  }
+
+  copyView(row: SourceNode, ev: MouseEvent): void {
+    ev.preventDefault();
+    ev.stopPropagation();
+    void navigator.clipboard?.writeText(this.viewJson(row)).then(
+      () => this.note.set(`已复制「${row.tag}」的配置 JSON`),
+      () => this.note.set('复制失败：浏览器不允许剪贴板，手动选中复制即可'),
+    );
+  }
   readonly rulesNote = signal('');
   /** 勾选待加入节点池的 tag */
   readonly picked = signal<string[]>([]);
