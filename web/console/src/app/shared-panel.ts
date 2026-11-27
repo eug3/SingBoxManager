@@ -115,16 +115,32 @@ export class SharedPanel implements OnInit {
     void this.loadSource();
   }
 
+  /** 快速切 tab 时只认最后一次请求的结果 */
+  private loadSeq = 0;
+
+  /** 读配置：超时 12s 就报「读不到」，别一直转圈 */
+  private withTimeout<T>(p: Promise<T>, ms = 12000): Promise<T> {
+    return Promise.race([
+      p,
+      new Promise<T>((_, reject) => setTimeout(() => reject(new Error('读取配置超时（路由不可达？）')), ms)),
+    ]);
+  }
+
   private async loadSource(): Promise<void> {
     const b = this.backend();
     if (!b) {
       this.err.set('没有选中后端：先在上方选一个路由 tab');
       return;
     }
+    const seq = ++this.loadSeq;
     this.loading.set(true);
     this.err.set('');
+    this.src.set([]);
+    this.srcDoc.set(null);
     try {
-      const res = await this.router.config(b);
+      const res = await this.withTimeout(this.router.config(b));
+      if (seq !== this.loadSeq) return; // 已经切到别的路由了
+
       const doc = parseConfig(res.config);
       this.srcDoc.set(doc);
       const gs = new Set(groups(doc).map((g) => String(g['tag'])));
@@ -146,9 +162,10 @@ export class SharedPanel implements OnInit {
       // 特殊出站（DIRECT/REJECT）不是「节点」，不进共享候选
       this.src.set(rows.filter((r) => !r.special && !gs.has(r.tag)));
     } catch (e) {
+      if (seq !== this.loadSeq) return;
       this.err.set(errMsg(e));
     } finally {
-      this.loading.set(false);
+      if (seq === this.loadSeq) this.loading.set(false);
     }
   }
 
