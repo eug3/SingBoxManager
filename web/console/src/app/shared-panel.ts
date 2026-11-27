@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject, input, signal } from '@angular/core';
 import { Backend } from './models';
 import { BackendsService } from './backends.service';
-import { AnyObj, groups, nodes, parseConfig } from './config-ops';
+import { AnyObj, endpoints, groups, nodes, outbounds, parseConfig } from './config-ops';
 import { RouterService } from './router.service';
 import { SharedPoolService } from './shared-pool.service';
 import { errMsg } from './util';
@@ -12,6 +12,8 @@ interface SourceNode {
   type: string;
   server: string;
   special: boolean;
+  /** 来自 outbounds 还是 endpoints（masque-client 这类在 endpoints 里） */
+  kind: 'outbound' | 'endpoint';
   raw: AnyObj;
 }
 
@@ -93,13 +95,21 @@ export class SharedPanel implements OnInit {
       const res = await this.router.config(b);
       const doc = parseConfig(res.config);
       const gs = new Set(groups(doc).map((g) => String(g['tag'])));
-      const rows = nodes(doc).map((n) => ({
-        tag: n.tag,
-        type: n.type,
-        server: n.server,
-        special: n.special,
-        raw: (doc.root['outbounds'] as AnyObj[]).find((o) => String(o['tag']) === n.tag) ?? {},
-      }));
+      // 节点可能来自 outbounds 或 endpoints，两处都要找（否则拿不到原文，加入池子会报「没有 tag」）
+      const ob = outbounds(doc);
+      const ep = endpoints(doc);
+      const rows = nodes(doc).map((n) => {
+        const inOb = ob.find((o) => String(o['tag']) === n.tag);
+        const inEp = inOb ? undefined : ep.find((o) => String(o['tag']) === n.tag);
+        return {
+          tag: n.tag,
+          type: n.type,
+          server: n.server,
+          special: n.special,
+          kind: (inEp ? 'endpoint' : 'outbound') as 'outbound' | 'endpoint',
+          raw: inOb ?? inEp ?? {},
+        };
+      });
       // 特殊出站（DIRECT/REJECT）不是「节点」，不进共享候选
       this.src.set(rows.filter((r) => !r.special && !gs.has(r.tag)));
     } catch (e) {
@@ -123,14 +133,14 @@ export class SharedPanel implements OnInit {
     const b = this.backend();
     if (!b) return;
     const source = { api: b.api, name: b.name || b.api };
-    const byTag = new Map(this.src().map((r) => [r.tag, r.raw]));
+    const byTag = new Map(this.src().map((r) => [r.tag, r]));
     let added = 0;
     let dup = 0;
     const bad: string[] = [];
     for (const t of tags) {
-      const raw = byTag.get(t);
-      if (!raw) continue;
-      const res = this.pool.addNode(source, raw);
+      const row = byTag.get(t);
+      if (!row) continue;
+      const res = this.pool.addNode(source, row.raw, row.kind);
       if (!res.ok) bad.push(`${t}（${res.reason}）`);
       else if (res.dup) dup += 1;
       else added += 1;

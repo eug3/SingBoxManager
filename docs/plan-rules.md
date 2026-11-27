@@ -315,3 +315,15 @@ sing-box 的 `route.rules` 是**自上而下第一条命中即停**。TUN 进来
   下面左右两栏撑满高度，各自内部滚动（`.shp-list`），不再用弹窗；
 - 记 `lastBackendIdx`：停在编辑类页面时，共享编辑默认仍落在上次看的那台路由；
 - 「新增节点 → 共享池」导入链路不变。
+
+### 11.6 endpoints 也要能共享（2026-11-27 追加）
+实测发现：`ali.vmess` / `masque-arm` / `skn-sec` 这类 masque-client 节点在 sing-box 配置里属于
+**`endpoints` 数组**，不在 `outbounds`。原实现只按 outbounds 找原文 → 拖进池子会报「节点没有 tag」。
+
+- `PoolNode.kind: 'outbound' | 'endpoint'`；`addNode(..., kind)`；导入时 `endpoint` 放回 `endpoints`，
+  普通节点放回 `outbounds`（绝不串数组）；
+- tag 判重跨 `outbounds + endpoints`（sing-box 的 tag 在两个数组间也要唯一），冲突照样加来源前缀；
+- 面板左栏给 endpoints 打橙色 `endpoint` 标记；老池数据缺 `kind` 自动按 outbound 兼容；
+- 验收：纯函数 10/10 PASS（endpoints 可加入、kind 记录、导入回 endpoints、密钥完整、不串数组、
+  跨数组改名 `32-masque-arm`、老数据兼容）；线上 32 真配置：16 个可共享节点中 7 个是 endpoint，
+  拖 `ali.vmess`(masque-client) 与 `LAN-FD-SA`(shadowsocks) 均成功入池。

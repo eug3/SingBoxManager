@@ -59,7 +59,7 @@ export function outbounds(doc: ConfigDoc): AnyObj[] {
 }
 
 /** endpoints 数组（masque 等，缺省空） */
-function endpoints(doc: ConfigDoc): AnyObj[] {
+export function endpoints(doc: ConfigDoc): AnyObj[] {
   return Array.isArray(doc.root['endpoints']) ? (doc.root['endpoints'] as AnyObj[]) : [];
 }
 

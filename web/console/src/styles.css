@@ -1962,3 +1962,5 @@ app-config-pane .cfggate { flex: 1 1 auto; min-height: 0; overflow: auto; }
 .shp-pick-src { font-size: 10px; color: var(--dim); padding: 6px 2px 2px; border-bottom: 1px dashed #e4ebf3; }
 .shp-pick-row { display: flex; align-items: center; gap: 8px; padding: 4px 2px; font-size: 11px; }
 .shp-pick-row .spacer { flex: 1 1 auto; }
+/* 共享池：endpoints 标记 */
+.shp-kind { font-size: 9px; color: #8a5a12; background: #fdf3e2; border: 1px solid #f0dcc0; border-radius: 3px; padding: 0 4px; }

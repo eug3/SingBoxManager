@@ -41,6 +41,9 @@
               />
               <span class="shp-tag">{{ n.tag }}</span>
               <span class="shp-type">{{ n.type }}</span>
+              @if (n.kind === 'endpoint') {
+                <span class="shp-kind" title="来自 endpoints（如 masque-client），导入时会放回 endpoints">endpoint</span>
+              }
               <span class="shp-server">{{ n.server }}</span>
             </label>
           } @empty {
@@ -94,6 +97,9 @@
               <div class="shp-row">
                 <span class="shp-tag">{{ n.tag }}</span>
                 <span class="shp-type">{{ n.node['type'] }}</span>
+                @if (n.kind === 'endpoint') {
+                  <span class="shp-kind">endpoint</span>
+                }
                 <span class="shp-server">{{ n.node['server'] }}:{{ n.node['server_port'] }}</span>
                 <button class="shp-del" (click)="remove(n.id)" title="从共享池移除">✕</button>
               </div>

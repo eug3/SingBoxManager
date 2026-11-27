@@ -1,5 +1,8 @@
 import { Injectable, signal } from '@angular/core';
-import { AnyObj, ConfigDoc, outbounds } from './config-ops';
+import { AnyObj, ConfigDoc, endpoints, outbounds } from './config-ops';
+
+/** 节点所在的顶层数组：普通出站 or endpoints（masque-client 等） */
+export type PoolKind = 'outbound' | 'endpoint';
 
 /** 共享池里的一个节点条目 */
 export interface PoolNode {
@@ -11,6 +14,8 @@ export interface PoolNode {
   sourceName: string;
   /** 原始 tag（导入到别的路由时可能被加上来源前缀） */
   tag: string;
+  /** 来自 outbounds 还是 endpoints（导入时原样放回同名数组；老数据默认 outbound） */
+  kind: PoolKind;
   /** 完整出站对象（保留 server/密钥/tls/transport 等全部字段） */
   node: AnyObj;
   /** 加入时间（ms） */
@@ -43,7 +48,9 @@ export class SharedPoolService {
       if (!raw) return [];
       const st = JSON.parse(raw) as PoolState;
       if (!st || st.version !== 1 || !Array.isArray(st.nodes)) return [];
-      return st.nodes.filter((n) => n && typeof n.tag === 'string' && n.node && typeof n.node === 'object');
+      return st.nodes
+        .filter((n) => n && typeof n.tag === 'string' && n.node && typeof n.node === 'object')
+        .map((n) => ({ ...n, kind: n.kind === 'endpoint' ? 'endpoint' : 'outbound' }));
     } catch {
       return [];
     }
@@ -59,7 +66,11 @@ export class SharedPoolService {
   }
 
   /** 加入池子：同一来源 + 同 tag 视为同一条（覆盖旧内容）；返回是否新加入 */
-  addNode(source: { api: string; name: string }, node: AnyObj): { ok: boolean; dup: boolean; reason?: string } {
+  addNode(
+    source: { api: string; name: string },
+    node: AnyObj,
+    kind: PoolKind = 'outbound',
+  ): { ok: boolean; dup: boolean; reason?: string } {
     const tag = String(node['tag'] ?? '').trim();
     if (!tag) return { ok: false, dup: false, reason: '节点没有 tag，无法共享' };
     const type = String(node['type'] ?? '');
@@ -73,6 +84,7 @@ export class SharedPoolService {
       sourceApi: source.api,
       sourceName: source.name || source.api,
       tag,
+      kind,
       node: structuredClone(node),
       addedAt: Date.now(),
     };
@@ -105,7 +117,9 @@ export class SharedPoolService {
    * 原 tag 没被占用就用原 tag；否则 `<来源>-<tag>`；还冲突就 -2/-3…
    */
   uniqueTagFor(doc: ConfigDoc | null, tag: string, sourceName: string): string {
-    const used = new Set(doc ? outbounds(doc).map((o) => String(o['tag'] ?? '')) : []);
+    const used = new Set(
+      doc ? [...outbounds(doc), ...endpoints(doc)].map((o) => String(o['tag'] ?? '')) : [],
+    );
     if (!used.has(tag)) return tag;
     const prefix = (sourceName || 'pool').replace(/\s+/g, '-');
     let cand = `${prefix}-${tag}`;
@@ -117,13 +131,17 @@ export class SharedPoolService {
     return cand;
   }
 
-  /** 把池里的节点导入文档（保留原对象全部字段；tag 冲突自动改名）。返回最终 tag */
+  /**
+   * 把池里的节点导入文档（保留原对象全部字段；tag 冲突自动改名）。
+   * endpoints（masque-client 等）原样放回 `endpoints`，普通节点放回 `outbounds`。
+   * 返回最终 tag。
+   */
   importInto(doc: ConfigDoc, item: PoolNode): string {
     const tag = this.uniqueTagFor(doc, item.tag, item.sourceName);
     const node: AnyObj = { ...structuredClone(item.node), tag };
-    const list = doc.root['outbounds'];
-    if (!Array.isArray(list)) doc.root['outbounds'] = [];
-    (doc.root['outbounds'] as AnyObj[]).push(node);
+    const key = item.kind === 'endpoint' ? 'endpoints' : 'outbounds';
+    if (!Array.isArray(doc.root[key])) doc.root[key] = [];
+    (doc.root[key] as AnyObj[]).push(node);
     return tag;
   }
 
@@ -148,6 +166,7 @@ export class SharedPoolService {
           sourceApi: n.sourceApi,
           sourceName: n.sourceName || n.sourceApi,
           tag: n.tag,
+          kind: n.kind === 'endpoint' ? 'endpoint' : 'outbound',
           node: structuredClone(n.node),
           addedAt: n.addedAt || Date.now(),
         };
