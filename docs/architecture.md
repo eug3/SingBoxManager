@@ -146,6 +146,7 @@ flow-model.ts              流向纯函数引擎：buildStatic/buildFlow/stepAct
 rule-set-dialog.ts / .html ③ 规则集：已应用 chips + palette 拖拽/＋ 增删引用
 group-dialog.ts / .html    ④ 分组：成员 checkbox（含嵌套分组）+ selector/urltest/负载均衡预设
 rule-set-create-dialog.ts / .html ③ 列头 ＋：新建桶 · 引用到分组（入口桶多选/批量新建，出口分组可内联新建）
+rule-regroup-dialog.ts / .html  规则行右键「拆解与合并」：把一条规则的多桶引用摊开，拖桶在组间搬（拆/合），空组保存后消失
 group-create-dialog.ts / .html    ④ 列头 ＋：tag + 类型（selector/urltest/负载均衡）+ 直接勾成员
 node-create-dialog.ts / .html     ⑤ 列头 ＋ 与配置页共用：表单（node-form）/ 分享链接批量（share-link）两页签 + 加分组
 ssh-cred-dialog.ts / .html 保存缺 SSH 凭据：user/password/port → setCredentials → 重试保存

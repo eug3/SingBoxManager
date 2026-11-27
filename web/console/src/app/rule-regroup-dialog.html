@@ -1,0 +1,92 @@
+<!-- 规则子页右键「拆解与合并」：把引用 rule_set 的规则摊成组，拖桶在组之间搬（拆解 / 合并） -->
+<div class="modal-mask" (click)="onMask($event)">
+  <div class="modal rr-modal" role="dialog" aria-modal="true" aria-label="拆解与合并规则集">
+    <div class="modal-hd">
+      <b>拆解与合并</b>
+      <span class="dim small">把桶在组之间拖动 · 一组 = 一条规则的多桶引用</span>
+      <button class="x" (click)="close()" title="关闭">✕</button>
+    </div>
+
+    <div class="modal-body">
+      <div class="rr-hint dim small">
+        拖左肩的桶 chip 到其它组 = 改引用归属；把一个组拖空 = 这条规则被删（空的组保存后自动消失）；
+        新增组需要选一个出口。只动「引用 rule_set 的规则」，动作规则 / 纯条件规则 / final 不受影响。
+      </div>
+
+      @if (!doc()) {
+        <div class="dim small">配置还没读到，稍后再试</div>
+      } @else {
+        <div class="rr-list">
+          @for (row of rows(); track row.id) {
+            <div
+              class="rr-row"
+              [class.over]="over() === row.id"
+              [class.empty]="!row.tags.length"
+              [class.isnew]="row.index === null"
+              (dragover)="onDragOver(row, $event)"
+              (dragleave)="onDragLeave(row, $event)"
+              (drop)="onDrop(row, $event)"
+            >
+              <div class="rr-hd">
+                <span class="rr-idx">{{ row.index === null ? '新组' : '#' + row.index }}</span>
+                @if (row.index === null) {
+                  <select class="rr-out" [value]="row.outbound" (change)="setOutbound(row, $any($event.target).value)">
+                    @for (o of outboundOptions(); track o.tag) {
+                      <option [value]="o.tag" [selected]="o.tag === row.outbound">{{ o.label }}</option>
+                    }
+                  </select>
+                } @else {
+                  <span class="rr-out-txt">出口 <b>{{ row.outbound || '—' }}</b></span>
+                }
+                <span class="spacer"></span>
+                <span class="dim small">{{ row.tags.length }} 个桶</span>
+                <button class="rr-mini" (click)="addRow(row)" title="在这条规则后面新增一个组">＋ 组</button>
+                <button class="rr-mini del" (click)="removeRow(row)" title="删掉这行（其中的桶一并丢弃）">✕</button>
+              </div>
+              <div class="rr-chips">
+                @for (tag of row.tags; track tag) {
+                  <span
+                    class="rr-chip"
+                    draggable="true"
+                    (dragstart)="onDragStart(row, tag, $event)"
+                    title="拖到别的组：{{ tag }}"
+                  >{{ tag }}</span>
+                } @empty {
+                  <span class="dim small">空组 —— 把桶拖进来，或保存后自动消失</span>
+                }
+              </div>
+            </div>
+          } @empty {
+            <div class="dim small">当前没有「引用规则集」的规则可以拆解。</div>
+          }
+        </div>
+
+        <div class="rr-add">
+          <button (click)="addRow(null)">＋ 新增组（末尾）</button>
+          @if (emptyCount()) {
+            <span class="dim small">{{ emptyCount() }} 个空组保存后会消失</span>
+          }
+        </div>
+
+        @if (prunePreview().length) {
+          <div class="modal-note warn">
+            ⚠ 保存时会清掉没人指向的分组：{{ prunePreview().join('、') }}（至少保留 1 个分组）
+          </div>
+        }
+
+        @if (err()) {
+          <div class="modal-note bad">✗ {{ err() }}</div>
+        }
+        <div class="hint dim">
+          保存只改 config（route.rules 的 rule_set 分组 + 清理没人用的分组出站，至少保留 1 个分组），
+          改动进顶部「待保存条」，点「保存并重启」才写回路由。
+        </div>
+      }
+    </div>
+
+    <div class="modal-ft">
+      <button class="acc" (click)="save()" [disabled]="!doc()">确定保存</button>
+      <button (click)="close()">取消</button>
+    </div>
+  </div>
+</div>

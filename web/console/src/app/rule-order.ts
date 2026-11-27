@@ -8,6 +8,7 @@ import {
   signal,
 } from '@angular/core';
 import { ConfigDoc, moveRule } from './config-ops';
+import { RuleRegroupDialog } from './rule-regroup-dialog';
 import { RouteRuleInfo, countRuleHits, readRuleModel } from './rule-model';
 import { LiveStatService } from './live-stat.service';
 import { Backend } from './models';
@@ -35,6 +36,7 @@ interface DropPoint {
 @Component({
   selector: 'app-rule-order',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [RuleRegroupDialog],
   templateUrl: './rule-order.html',
 })
 export class RuleOrder {
@@ -86,6 +88,41 @@ export class RuleOrder {
   );
   /** 连接里有、但对不上任何配置规则串的条数（多条件 / 逻辑规则） */
   readonly unmatched = computed(() => this.hitStats().unmatched);
+
+  /* ── 右键菜单「拆解与合并」 ── */
+  /** 右键菜单（屏幕坐标 + 命中的规则行） */
+  readonly menu = signal<{ x: number; y: number; index: number } | null>(null);
+  /** 拆解与合并弹窗是否打开 */
+  readonly regroupOpen = signal(false);
+
+  /** 右键某行：弹出菜单（没有 rule_set 引用的行也能弹，只是项禁用） */
+  onRowContext(r: RouteRuleInfo, ev: MouseEvent): void {
+    ev.preventDefault();
+    this.menu.set({ x: ev.clientX, y: ev.clientY, index: r.index });
+  }
+
+  closeMenu(): void {
+    this.menu.set(null);
+  }
+
+  /** 菜单项「拆解与合并…」 */
+  openRegroup(): void {
+    this.menu.set(null);
+    this.regroupOpen.set(true);
+  }
+
+  /** 弹窗保存：产出新文档 → 交给宿主暂存（与 ↑↓ 调序同一条链路） */
+  onRegroup(doc: ConfigDoc): void {
+    this.regroupOpen.set(false);
+    this.docChange.emit(doc);
+  }
+
+  /** 当前右键行的桶数（0 = 不能拆解） */
+  readonly menuRefs = computed(() => {
+    const m = this.menu();
+    if (!m) return 0;
+    return this.rows().find((r) => r.index === m.index)?.ruleSetRefs.length ?? 0;
+  });
 
   /* ── 拖动状态 ── */
   /** 正在拖的行下标（null = 没在拖） */

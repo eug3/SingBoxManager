@@ -63,8 +63,8 @@ function endpoints(doc: ConfigDoc): AnyObj[] {
   return Array.isArray(doc.root['endpoints']) ? (doc.root['endpoints'] as AnyObj[]) : [];
 }
 
-/** route.rules 数组（缺省空） */
-function routeRules(doc: ConfigDoc): AnyObj[] {
+/** route.rules 数组（缺省空；只读，不改文档） */
+export function routeRules(doc: ConfigDoc): AnyObj[] {
   const route = doc.root['route'] as AnyObj | undefined;
   return Array.isArray(route?.['rules']) ? (route!['rules'] as AnyObj[]) : [];
 }
@@ -574,4 +574,125 @@ export function validateDoc(doc: ConfigDoc): string[] {
     if (typeof ref === 'string' && !tags.has(ref)) issues.push(`route.rules[${i}] 引用了不存在的 ${ref}`);
   });
   return issues;
+}
+/* ────────────────── 规则集分组（拆解 / 合并） ────────────────── */
+
+/** 「拆解与合并」弹窗里的一组 = 一条引用 rule_set 的 route.rules 条目 */
+export interface RuleSetGroup {
+  /** 该规则在 route.rules 里的下标（新增组为 null） */
+  index: number | null;
+  /** 这组引用指向的出站（分组 / DIRECT / block …） */
+  outbound: string;
+  /** 这组里引用的桶 tag（拖进拖出的对象） */
+  tags: string[];
+}
+
+
+/**
+ * 读出「可拆解的分组」：只取引用了 rule_set 的规则。
+ * 动作规则（sniff / hijack-dns）、纯条件规则（ip_cidr / port …）不参与拆解合并。
+ */
+export function ruleSetGroups(doc: ConfigDoc): RuleSetGroup[] {
+  const out: RuleSetGroup[] = [];
+  routeRules(doc).forEach((r, i) => {
+    if (!r) return;
+    const tags = ruleSetRefs(r);
+    if (!tags.length) return;
+    out.push({ index: i, outbound: String(r['outbound'] ?? ''), tags });
+  });
+  return out;
+}
+
+/** 弹窗保存时的一组：index=null 表示新增（anchor = 插在哪个原下标之后，-1 = 末尾） */
+export interface RuleGroupPlan {
+  index: number | null;
+  anchor: number;
+  outbound: string;
+  tags: string[];
+}
+
+/** 取 route.rules 里的一条规则（保留它原有的其它条件字段） */
+function cloneRuleWith(r: AnyObj, outbound: string, tags: string[]): AnyObj {
+  const copy: AnyObj = { ...r };
+  copy['rule_set'] = [...tags];
+  copy['outbound'] = outbound;
+  return copy;
+}
+
+/**
+ * 按弹窗结果重写 route.rules 里的「rule_set 分组」：
+ *  · 有 tags 的组 → 原地替换（保留该规则其它条件与位置）；
+ *  · tags 为空的组 → 该规则被删掉（「空的组自动消失」）；
+ *  · index=null 的新组 → 插在 anchor 那条规则之后（anchors 用改动前的下标）。
+ * 不碰未参与分组的规则（动作规则 / 纯条件规则 / final 全部保持原样与原位置）。
+ */
+export function applyRuleGroups(doc: ConfigDoc, plan: RuleGroupPlan[]): void {
+  const rules = ensureRouteRules(ensureRoute(doc));
+  const byIndex = new Map<number, RuleGroupPlan>();
+  for (const g of plan) if (g.index !== null) byIndex.set(g.index, g);
+  const inserts = new Map<number, RuleGroupPlan[]>();
+  for (const g of plan) {
+    if (g.index !== null) continue;
+    if (!g.tags.length) continue; // 新建但没放桶 → 不落盘
+    const list = inserts.get(g.anchor) ?? [];
+    list.push(g);
+    inserts.set(g.anchor, list);
+  }
+  const next: AnyObj[] = [];
+  rules.forEach((r, i) => {
+    const g = byIndex.get(i);
+    if (!g) {
+      next.push(r);
+    } else if (g.tags.length) {
+      next.push(cloneRuleWith(r, g.outbound, g.tags));
+    }
+    for (const add of inserts.get(i) ?? []) {
+      next.push({ rule_set: [...add.tags], outbound: add.outbound });
+    }
+  });
+  for (const add of inserts.get(-1) ?? []) {
+    next.push({ rule_set: [...add.tags], outbound: add.outbound });
+  }
+  rules.length = 0;
+  rules.push(...next);
+}
+
+/**
+ * 清理「没有任何东西指向」的分组出站（弹窗保存时调用）：
+ *  · 只删 selector / urltest 分组，不碰节点 / endpoints / 内置 DIRECT·block·dns；
+ *  · 仍被 route.rules / route.final / 其它分组成员引用的一律保留；
+ *  · 至少保留 1 个分组（用户要求：config 里必须始终有一个之前建的 outbound）。
+ * 返回被删掉的 tag。
+ */
+export function pruneOrphanGroups(doc: ConfigDoc): string[] {
+  const list = doc.root['outbounds'];
+  if (!Array.isArray(list)) return [];
+  const arr = list as AnyObj[];
+  const used = new Set<string>();
+  for (const r of routeRules(doc)) {
+    const ob = String(r?.['outbound'] ?? '');
+    if (ob) used.add(ob);
+  }
+  const route = doc.root['route'];
+  const finalTag = route && typeof route === 'object' ? String((route as AnyObj)['final'] ?? '') : '';
+  if (finalTag) used.add(finalTag);
+  for (const o of arr) {
+    if (!isGroup(o)) continue;
+    for (const m of Array.isArray(o['outbounds']) ? (o['outbounds'] as unknown[]) : []) {
+      const t = String(m ?? '');
+      if (t) used.add(t);
+    }
+  }
+  const groupCount = arr.filter((o) => isGroup(o)).length;
+  const removable = arr.filter(
+    (o) => isGroup(o) && !used.has(String(o['tag'] ?? '')) && String(o['tag'] ?? '') !== '',
+  );
+  // 至少留一个分组：最多删到只剩 1 个
+  const allowed = Math.max(0, Math.min(removable.length, groupCount - 1));
+  const doomed = new Set(removable.slice(0, allowed).map((o) => String(o['tag'] ?? '')));
+  if (!doomed.size) return [];
+  const kept = arr.filter((o) => !doomed.has(String(o['tag'] ?? '')));
+  arr.length = 0;
+  arr.push(...kept);
+  return [...doomed];
 }

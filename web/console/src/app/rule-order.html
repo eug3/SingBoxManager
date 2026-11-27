@@ -46,6 +46,7 @@
               (dragleave)="onDragLeave(r.index, $event)"
               (drop)="onDrop(r.index, $event)"
               (dragend)="onDragEnd()"
+              (contextmenu)="onRowContext(r, $event)"
             >
               <td class="ro-idx dim">{{ r.index }}</td>
               <td class="ro-cond">
@@ -116,3 +117,23 @@
     </div>
   }
 </div>
+
+<!-- 右键菜单：规则行的「拆解与合并」入口 -->
+@if (menu(); as m) {
+  <div class="ctxmask" (click)="closeMenu()" (contextmenu)="$event.preventDefault(); closeMenu()"></div>
+  <div class="ctxmenu" [style.left.px]="m.x" [style.top.px]="m.y">
+    <button
+      class="ctxitem"
+      [disabled]="menuRefs() === 0"
+      [title]="menuRefs() === 0 ? '这条规则没有引用规则集（动作规则 / 纯条件规则），不能拆解' : '把这条规则的桶摊开，拖到别的组'"
+      (click)="menuRefs() ? openRegroup() : closeMenu()"
+    >
+      ⇄ 拆解与合并…
+    </button>
+  </div>
+}
+
+<!-- 拆解与合并弹窗（保存后走 docChange → 宿主暂存） -->
+@if (regroupOpen()) {
+  <app-rule-regroup-dialog [doc]="doc()" (docChange)="onRegroup($event)" (closed)="regroupOpen.set(false)" />
+}
