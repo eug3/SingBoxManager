@@ -1920,11 +1920,22 @@ app-config-pane .cfggate { flex: 1 1 auto; min-height: 0; overflow: auto; }
 .shp-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; flex: 0 0 auto; }
 .shp-title { display: flex; align-items: baseline; gap: 8px; flex: 1 1 auto; min-width: 0; }
 .shp-srcbar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.shp-btab {
-  font-size: 11px; padding: 2px 10px; border: 1px solid var(--line);
-  background: #fff; color: var(--dim); border-radius: 3px; cursor: pointer;
+/* 共享编辑：路由切换 tab（与主 tab 同款下划线，但只作用于这一页） */
+.shp-rtabs {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  border-bottom: 1px solid var(--line); padding-bottom: 4px;
 }
-.shp-btab.on { color: #1f3b5b; border-color: var(--acc); background: #f2f8ff; font-weight: 600; }
+.shp-rtabs .spacer { flex: 1 1 auto; }
+.shp-rtab {
+  display: flex; align-items: baseline; gap: 6px;
+  font-size: 12px; padding: 4px 12px; border: 1px solid transparent;
+  border-bottom: 2px solid transparent; background: transparent; color: var(--dim);
+  border-radius: 4px 4px 0 0; cursor: pointer;
+}
+.shp-rtab:hover { background: #f2f8ff; color: #1f3b5b; }
+.shp-rtab.on { color: #0f6b4f; border-color: var(--line); border-bottom-color: var(--acc); background: #fff; font-weight: 600; }
+.shp-rhost { font-size: 10px; color: #98a5b6; font-family: var(--mono); }
+.shp-rhint { padding: 0 4px; }
 .shp-cols { display: flex; flex-direction: row; gap: 12px; align-items: stretch; flex: 1 1 auto; min-height: 0; }
 
 .shp-col {

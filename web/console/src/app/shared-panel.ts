@@ -93,6 +93,13 @@ export class SharedPanel implements OnInit {
     return b.name || b.api;
   }
 
+  /** tab 上显示的地址（从 api 里剥出 host:port） */
+  hostOf(b: Backend): string {
+    return String(b.api ?? '')
+      .replace(/^https?:\/\//, '')
+      .replace(/\/$/, '');
+  }
+
   isCurrent(b: Backend): boolean {
     return this.backend()?.api === b.api;
   }

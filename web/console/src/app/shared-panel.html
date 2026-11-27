@@ -5,15 +5,21 @@
       <b>共享编辑</b>
       <span class="dim small">跨路由共享池 · 把节点拖进池子，切另一台路由「新增节点 → 共享池」即可导入</span>
     </div>
-    <div class="shp-srcbar">
-      <span class="dim small">节点来源路由</span>
-      @for (b of backends(); track b.api) {
-        <button class="shp-btab" [class.on]="isCurrent(b)" (click)="pickBackend(b)">{{ backendLabel(b) }}</button>
-      } @empty {
-        <span class="dim small">还没有后端：先在上面「＋ 添加后端」</span>
-      }
-      <button (click)="reload()" [disabled]="loading()">刷新</button>
-    </div>
+  </div>
+
+  <!-- 路由切换：一排 tab，切过去 = 左右两栏都换成这台路由，「套用到本路由」也以它为目标 -->
+  <div class="shp-rtabs">
+    @for (b of backends(); track b.api) {
+      <button class="shp-rtab" [class.on]="isCurrent(b)" (click)="pickBackend(b)" [title]="b.api">
+        <b>{{ b.name || b.api }}</b>
+        <span class="shp-rhost">{{ hostOf(b) }}</span>
+      </button>
+    } @empty {
+      <span class="dim small">还没有后端：先在上面「＋ 添加后端」</span>
+    }
+    <span class="spacer"></span>
+    <span class="dim small shp-rhint">切换标签 = 左右两栏与「套用」目标都换成这台路由</span>
+    <button (click)="reload()" [disabled]="loading()">刷新</button>
   </div>
 
   @if (draftSvc.dirty()) {
