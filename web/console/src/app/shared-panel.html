@@ -229,7 +229,8 @@
           <div class="shp-note">{{ rulesNote() }}</div>
         }
         <div class="shp-foot dim small">
-          套用只改「outbound = 该组名」规则的 rule_set 引用；出站本身、组内节点、优先级位置都不动。
+          只认同名：目标路由只要有同名出口（组/节点/DIRECT）就能挂这套规则集；已有规则就地统一，
+          没有就地加一条。出口定义与组内节点一律不动，规则位置可在「规则」页拖动调整。
         </div>
       </section>
     </div>

@@ -1091,21 +1091,65 @@ export function groupsWithRuleRefs(doc: ConfigDoc): { group: string; refs: strin
  *   · 第一条保留位置换成 refs（精确同一套），同 outbound 的其余 rule_set 规则删掉；
  *   · outbound 本身（组名 / 组内节点 / 其它设置）一点不改 —— 正是「规则集共享，出口各自不同」。
  */
+/**
+ * 把「组名」在目标文档里统一成同一套 rule_set 引用（**只认同名**，出口定义各路由各留）：
+ *   · 目标已有 outbound = group 且引用 rule_set 的规则 → 首条保留位置换 refs，其余合并删掉；
+ *   · 目标**没有**这类规则、但有**同名出口**（组 / 节点 / DIRECT…）→ 在 rule_set 块末尾新增一条
+ *     `{rule_set: refs, outbound: group}`（不抢现有规则优先级，需要时可在「规则」页拖动调整）；
+ *   · 带 port / ip_cidr 等条件的例外规则、出口本身、组内节点一律不动。
+ */
 export function applyGroupRefs(
   doc: ConfigDoc,
   group: string,
   refs: string[],
-): { ok: boolean; reason?: string; added: string[]; removed: string[]; removedRules: number } {
+): {
+  ok: boolean;
+  reason?: string;
+  added: string[];
+  removed: string[];
+  removedRules: number;
+  /** 新增了一条规则时：它落在 route.rules 的下标 */
+  insertedAt?: number;
+} {
   const rules = routeRules(doc);
   const hits: number[] = [];
   rules.forEach((r, i) => {
     if (String(r['outbound'] ?? '') !== group) return;
     if (Array.isArray(r['rule_set'])) hits.push(i);
   });
-  if (!hits.length) {
-    return { ok: false, reason: `目标路由没有 outbound =「${group}」且引用规则集的规则`, added: [], removed: [], removedRules: 0 };
-  }
   const target = [...new Set(refs.map(String))];
+
+  if (!hits.length) {
+    // 只认同名：出口（组 / 节点 / 内置）存在即可挂这套规则集，出口定义不动
+    const tags = new Set(
+      [...outbounds(doc), ...endpoints(doc)].map((o) => String(o['tag'] ?? '')),
+    );
+    tags.add('direct');
+    tags.add('block');
+    tags.add('dns');
+    if (!tags.has(group)) {
+      return {
+        ok: false,
+        reason: `目标路由没有同名出口「${group}」：先在它上面建好同名分组/节点，再来套用`,
+        added: [],
+        removed: [],
+        removedRules: 0,
+      };
+    }
+    // 插到「引用规则集」这一段规则的末尾；没有这类规则就插在动作规则之后
+    let lastRs = -1;
+    let lastAction = -1;
+    rules.forEach((r, i) => {
+      if (Array.isArray(r['rule_set'])) lastRs = i;
+      const hasOutbound = typeof r['outbound'] === 'string' && r['outbound'];
+      if (!hasOutbound && (r['action'] || r['inbound'])) lastAction = i;
+    });
+    // 动作规则（sniff / hijack-dns）必须钉在最前：新规则插在「rule_set 段末尾」和「动作规则之后」的较大者
+    const at = Math.max(lastRs + 1, lastAction + 1);
+    rules.splice(at, 0, { rule_set: target, outbound: group });
+    return { ok: true, added: target, removed: [], removedRules: 0, insertedAt: at };
+  }
+
   const before = new Set<string>();
   for (const i of hits) for (const t of rules[i]['rule_set'] as unknown[]) before.add(String(t));
   const added = target.filter((t) => !before.has(t));

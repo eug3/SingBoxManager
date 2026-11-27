@@ -410,11 +410,13 @@ export class SharedPanel implements OnInit {
       }
       this.draftSvc.stage(doc);
       this.draftTarget.set(b);
+      const insertNote =
+        res.insertedAt !== undefined
+          ? `新加 1 条规则（落在 route.rules[${res.insertedAt}]，出口还是本路由自己的「${entry.group}」）`
+          : `+${res.added.length} 规则集 / −${res.removed.length}` +
+            (res.removedRules ? `，合并掉 ${res.removedRules} 条重复规则` : '');
       this.rulesNote.set(
-        `已套用到 ${b.name || b.api} 的暂存草稿：「${entry.group}」` +
-          ` +${res.added.length} 规则集 / −${res.removed.length}` +
-          (res.removedRules ? `，合并掉 ${res.removedRules} 条重复规则` : '') +
-          ' → 点上面的「保存并重启」写回路由',
+        `已套用到 ${b.name || b.api} 的暂存草稿：「${entry.group}」${insertNote} → 点上面的「保存并重启」写回路由`,
       );
     } catch (e) {
       this.rulesNote.set(errMsg(e));
