@@ -370,3 +370,17 @@ sing-box 的 `route.rules` 是**自上而下第一条命中即停**。TUN 进来
 
 实测（mock 双后端 甲=8091 / 乙=8093）：两个子页签带计数、各自路由 tab 独立（规则子页切乙后，
 节点子页仍停留在甲）、节点 4 行 / 组名 4 行正常加载。
+
+### 11.10 「已在共享池」的节点打 share 标记、禁止重复共享（2026-11-27）
+反馈：共享之后，路由上**配置一样**的节点要标识出来（末尾加一个小 pill `share`）；并且这类节点不能再勾选 / 拖动进池。
+
+- `nodeFingerprint(node, kind)`：去掉 `tag` 后的**键排序稳定 JSON**（`outbound` / `endpoint` 前缀区分类型），
+  同配置换 tag 也算同一个；`SharedPoolService.fingerprints()` 给出池内指纹集合；
+- 共享编辑 → 节点子页左栏：命中指纹的行显示 `share` pill、复选框 `disabled`、`draggable` 移除；
+  再拖 / 再勾会提示「配置已经在共享池里了，不用重复加入」；批量「加入共享池」也会自动跳过这些行；
+- 配置页节点表：`标签` 后面同样打 `SHARE` pill（`nodeShared(tag)` 从 outbounds / endpoints 取原文比指纹）；
+- 判定是**配置等价**而非同名：tag 不同、server/端口/密钥/tls 完全一致也算已共享。
+
+验收：纯函数 9/9 PASS（同配置不同 tag 命中、密码/端口不同不命中、outbound vs endpoint 区分、键顺序无关、
+加入后可命中、移除后不命中）；mock UI：拖「🇭🇰 香港 01」入池后该行变 `share` + 复选框禁用 + 无 draggable，
+再拖提示「已在共享池里，不用重复拖入」且池子仍是 1 条；配置页该行出现 `SHARE` pill。

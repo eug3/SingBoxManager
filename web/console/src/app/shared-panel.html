@@ -65,14 +65,28 @@
             <div class="modal-note bad">✗ {{ nodeErr() }}</div>
           } @else {
             @for (n of src(); track n.tag) {
-              <label class="shp-row" draggable="true" (dragstart)="onDragStart(n, $event)" [title]="'拖到右侧共享池：' + n.tag">
-                <input type="checkbox" [checked]="isPicked(n.tag)" (change)="togglePick(n.tag, $any($event.target).checked)" />
+              <label
+                class="shp-row"
+                [class.isshared]="isShared(n)"
+                [attr.draggable]="isShared(n) ? null : 'true'"
+                (dragstart)="onDragStart(n, $event)"
+                [title]="isShared(n) ? n.tag + '：配置已在共享池里（tag 不同也算）' : '拖到右侧共享池：' + n.tag"
+              >
+                <input
+                  type="checkbox"
+                  [checked]="isPicked(n.tag)"
+                  [disabled]="isShared(n)"
+                  (change)="togglePick(n.tag, $any($event.target).checked)"
+                />
                 <span class="shp-tag">{{ n.tag }}</span>
                 <span class="shp-type">{{ n.type }}</span>
                 @if (n.kind === 'endpoint') {
                   <span class="shp-kind" title="来自 endpoints（如 masque-client），导入时会放回 endpoints">endpoint</span>
                 }
                 <span class="shp-server">{{ n.server }}</span>
+                @if (isShared(n)) {
+                  <span class="pill-share" title="同配置的节点已在共享池里：不能重复勾选 / 拖入">share</span>
+                }
               </label>
             } @empty {
               <div class="dim small">这个路由没有可共享的节点。</div>

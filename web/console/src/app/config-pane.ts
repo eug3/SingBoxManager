@@ -15,7 +15,20 @@ import { MonacoEditorComponent } from './monaco-editor';
 import { RuleSelector } from './rule-selector';
 import { GroupBoard } from './group-board';
 import { NodeCreateDialog } from './node-create-dialog';
-import { ConfigDoc, deleteImpact, deleteNode, groups, nodes, normalizeOutboundTags, parseConfig, serializeConfig, validateDoc } from './config-ops';
+import {
+  ConfigDoc,
+  deleteImpact,
+  deleteNode,
+  endpoints,
+  groups,
+  nodes,
+  normalizeOutboundTags,
+  outbounds,
+  parseConfig,
+  serializeConfig,
+  validateDoc,
+} from './config-ops';
+import { SharedPoolService, nodeFingerprint } from './shared-pool.service';
 import { lineDiff } from './line-diff';
 import { errMsg } from './util';
 import { ConfirmService } from './confirm.service';
@@ -46,7 +59,8 @@ export class ConfigPane {
   /** 当前选中的后端（路由），父组件传入；切换时由 effect 触发重读 */
   readonly backend = input.required<Backend>();
 
-  private readonly router = inject(RouterService); // 99 的路由配置/凭据/校验/重启接口
+  private readonly router = inject(RouterService);
+  private readonly poolSvc = inject(SharedPoolService);
   private readonly bsvc = inject(BackendsService);
   private readonly destroyRef = inject(DestroyRef); // 全局 clash 密钥与后端清单
   /** 页内确认框（取代原生 confirm） */
@@ -149,6 +163,19 @@ export class ConfigPane {
     const d = this.doc();
     return d ? nodes(d) : [];
   });
+
+  /** 共享池里的节点指纹（配置页表格给「已共享」的行打 share 标记） */
+  private readonly poolKeys = computed(() => this.poolSvc.fingerprints());
+
+  /** 某个节点是否已在共享池（同配置，tag 不同也算） */
+  nodeShared(tag: string): boolean {
+    const d = this.doc();
+    if (!d) return false;
+    const inOb = outbounds(d).find((o) => String(o['tag']) === tag);
+    if (inOb) return this.poolKeys().has(nodeFingerprint(inOb, 'outbound'));
+    const inEp = endpoints(d).find((o) => String(o['tag']) === tag);
+    return inEp ? this.poolKeys().has(nodeFingerprint(inEp, 'endpoint')) : false;
+  }
 
   /** 检索后的节点表行（匹配 tag / 类型 / 服务器 / 所属组，不区分大小写） */
   readonly nodeRowsFiltered = computed(() => {

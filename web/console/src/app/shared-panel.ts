@@ -15,7 +15,7 @@ import { Backend } from './models';
 import { BackendsService } from './backends.service';
 import { ConfigDraftService } from './config-draft.service';
 import { RouterService } from './router.service';
-import { SharedPoolService } from './shared-pool.service';
+import { SharedPoolService, nodeFingerprint } from './shared-pool.service';
 import { errMsg } from './util';
 
 /** 左栏「当前路由节点」行 */
@@ -80,6 +80,14 @@ export class SharedPanel implements OnInit {
     const d = this.ruleDoc();
     return d ? groupsWithRuleRefs(d) : [];
   });
+
+  /** 池内指纹集合：路由上同配置的节点要打 share 标记、且不能再拖进去 */
+  readonly poolKeys = computed(() => this.pool.fingerprints());
+
+  /** 这个节点是否已经在共享池里（同配置，tag 不同也算） */
+  isShared(row: SourceNode): boolean {
+    return this.poolKeys().has(nodeFingerprint(row.raw, row.kind));
+  }
 
   readonly groups = computed(() => this.pool.bySource());
   readonly total = computed(() => this.pool.nodes().length);
@@ -238,6 +246,12 @@ export class SharedPanel implements OnInit {
   /* ── ① 共享节点池 ── */
 
   togglePick(tag: string, on: boolean): void {
+    // 已在共享池里的（同配置）不允许再勾选
+    const row = this.src().find((r) => r.tag === tag);
+    if (on && row && this.isShared(row)) {
+      this.note.set(`「${tag}」的配置已经在共享池里了（标记 share），不用重复加入`);
+      return;
+    }
     this.picked.update((list) => (on ? [...new Set([...list, tag])] : list.filter((x) => x !== tag)));
   }
 
@@ -270,10 +284,16 @@ export class SharedPanel implements OnInit {
   }
 
   addPicked(): void {
-    this.addTags(this.picked());
+    const shared = new Set(this.src().filter((r) => this.isShared(r)).map((r) => r.tag));
+    this.addTags(this.picked().filter((t) => !shared.has(t)));
   }
 
   onDragStart(node: SourceNode, ev: DragEvent): void {
+    if (this.isShared(node)) {
+      ev.preventDefault();
+      this.note.set(`「${node.tag}」的配置已经在共享池里了（标记 share），不用重复拖入`);
+      return;
+    }
     ev.dataTransfer?.setData('text/plain', node.tag);
     this.dragTag.set(node.tag);
     if (ev.dataTransfer) ev.dataTransfer.effectAllowed = 'copy';

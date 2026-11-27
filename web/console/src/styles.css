@@ -2022,3 +2022,13 @@ app-config-pane .cfggate { flex: 1 1 auto; min-height: 0; overflow: auto; }
   padding: 6px 10px; border-radius: 4px; font-size: 12px;
 }
 .shp-draftbar .spacer { flex: 1 1 auto; }
+
+/* 「已在共享池」的小 pill 标记 */
+.pill-share {
+  display: inline-block; margin-left: 6px; padding: 0 6px; line-height: 15px;
+  font-size: 9px; font-weight: 600; letter-spacing: .3px; text-transform: uppercase;
+  color: #0f6b4f; background: #e6f6ee; border: 1px solid #b9e3cd; border-radius: 8px;
+  vertical-align: 1px;
+}
+.shp-row.isshared { opacity: .78; cursor: default; }
+.shp-row.isshared:hover { background: transparent; }

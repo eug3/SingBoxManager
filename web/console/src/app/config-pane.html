@@ -227,7 +227,12 @@
         <tbody>
           @for (n of nodeRowsFiltered(); track n.tag) {
             <tr>
-              <td>{{ n.tag }}</td>
+              <td>
+                {{ n.tag }}
+                @if (nodeShared(n.tag)) {
+                  <span class="pill-share" title="同配置的节点已在「共享编辑」的共享池里">share</span>
+                }
+              </td>
               <td><span class="tag">{{ n.type }}</span></td>
               <td class="dim">{{ n.server }}</td>
               <td class="dim">{{ n.special ? '—' : '已设置' }}</td>

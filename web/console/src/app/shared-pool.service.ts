@@ -40,6 +40,30 @@ interface PoolState {
   rules: PoolRules[];
 }
 
+/** 稳定序列化（键排序），用于判断「同配置」 */
+function stableJson(v: unknown): string {
+  if (v === null || typeof v !== 'object') return JSON.stringify(v);
+  if (Array.isArray(v)) return '[' + v.map(stableJson).join(',') + ']';
+  const o = v as Record<string, unknown>;
+  return (
+    '{' +
+    Object.keys(o)
+      .sort()
+      .map((k) => JSON.stringify(k) + ':' + stableJson(o[k]))
+      .join(',') +
+    '}'
+  );
+}
+
+/**
+ * 节点「配置指纹」：去掉 tag 后的稳定 JSON。
+ * 池子里已有同指纹的节点 = 这台路由上这个节点的配置已经在共享池里了 → 列表里打 share 标记、禁止再拖。
+ */
+export function nodeFingerprint(node: AnyObj, kind: PoolKind = 'outbound'): string {
+  const { tag: _tag, ...rest } = node as Record<string, unknown>;
+  return kind + '|' + stableJson(rest);
+}
+
 const KEY = 'sbm.sharedPool.v2';
 const KEY_V1 = 'sbm.sharedPool.v1';
 
@@ -171,6 +195,11 @@ export class SharedPoolService {
       map.set(r.sourceApi, g);
     }
     return [...map.values()];
+  }
+
+  /** 池内所有节点的指纹集合（判断「路由上已有同配置」用） */
+  fingerprints(): Set<string> {
+    return new Set(this.nodes().map((n) => nodeFingerprint(n.node, n.kind)));
   }
 
   /** 按来源分组（面板展示用） */
