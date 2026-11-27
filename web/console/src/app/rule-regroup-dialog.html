@@ -74,14 +74,14 @@
                 </div>
               } @else {
                 <div class="rr-chips">
-                  @for (c of condChips(row); track c.field + '=' + c.value) {
+                  @for (c of condChips(row); track c.field + '::' + c.idx) {
                     <span
                       class="rr-chip"
                       [class.fixed]="!row.mergeable"
                       [attr.draggable]="row.mergeable ? 'true' : null"
-                      (dragstart)="onChipDragStart(row, $event, c.field + '::' + c.value)"
-                      [title]="row.mergeable ? '拖到同字段的另一条规则：' + c.field + '=' + c.value : '多字段规则只能整行拖（用左侧 ⇄）'"
-                    ><i class="rr-field">{{ c.field }}</i>{{ c.value }}</span>
+                      (dragstart)="onChipDragStart(row, $event, c.field + '::' + c.idx)"
+                      [title]="row.mergeable ? '拖到同字段的另一条规则：' + c.field + '=' + c.label : '多字段规则只能整行拖（用左侧 ⇄）'"
+                    ><i class="rr-field">{{ c.field }}</i>{{ c.label }}</span>
                   } @empty {
                     <span class="dim small">空行 —— 保存后这条规则会被删掉</span>
                   }

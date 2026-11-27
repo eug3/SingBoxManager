@@ -244,3 +244,20 @@ sing-box 的 `route.rules` 是**自上而下第一条命中即停**。TUN 进来
 实测：两台真配置里 DIRECT 各有一组连续三条 port 规则（32 的 #28–30、GL 的 #24–26），
 合并后落盘 `{"port":["6969","2710","1337"],"outbound":"DIRECT"}`、规则数 −2、无 `port:[]` 残留；
 纯函数 25 项全 PASS（含「空数组行被删掉」这条回归）。
+
+### 7.5 事故与修复：条件值被写成字符串导致 check 失败（2026-11-27）
+现象：合并三条 `port` 规则后「应用并重启」失败，`Process exited with status 13`（= sing-box check 未通过），
+路由上原配置保持不变（自动回滚），`current_sha=e1ee2001…` / `candidate_sha=88a99395…`。
+
+根因：`condRuleRows()` 早先把条件值统一 `String()` 了一遍，合并后写出
+`{"port": ["6969","2710","1337"]}`；而 sing-box 的 `port` 是 `uint16` 数组，
+真内核报 `route.rules[28].port: json: cannot unmarshal string into Go value of type uint16`。
+
+修复：
+- `condRuleRows()` **保留原值类型**（数字仍是数字，CIDR 仍是字符串），数组 / 标量按实际类型判定（不再维护字段白名单）；
+- 弹窗 chip 携带原值，拖动按数组下标搬（`field::idx`），合并仍按 JSON 等值去重；
+- `validateDoc()` 增加端口类型检查：`port` / `source_port` 必须是数字，否则列进「结构校验」并阻止应用。
+
+验收：用 32 的真配置跑同一条合并 → 落盘 `{"port":[6969,2710,1337]}`（数字）、规则 35→33、
+无 `port:[]` 空壳、`validateDoc` 通过；把候选送 99 的 `/router/check`，**真内核 sing-box check 通过**
+（同时验证字符串版本会被拒）；mock UI 端到端合并后 applied 配置里 `typeof port[0] === 'number'`。

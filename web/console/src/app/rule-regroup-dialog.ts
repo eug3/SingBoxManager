@@ -125,12 +125,13 @@ export class RuleRegroupDialog implements OnInit {
     return r.kind === 'bucket' ? r.buckets.length === 0 : condIsEmpty(r.cond);
   }
 
-  /** cond 行的显示文案：字段名 + 值 */
-  condChips(r: Row): { field: string; value: string }[] {
+  /** cond 行的 chip：显示用字符串，但携带原值（数字仍是数字，别写成字符串让 sing-box 校验失败） */
+  condChips(r: Row): { field: string; value: unknown; label: string; idx: number }[] {
     if (r.kind !== 'cond' || !r.cond) return [];
-    const out: { field: string; value: string }[] = [];
+    const out: { field: string; value: unknown; label: string; idx: number }[] = [];
     for (const [field, v] of Object.entries(r.cond)) {
-      for (const x of Array.isArray(v) ? v : [v]) out.push({ field, value: String(x) });
+      if (Array.isArray(v)) v.forEach((x, idx) => out.push({ field, value: x, label: String(x), idx }));
+      else out.push({ field, value: v, label: String(v), idx: -1 });
     }
     return out;
   }
@@ -204,10 +205,10 @@ export class RuleRegroupDialog implements OnInit {
     });
   }
 
-  /** 条件值拖动：`field:value` 形式；目标行字段集合必须相同 */
+  /** 条件值拖动：`field::下标` 形式；目标行字段集合必须相同（值保持原类型搬过去） */
   private moveCondValue(carried: string, fromId: number, toId: number): void {
-    const [field, ...rest] = carried.split('::');
-    const value = rest.join('::');
+    const [field, rawIdx] = carried.split('::');
+    const idx = Number(rawIdx);
     const src = this.rows().find((r) => r.id === fromId);
     const dst = this.rows().find((r) => r.id === toId);
     if (!src || !dst || src === dst) return;
@@ -222,10 +223,14 @@ export class RuleRegroupDialog implements OnInit {
     this.rows.update((list) => {
       const s = list.find((r) => r.id === fromId)!;
       const t = list.find((r) => r.id === toId)!;
-      const sv = Array.isArray(s.cond![field]) ? (s.cond![field] as unknown[]).filter((x) => String(x) !== value) : [];
-      const tv = Array.isArray(t.cond![field]) ? (t.cond![field] as unknown[]) : [];
-      s.cond![field] = sv;
-      t.cond![field] = [...tv, value];
+      const sArr = Array.isArray(s.cond![field]) ? [...(s.cond![field] as unknown[])] : [];
+      if (idx < 0 || idx >= sArr.length) return [...list];
+      const moved = sArr[idx];
+      sArr.splice(idx, 1);
+      const tArr = Array.isArray(t.cond![field]) ? [...(t.cond![field] as unknown[])] : [];
+      const dup = tArr.some((x) => JSON.stringify(x) === JSON.stringify(moved));
+      s.cond![field] = sArr;
+      t.cond![field] = dup ? tArr : [...tArr, moved];
       // 拖空了的字段直接从 cond 里摘掉，避免留下 {"port": []}
       s.cond = tidyCond(s.cond);
       t.cond = tidyCond(t.cond);

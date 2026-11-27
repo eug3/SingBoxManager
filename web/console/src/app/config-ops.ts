@@ -572,6 +572,16 @@ export function validateDoc(doc: ConfigDoc): string[] {
   routeRules(doc).forEach((r, i) => {
     const ref = r['outbound'];
     if (typeof ref === 'string' && !tags.has(ref)) issues.push(`route.rules[${i}] 引用了不存在的 ${ref}`);
+    // 端口类字段必须是数字：写成字符串会让 sing-box check 直接失败
+    // （json: cannot unmarshal string into Go value of type uint16）
+    for (const k of NUMERIC_ARRAY_KEYS) {
+      const v = r[k];
+      if (v === undefined) continue;
+      const arr = Array.isArray(v) ? v : [v];
+      if (arr.some((x) => typeof x !== 'number' || !Number.isFinite(x))) {
+        issues.push(`route.rules[${i}].${k} 必须是数字（当前 ${JSON.stringify(v)}），字符串会让 sing-box 校验失败`);
+      }
+    }
   });
   return issues;
 }
@@ -862,36 +872,15 @@ export function normalizeOutboundTags(doc: ConfigDoc): TagNormalizeResult {
 
 /* ────────────────── 拆解与合并：纯条件规则（port / ip_cidr …） ────────────────── */
 
-/** 规则里这些键的值是数组（数组内 OR，数组之间 AND） */
-const ARRAY_COND_KEYS = new Set([
-  'ip_cidr',
-  'ip_is_private', // 布尔，但这里只处理数组
-  'port',
-  'port_range',
-  'source_ip_cidr',
-  'source_port',
-  'source_port_range',
-  'domain',
-  'domain_suffix',
-  'domain_keyword',
-  'domain_regex',
-  'geosite',
-  'geoip',
-  'process_name',
-  'process_path',
-  'package_name',
-  'network',
-  'protocol',
-  'client',
-  'user',
-]);
+/** 这两个字段的值是「数字数组」，写成字符串会让 sing-box check 报 cannot unmarshal into uint16 */
+const NUMERIC_ARRAY_KEYS = new Set(['port', 'source_port']);
 
 /** 弹窗里的一条「纯条件规则」行 */
 export interface CondRuleRow {
   index: number;
   outbound: string;
-  /** 数组型条件（可合并）：字段名 → 值列表 */
-  arrays: { field: string; values: string[] }[];
+  /** 数组型条件（可合并）：字段名 → 原样值列表（数字仍是数字，CIDR 仍是字符串） */
+  arrays: { field: string; values: unknown[] }[];
   /** 标量型条件（原样保留，不参与拖动） */
   scalars: { field: string; value: unknown }[];
   /** 可以参与合并（恰好一个数组字段、没有标量、没有 rule_set / action） */
@@ -900,11 +889,14 @@ export interface CondRuleRow {
   sig: string;
 }
 
-const ABSENT = new Set(['outbound', 'rule_set', 'action', 'invert']);
+const ABSENT = new Set(['outbound', 'rule_set', 'action']);
 
 /**
  * 取某个出口下的「纯条件规则」（没有 rule_set、没有 action，只剩条件 + outbound），
  * 供「拆解与合并」弹窗的第二类行使用。
+ *
+ * 关键：**值保持原类型**。之前把值 String() 了一遍，`port` 变成 ["6969"]，
+ * sing-box 校验报 `json: cannot unmarshal string into Go value of type uint16`（apply 退出码 13）。
  */
 export function condRuleRows(doc: ConfigDoc, outbound?: string): CondRuleRow[] {
   const out: CondRuleRow[] = [];
@@ -912,15 +904,12 @@ export function condRuleRows(doc: ConfigDoc, outbound?: string): CondRuleRow[] {
     if (!r || r['rule_set'] || r['action']) return;
     const ob = String(r['outbound'] ?? '');
     if (outbound !== undefined && ob !== outbound) return;
-    const arrays: { field: string; values: string[] }[] = [];
+    const arrays: { field: string; values: unknown[] }[] = [];
     const scalars: { field: string; value: unknown }[] = [];
     for (const [k, v] of Object.entries(r)) {
       if (ABSENT.has(k)) continue;
-      if (Array.isArray(v) && ARRAY_COND_KEYS.has(k)) {
-        arrays.push({ field: k, values: v.map((x) => String(x)) });
-      } else {
-        scalars.push({ field: k, value: v });
-      }
+      if (Array.isArray(v)) arrays.push({ field: k, values: [...v] });
+      else scalars.push({ field: k, value: v });
     }
     if (!arrays.length && !scalars.length) return; // 纯 outbound 的兜底规则，不参与
     arrays.sort((a, b) => a.field.localeCompare(b.field));
