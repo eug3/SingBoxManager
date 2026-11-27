@@ -42,3 +42,6 @@ __screenshots__/
 # System files
 .DS_Store
 Thumbs.db
+.test-build/
+# 真机夹具含节点密钥，绝不入库
+test/ops/fixtures/*.json

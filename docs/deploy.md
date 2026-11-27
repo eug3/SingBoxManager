@@ -306,3 +306,20 @@ VAULT_KEY='<clash_api secret>' scripts/check.sh
 7. **`sshpass` 连续握手被掐**：脚本统一「一次 scp 上传全部 + 单次 ssh 安装」，sudo 口令走 `0600` 临时文件喂 `sudo -S`，不要放 argv。
 
 更多细节（桶清单、出站映射、路由版本、回滚表）见 [runbook.md](runbook.md)。
+
+## 构建预算
+
+`web/console/angular.json` 的 initial 预算：warning 700kB / error 1MB（2026-11-27 从 500kB 抬到 700kB——
+共享池、拆解合并、共享规则池等新功能让初始包涨到约 600kB，warning 阈值只剩噪声意义；超 1MB 仍算失败）。
+
+## 控制台纯函数回归（npm run test:ops）
+
+```bash
+cd web/console && npm run test:ops
+```
+
+- `test/run-ops-tests.mjs` 用 esbuild 把 `config-ops.ts` / `shared-pool.service.ts` 打成 ESM，再跑 `test/ops/*.mjs`；
+- 自带 58 条断言（指纹匹配、节点池、规则池、组名套用）；把真机配置放成夹具
+  `test/ops/fixtures/router-32.json` 等（见该目录 README，**含密钥不入库**）后可跑到 **89 条**；
+- 覆盖：共享池去重/覆盖/端点、组名并集与套用（合并/新增/同名拒绝）、`rule_set` 字符串形式、
+  条件规则合并、格式化 tag 归一 —— 都是这几轮改动的回归面。
