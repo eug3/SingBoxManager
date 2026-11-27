@@ -1,6 +1,4 @@
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject, input, signal } from '@angular/core';
-import { Backend } from './models';
-import { BackendsService } from './backends.service';
 import {
   AnyObj,
   ConfigDoc,
@@ -13,12 +11,14 @@ import {
   outbounds,
   parseConfig,
 } from './config-ops';
+import { Backend } from './models';
+import { BackendsService } from './backends.service';
 import { ConfigDraftService } from './config-draft.service';
 import { RouterService } from './router.service';
 import { SharedPoolService } from './shared-pool.service';
 import { errMsg } from './util';
 
-/** 左侧「当前路由节点」行 */
+/** 左栏「当前路由节点」行 */
 interface SourceNode {
   tag: string;
   type: string;
@@ -29,13 +29,16 @@ interface SourceNode {
   raw: AnyObj;
 }
 
+/** 页内两个互不相干的子页：共享节点 / 共享规则（各有自己的路由 tab 与数据） */
+type Section = 'nodes' | 'rules';
+
 /**
- * 「共享编辑」面板 — 跨路由的共享池管理（先只做**节点**）：
- *   · 左：当前后端 config 里的节点，勾选或直接拖进右边的池子；
- *   · 右：共享池，按来源路由分组，可移除 / 导出 / 导入 JSON；
- *   · 池里的节点在「新增节点」弹窗的「共享池」页签里一键导入到另一台路由。
+ * 「共享编辑」整页 —— 两个子页签，各自独立：
+ *   ① 共享节点：把某台路由的节点拖进池子，另一台路由「新增节点 → 共享池」一键导入；
+ *   ② 共享规则：把某台路由的**组名**拖进池子（连带它挂的整套 rule_set），
+ *      再在目标路由上「套用到本路由」——只统一 rule_set 引用，outbound / 组内节点各路由自留。
  *
- * 数据存浏览器 localStorage（同一浏览器内两个后端共用）；换设备用导出/导入 JSON 搬。
+ * 两个子页各有**自己的路由 tab**（甲 / 乙 …），互不影响；池子是全局的（localStorage）。
  */
 @Component({
   selector: 'app-shared-panel',
@@ -43,10 +46,8 @@ interface SourceNode {
   templateUrl: './shared-panel.html',
 })
 export class SharedPanel implements OnInit {
-  /** 打开时的默认后端（顶栏当前 tab）；页面内还可以切换来源路由 */
+  /** 打开时的默认后端（顶栏当前 tab） */
   readonly initialBackend = input<Backend | null>(null);
-  /** 当前查看的后端（页内下拉可切） */
-  readonly backend = signal<Backend | null>(null);
 
   private readonly router = inject(RouterService);
   private readonly bsvc = inject(BackendsService);
@@ -54,71 +55,90 @@ export class SharedPanel implements OnInit {
   readonly draftSvc = inject(ConfigDraftService);
   readonly pool = inject(SharedPoolService);
 
-  /** 当前后端节点清单（读一次 config） */
+  readonly backends = this.bsvc.backends;
+  /** 当前子页签 */
+  readonly section = signal<Section>('nodes');
+
+  /* ── 两个子页各自的路由选择 ── */
+  readonly nodeBackend = signal<Backend | null>(null);
+  readonly ruleBackend = signal<Backend | null>(null);
+
+  /** 配置缓存：同一台路由只拉一次（两个子页共用，切页签不重复请求） */
+  private readonly docs = new Map<string, ConfigDoc>();
+  private readonly loads = new Map<string, Promise<ConfigDoc | null>>();
+  readonly nodeDoc = signal<ConfigDoc | null>(null);
+  readonly ruleDoc = signal<ConfigDoc | null>(null);
+  readonly nodeErr = signal('');
+  readonly ruleErr = signal('');
+  readonly nodeLoading = signal(false);
+  readonly ruleLoading = signal(false);
+
+  /** 节点池左栏：当前路由的可共享节点 */
   readonly src = signal<SourceNode[]>([]);
-  /** 当前后端的解析结果（规则池要用它算组名下的规则集） */
-  private readonly srcDoc = signal<ConfigDoc | null>(null);
-  /** 组名清单：有 rule_set 引用的出站 + 它挂的规则集 */
+  /** 规则池左栏：当前路由里挂了规则集的组名 */
   readonly groupRows = computed(() => {
-    const d = this.srcDoc();
+    const d = this.ruleDoc();
     return d ? groupsWithRuleRefs(d) : [];
   });
-  readonly loading = signal(false);
-  readonly err = signal('');
-  readonly note = signal('');
-  /** 勾选待加入的节点 tag */
-  readonly picked = signal<string[]>([]);
-  /** 抽屉：导入 JSON 的文本框 */
-  readonly importOpen = signal(false);
-  /** 规则池的提示行（套用结果 / 冲突原因） */
-  readonly rulesNote = signal('');
-  /** 暂存草稿归属的路由（共享页里直接「保存并重启」用） */
-  readonly draftTarget = signal<Backend | null>(null);
-  readonly importText = signal('');
-  readonly exportOpen = signal(false);
 
   readonly groups = computed(() => this.pool.bySource());
   readonly total = computed(() => this.pool.nodes().length);
+  readonly rulesGroups = computed(() => this.pool.rulesBySource());
+  readonly rulesTotal = computed(() => this.pool.rules().length);
 
-  /** 输入绑定完成后再读配置（构造函数里 input 还没赋值） */
+  readonly note = signal('');
+  readonly rulesNote = signal('');
+  /** 勾选待加入节点池的 tag */
+  readonly picked = signal<string[]>([]);
+  readonly importOpen = signal(false);
+  readonly exportOpen = signal(false);
+  readonly importText = signal('');
+  /** 暂存草稿归属的路由（共享页里直接「保存并重启」用） */
+  readonly draftTarget = signal<Backend | null>(null);
+
   ngOnInit(): void {
-    this.backend.set(this.initialBackend() ?? this.bsvc.backends()[0] ?? null);
-    void this.loadSource();
+    const def = this.initialBackend() ?? this.bsvc.backends()[0] ?? null;
+    if (def) {
+      this.nodeBackend.set(def);
+      this.ruleBackend.set(def);
+    }
+    void this.loadNodes();
+    void this.loadRules();
   }
 
-  /** 可选的来源路由清单 */
-  readonly backends = this.bsvc.backends;
+  /* ── 路由 tab ── */
 
-  backendLabel(b: Backend): string {
-    return b.name || b.api;
-  }
-
-  /** tab 上显示的地址（从 api 里剥出 host:port） */
   hostOf(b: Backend): string {
     return String(b.api ?? '')
       .replace(/^https?:\/\//, '')
       .replace(/\/$/, '');
   }
 
-  isCurrent(b: Backend): boolean {
-    return this.backend()?.api === b.api;
+  isNode(b: Backend): boolean {
+    return this.nodeBackend()?.api === b.api;
   }
 
-  /** 切换来源路由（左栏换成那台路由的节点） */
-  pickBackend(b: Backend): void {
-    this.backend.set(b);
+  isRule(b: Backend): boolean {
+    return this.ruleBackend()?.api === b.api;
+  }
+
+  pickNodeBackend(b: Backend): void {
+    this.nodeBackend.set(b);
     this.picked.set([]);
-    void this.loadSource();
+    void this.loadNodes();
   }
 
-  reload(): void {
-    void this.loadSource();
+  pickRuleBackend(b: Backend): void {
+    this.ruleBackend.set(b);
+    this.rulesNote.set('');
+    void this.loadRules();
   }
 
-  /** 快速切 tab 时只认最后一次请求的结果 */
-  private loadSeq = 0;
+  /* ── 拉配置（带缓存 / 超时 / 防串台） ── */
 
-  /** 读配置：超时 12s 就报「读不到」，别一直转圈 */
+  private seqNode = 0;
+  private seqRule = 0;
+
   private withTimeout<T>(p: Promise<T>, ms = 12000): Promise<T> {
     return Promise.race([
       p,
@@ -126,27 +146,45 @@ export class SharedPanel implements OnInit {
     ]);
   }
 
-  private async loadSource(): Promise<void> {
-    const b = this.backend();
+  private fetchDoc(b: Backend): Promise<ConfigDoc | null> {
+    const key = b.api;
+    const hit = this.docs.get(key);
+    if (hit) return Promise.resolve(hit);
+    const inflight = this.loads.get(key);
+    if (inflight) return inflight;
+    const p = this.withTimeout(this.router.config(b))
+      .then((res) => {
+        const doc = parseConfig(res.config);
+        this.docs.set(key, doc);
+        return doc;
+      })
+      .catch((e) => {
+        this.loads.delete(key);
+        throw e;
+      })
+      .finally(() => this.loads.delete(key));
+    this.loads.set(key, p);
+    return p;
+  }
+
+  /** 子页①：节点清单 */
+  async loadNodes(): Promise<void> {
+    const b = this.nodeBackend();
     if (!b) {
-      this.err.set('没有选中后端：先在上方选一个路由 tab');
+      this.nodeErr.set('没有后端：先在上面「＋ 添加后端」');
       return;
     }
-    const seq = ++this.loadSeq;
-    this.loading.set(true);
-    this.err.set('');
+    const seq = ++this.seqNode;
+    this.nodeLoading.set(true);
+    this.nodeErr.set('');
     this.src.set([]);
-    this.srcDoc.set(null);
     try {
-      const res = await this.withTimeout(this.router.config(b));
-      if (seq !== this.loadSeq) return; // 已经切到别的路由了
-
-      const doc = parseConfig(res.config);
-      this.srcDoc.set(doc);
-      const gs = new Set(groups(doc).map((g) => String(g['tag'])));
-      // 节点可能来自 outbounds 或 endpoints，两处都要找（否则拿不到原文，加入池子会报「没有 tag」）
+      const doc = await this.fetchDoc(b);
+      if (seq !== this.seqNode || !doc) return;
+      this.nodeDoc.set(doc);
       const ob = outbounds(doc);
       const ep = endpoints(doc);
+      const gs = new Set(groups(doc).map((g) => String(g['tag'])));
       const rows = nodes(doc).map((n) => {
         const inOb = ob.find((o) => String(o['tag']) === n.tag);
         const inEp = inOb ? undefined : ep.find((o) => String(o['tag']) === n.tag);
@@ -159,17 +197,45 @@ export class SharedPanel implements OnInit {
           raw: inOb ?? inEp ?? {},
         };
       });
-      // 特殊出站（DIRECT/REJECT）不是「节点」，不进共享候选
+      // 特殊出站（DIRECT/REJECT）不是「节点」，分组也不进共享候选
       this.src.set(rows.filter((r) => !r.special && !gs.has(r.tag)));
     } catch (e) {
-      if (seq !== this.loadSeq) return;
-      this.err.set(errMsg(e));
+      if (seq === this.seqNode) this.nodeErr.set(errMsg(e));
     } finally {
-      if (seq === this.loadSeq) this.loading.set(false);
+      if (seq === this.seqNode) this.nodeLoading.set(false);
     }
   }
 
-  /* ── 加入共享池 ── */
+  /** 子页②：组名清单 */
+  async loadRules(): Promise<void> {
+    const b = this.ruleBackend();
+    if (!b) {
+      this.ruleErr.set('没有后端：先在上面「＋ 添加后端」');
+      return;
+    }
+    const seq = ++this.seqRule;
+    this.ruleLoading.set(true);
+    this.ruleErr.set('');
+    this.ruleDoc.set(null);
+    try {
+      const doc = await this.fetchDoc(b);
+      if (seq !== this.seqRule || !doc) return;
+      this.ruleDoc.set(doc);
+    } catch (e) {
+      if (seq === this.seqRule) this.ruleErr.set(errMsg(e));
+    } finally {
+      if (seq === this.seqRule) this.ruleLoading.set(false);
+    }
+  }
+
+  reload(): void {
+    const b = this.section() === 'nodes' ? this.nodeBackend() : this.ruleBackend();
+    if (b) this.docs.delete(b.api);
+    if (this.section() === 'nodes') void this.loadNodes();
+    else void this.loadRules();
+  }
+
+  /* ── ① 共享节点池 ── */
 
   togglePick(tag: string, on: boolean): void {
     this.picked.update((list) => (on ? [...new Set([...list, tag])] : list.filter((x) => x !== tag)));
@@ -180,7 +246,7 @@ export class SharedPanel implements OnInit {
   }
 
   private addTags(tags: string[]): void {
-    const b = this.backend();
+    const b = this.nodeBackend();
     if (!b) return;
     const source = { api: b.api, name: b.name || b.api };
     const byTag = new Map(this.src().map((r) => [r.tag, r]));
@@ -234,13 +300,45 @@ export class SharedPanel implements OnInit {
     if (tag) this.addTags([tag]);
   }
 
-  /* ── 共享规则池 ── */
+  remove(id: string): void {
+    this.pool.removeNode(id);
+    this.note.set('已从共享池移除');
+  }
 
-  /** 规则池按来源分组 */
-  readonly rulesGroups = computed(() => this.pool.rulesBySource());
-  readonly rulesTotal = computed(() => this.pool.rules().length);
+  clearAll(): void {
+    this.pool.clear();
+    this.note.set('共享池已清空');
+  }
 
-  /** 拖「组名」到右侧规则池 */
+  openExport(): void {
+    this.exportOpen.set(true);
+    this.importOpen.set(false);
+    this.importText.set(this.pool.exportJson());
+  }
+
+  openImport(): void {
+    this.importOpen.set(true);
+    this.exportOpen.set(false);
+  }
+
+  doExport(): void {
+    void navigator.clipboard?.writeText(this.pool.exportJson()).then(
+      () => this.note.set('已复制到剪贴板（也可以直接复制下面的文本）'),
+      () => this.note.set('复制失败，请手动全选复制下面的文本'),
+    );
+  }
+
+  doImport(): void {
+    const res = this.pool.importJson(this.importText());
+    this.note.set(res.ok ? `导入完成：新增 ${res.added} 个` : `导入失败：${res.error}`);
+    if (res.ok) {
+      this.importOpen.set(false);
+      this.importText.set('');
+    }
+  }
+
+  /* ── ② 共享规则池 ── */
+
   onGroupDragStart(row: { group: string; refs: string[] }, ev: DragEvent): void {
     ev.dataTransfer?.setData('text/plain', row.group);
     this.dragGroup.set(row.group);
@@ -268,30 +366,28 @@ export class SharedPanel implements OnInit {
     if (g) this.addGroupToPool(g);
   }
 
-  /** 把一个组名（连同它挂的所有规则集）加入共享规则池 */
   addGroupToPool(group: string): void {
-    const b = this.backend();
-    const doc = this.srcDoc();
+    const b = this.ruleBackend();
+    const doc = this.ruleDoc();
     if (!b || !doc) return;
     const refs = groupRuleRefs(doc, group);
     const res = this.pool.addRuleGroup({ api: b.api, name: b.name || b.api }, group, refs);
-    this.note.set(
+    this.rulesNote.set(
       res.ok
         ? `规则池：${res.dup ? '已更新' : '已加入'}「${group}」→ ${refs.length} 个规则集`
         : `规则池：跳过「${group}」· ${res.reason}`,
     );
   }
 
-  /** 勾选加入（左栏每行一个「＋」按钮，够直接了） */
   addGroupRow(row: { group: string }): void {
     this.addGroupToPool(row.group);
   }
 
-  /** 把规则池条目套用到当前路由：只统一 rule_set 引用，outbound / 组内节点不动 */
+  /** 把规则池条目套用到当前（规则子页选中的）路由 */
   async applyRules(entry: { group: string; refs: string[] }): Promise<void> {
-    const b = this.backend();
+    const b = this.ruleBackend();
     if (!b) {
-      this.rulesNote.set('先选一个来源/目标路由');
+      this.rulesNote.set('先选一个目标路由');
       return;
     }
     if (this.draftSvc.dirty()) {
@@ -325,9 +421,8 @@ export class SharedPanel implements OnInit {
     }
   }
 
-  /** 保存共享页里暂存的修改（走与流向图同一条 apply 链路：备份/check/重启/失败回滚） */
   async saveDraft(): Promise<void> {
-    const b = this.draftTarget() ?? this.backend();
+    const b = this.draftTarget() ?? this.ruleBackend();
     if (!b) return;
     this.rulesNote.set('保存中（备份 → 校验 → 替换 → 重启）…');
     await this.draftSvc.save(b);
@@ -340,56 +435,15 @@ export class SharedPanel implements OnInit {
     } else {
       this.rulesNote.set(`✓ 已保存并重启 ${b.name || b.api}；草稿已清空`);
       this.draftTarget.set(null);
-      await this.loadSource();
+      this.docs.delete(b.api);
+      await this.loadRules();
     }
   }
 
-  /** 丢弃共享页暂存的修改（重新拉基准，草稿清空） */
   async discardDraft(): Promise<void> {
-    const b = this.draftTarget() ?? this.backend();
+    const b = this.draftTarget() ?? this.ruleBackend();
     this.draftTarget.set(null);
     this.rulesNote.set('已丢弃暂存修改');
     if (b) await this.draftSvc.load(b);
   }
-
-  /* ── 池子操作 ── */
-
-  remove(id: string): void {
-    this.pool.removeNode(id);
-    this.note.set('已从共享池移除');
-  }
-
-  clearAll(): void {
-    this.pool.clear();
-    this.note.set('共享池已清空');
-  }
-
-  openExport(): void {
-    this.exportOpen.set(true);
-    this.importOpen.set(false);
-  }
-
-  openImport(): void {
-    this.importOpen.set(true);
-    this.exportOpen.set(false);
-  }
-
-  doExport(): void {
-    const text = this.pool.exportJson();
-    this.importText.set(text);
-    void navigator.clipboard?.writeText(text).then(
-      () => this.note.set('已复制到剪贴板（也可以直接复制下面的文本）'),
-      () => this.note.set('复制失败，请手动全选复制下面的文本'),
-    );
-  }
-
-  doImport(): void {
-    const res = this.pool.importJson(this.importText());
-    this.note.set(res.ok ? `导入完成：新增 ${res.added} 个` : `导入失败：${res.error}`);
-    if (res.ok) {
-      this.importOpen.set(false);
-      this.importText.set('');
-    }
-  }
-
 }

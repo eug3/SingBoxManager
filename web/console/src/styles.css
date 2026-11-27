@@ -1914,9 +1914,25 @@ app-config-pane .cfggate { flex: 1 1 auto; min-height: 0; overflow: auto; }
 
 /* ── 共享编辑（整页，与「规则编辑」同级） ── */
 .shp-page { display: flex; flex-direction: column; gap: 8px; height: 100%; min-height: 0; overflow: hidden; }
-/* 上下两块（① 节点池 / ② 规则池）各占一半，各自内部滚动 */
-.shp-half { display: flex; flex-direction: column; flex: 1 1 0; min-height: 0; }
-.shp-half-title { flex: 0 0 auto; padding: 2px 0 4px; border-top: 1px dashed #e4ebf3; }
+/* 子页签：共享节点池 / 共享规则池（各自一整页，各有自己的路由 tab） */
+.shp-sectabs {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 8px;
+  border-bottom: 1px solid var(--line); padding-bottom: 6px;
+}
+.shp-sectabs .spacer { flex: 1 1 auto; }
+.shp-sec {
+  display: flex; align-items: center; gap: 6px; font-size: 13px; padding: 5px 14px;
+  border: 1px solid transparent; border-bottom: 2px solid transparent; background: transparent;
+  color: var(--dim); border-radius: 4px 4px 0 0; cursor: pointer;
+}
+.shp-sec:hover { background: #f2f8ff; color: #1f3b5b; }
+.shp-sec.on { color: #0f6b4f; border-color: var(--line); border-bottom-color: var(--acc); background: #fff; font-weight: 600; }
+.shp-cnt {
+  font-size: 10px; min-width: 18px; text-align: center; padding: 0 5px; line-height: 15px;
+  border-radius: 8px; background: #eef3f9; color: #4a5b6e;
+}
+.shp-sec.on .shp-cnt { background: #e6f6ee; color: #0f6b4f; }
+.shp-rlabel { padding-right: 4px; }
 .shp-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; flex: 0 0 auto; }
 .shp-title { display: flex; align-items: baseline; gap: 8px; flex: 1 1 auto; min-width: 0; }
 .shp-srcbar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
@@ -1937,6 +1953,7 @@ app-config-pane .cfggate { flex: 1 1 auto; min-height: 0; overflow: auto; }
 .shp-rhost { font-size: 10px; color: #98a5b6; font-family: var(--mono); }
 .shp-rhint { padding: 0 4px; }
 .shp-cols { display: flex; flex-direction: row; gap: 12px; align-items: stretch; flex: 1 1 auto; min-height: 0; }
+.shp-rtabs { flex: 0 0 auto; }
 
 .shp-col {
   flex: 1 1 0; min-width: 0; display: flex; flex-direction: column;
