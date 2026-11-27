@@ -1,5 +1,6 @@
-import { ChangeDetectionStrategy, Component, OnInit, computed, inject, input, output, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnInit, computed, inject, input, signal } from '@angular/core';
 import { Backend } from './models';
+import { BackendsService } from './backends.service';
 import { AnyObj, groups, nodes, parseConfig } from './config-ops';
 import { RouterService } from './router.service';
 import { SharedPoolService } from './shared-pool.service';
@@ -28,10 +29,13 @@ interface SourceNode {
   templateUrl: './shared-panel.html',
 })
 export class SharedPanel implements OnInit {
-  readonly backend = input<Backend | null>(null);
-  readonly closed = output<void>();
+  /** 打开时的默认后端（顶栏当前 tab）；页面内还可以切换来源路由 */
+  readonly initialBackend = input<Backend | null>(null);
+  /** 当前查看的后端（页内下拉可切） */
+  readonly backend = signal<Backend | null>(null);
 
   private readonly router = inject(RouterService);
+  private readonly bsvc = inject(BackendsService);
   readonly pool = inject(SharedPoolService);
 
   /** 当前后端节点清单（读一次 config） */
@@ -51,6 +55,29 @@ export class SharedPanel implements OnInit {
 
   /** 输入绑定完成后再读配置（构造函数里 input 还没赋值） */
   ngOnInit(): void {
+    this.backend.set(this.initialBackend() ?? this.bsvc.backends()[0] ?? null);
+    void this.loadSource();
+  }
+
+  /** 可选的来源路由清单 */
+  readonly backends = this.bsvc.backends;
+
+  backendLabel(b: Backend): string {
+    return b.name || b.api;
+  }
+
+  isCurrent(b: Backend): boolean {
+    return this.backend()?.api === b.api;
+  }
+
+  /** 切换来源路由（左栏换成那台路由的节点） */
+  pickBackend(b: Backend): void {
+    this.backend.set(b);
+    this.picked.set([]);
+    void this.loadSource();
+  }
+
+  reload(): void {
     void this.loadSource();
   }
 
@@ -187,7 +214,4 @@ export class SharedPanel implements OnInit {
     }
   }
 
-  onMask(ev: MouseEvent): void {
-    if (ev.target === ev.currentTarget) this.closed.emit();
-  }
 }

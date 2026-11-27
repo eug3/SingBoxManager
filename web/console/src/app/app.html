@@ -34,12 +34,8 @@
     }
     <button class="tab add" (click)="addBackend()">＋ 添加后端</button>
     <button class="tab right" [class.on]="active() === 'edit'" (click)="active.set('edit')">🧩 规则编辑</button>
-    <button class="tab" (click)="poolOpen.set(true)" title="跨路由共享池：把节点共享给其它路由用">⇄ 共享编辑</button>
+    <button class="tab" [class.on]="active() === 'pool'" (click)="active.set('pool')" title="跨路由共享池：把节点共享给其它路由用">⇄ 共享编辑</button>
   </nav>
-
-  @if (poolOpen()) {
-    <app-shared-panel [backend]="activeBackend()" (closed)="poolOpen.set(false)" />
-  }
 
   <!-- 内容区：按当前 tab 只渲染对应后端面板或规则编辑器 -->
   <div class="content">
@@ -59,6 +55,10 @@
 
     @if (active() === 'edit') {
       <app-rule-editor />
+    }
+
+    @if (active() === 'pool') {
+      <app-shared-panel [initialBackend]="activeBackend()" />
     }
 
   </div>

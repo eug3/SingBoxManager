@@ -42,12 +42,12 @@ export class App {
   readonly backends = this.bsvc.backends;
   /** 当前主 tab：'b'+序号 = 第 n 个后端面板，'edit' = 规则编辑；没有后端时落在规则编辑 */
   readonly active = signal<string>(this.backends().length ? 'b0' : 'edit');
-  /** 共享编辑面板开关 */
-  readonly poolOpen = signal(false);
+  /** 上一次停在的后端下标（切到「规则编辑 / 共享编辑」页时用来给共享编辑选默认来源） */
+  private readonly lastBackendIdx = signal<number | null>(this.backends().length ? 0 : null);
 
-  /** 当前激活的后端（共享编辑用；停在规则编辑时为 null） */
+  /** 当前激活的后端（停在编辑类页面时给共享编辑做默认来源） */
   readonly activeBackend = computed(() => {
-    const i = this.activeIndex();
+    const i = this.activeIndex() ?? this.lastBackendIdx();
     return i === null ? null : this.backends()[i] ?? null;
   });
   /** 当前激活后端的下标（active 不是 'b<n>' 时为 null，即停在规则编辑） */
@@ -56,6 +56,12 @@ export class App {
     const i = m ? Number(m[1]) : -1;
     return i >= 0 && i < this.backends().length ? i : null;
   });
+  /** 记录最近停留的后端（给共享编辑页做默认来源） */
+  private readonly keepLastBackend = effect(() => {
+    const i = this.activeIndex();
+    if (i !== null) this.lastBackendIdx.set(i);
+  });
+
   /** 每个后端各自记住的子页（切走再切回来不跳回「概览」；按后端下标存，刷新页面后回默认概览） */
   private readonly panes = signal<Record<number, PaneTab>>({});
   /** 某后端当前应落在的子页 */
