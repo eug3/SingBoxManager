@@ -68,9 +68,17 @@
               <label
                 class="shp-row"
                 [class.isshared]="isShared(n)"
+                [class.dropover]="overRow() === n.tag"
                 [attr.draggable]="isShared(n) ? null : 'true'"
                 (dragstart)="onDragStart(n, $event)"
-                [title]="isShared(n) ? n.tag + '：配置已在共享池里（tag 不同也算）' : '拖到右侧共享池：' + n.tag"
+                (dragover)="onRowDragOver(n.tag, $event)"
+                (dragleave)="onRowDragLeave(n.tag)"
+                (drop)="onRowDrop(n.tag, $event)"
+                [title]="
+                  isShared(n)
+                    ? n.tag + '：配置已在共享池里（把池里同名条目拖到这里 = 用池里的配置覆盖它）'
+                    : '拖到右侧共享池：' + n.tag
+                "
               >
                 <input
                   type="checkbox"
@@ -135,15 +143,36 @@
             <div class="shp-src">
               <div class="shp-src-hd">来自 <b>{{ g.sourceName }}</b> · {{ g.items.length }} 个</div>
               @for (n of g.items; track n.id) {
-                <div class="shp-row">
+                <div
+                  class="shp-row shp-prow"
+                  draggable="true"
+                  (dragstart)="onPoolDragStart(n, $event)"
+                  [title]="'拖到左边同名节点上 = 用这条配置覆盖它（只有同名可以覆盖）'"
+                >
                   <span class="shp-tag">{{ n.tag }}</span>
                   <span class="shp-type">{{ n.node['type'] }}</span>
                   @if (n.kind === 'endpoint') {
                     <span class="shp-kind">endpoint</span>
                   }
                   <span class="shp-server">{{ n.node['server'] }}:{{ n.node['server_port'] }}</span>
+                  <button class="shp-edit-btn" (click)="startEdit(n)" title="编辑这条共享节点（完整 JSON）">
+                    {{ editingId() === n.id ? '编辑中' : '编辑' }}
+                  </button>
                   <button class="shp-del" (click)="remove(n.id)" title="从共享池移除">✕</button>
                 </div>
+                @if (editingId() === n.id) {
+                  <div class="shp-edit">
+                    <textarea [value]="editText()" (input)="editText.set($any($event.target).value)" spellcheck="false"></textarea>
+                    @if (editErr()) {
+                      <div class="shp-edit-err">✗ {{ editErr() }}</div>
+                    }
+                    <div class="shp-io-actions">
+                      <button class="acc" (click)="saveEdit()">保存到共享池</button>
+                      <button (click)="cancelEdit()">取消</button>
+                      <span class="dim small">改的是池里的这条；保存后「新增节点 → 共享池」导入的就是新配置</span>
+                    </div>
+                  </div>
+                }
               }
             </div>
           } @empty {

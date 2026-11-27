@@ -15,7 +15,7 @@ import { Backend } from './models';
 import { BackendsService } from './backends.service';
 import { ConfigDraftService } from './config-draft.service';
 import { RouterService } from './router.service';
-import { SharedPoolService, nodeFingerprint } from './shared-pool.service';
+import { PoolNode, SharedPoolService, nodeFingerprint, replaceSameNameNode } from './shared-pool.service';
 import { errMsg } from './util';
 
 /** 左栏「当前路由节点」行 */
@@ -95,6 +95,14 @@ export class SharedPanel implements OnInit {
   readonly rulesTotal = computed(() => this.pool.rules().length);
 
   readonly note = signal('');
+  /** 池里正在编辑的条目 id（null = 没在编辑） */
+  readonly editingId = signal<string | null>(null);
+  readonly editText = signal('');
+  readonly editErr = signal('');
+  /** 正在拖的池条目 id（池 → 同名节点覆盖） */
+  readonly dragPoolId = signal<string | null>(null);
+  /** 左栏某个节点行正被池条目悬停 */
+  readonly overRow = signal<string | null>(null);
   readonly rulesNote = signal('');
   /** 勾选待加入节点池的 tag */
   readonly picked = signal<string[]>([]);
@@ -320,6 +328,102 @@ export class SharedPanel implements OnInit {
     if (tag) this.addTags([tag]);
   }
 
+  /* ── 池条目：拖动覆盖同名节点 / 编辑 ── */
+
+  startEdit(item: PoolNode): void {
+    this.editingId.set(item.id);
+    this.editErr.set('');
+    this.editText.set(JSON.stringify(item.node, null, 2));
+  }
+
+  cancelEdit(): void {
+    this.editingId.set(null);
+    this.editErr.set('');
+    this.editText.set('');
+  }
+
+  saveEdit(): void {
+    const id = this.editingId();
+    if (!id) return;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(this.editText());
+    } catch (e) {
+      this.editErr.set(`JSON 语法错误：${(e as Error).message}`);
+      return;
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      this.editErr.set('节点必须是一个 JSON 对象');
+      return;
+    }
+    const res = this.pool.updateNode(id, parsed as AnyObj);
+    if (!res.ok) {
+      this.editErr.set(res.reason ?? '保存失败');
+      return;
+    }
+    this.note.set('共享节点已更新（池内条目已替换）');
+    this.cancelEdit();
+  }
+
+  onPoolDragStart(item: PoolNode, ev: DragEvent): void {
+    ev.dataTransfer?.setData('text/plain', item.tag);
+    this.dragPoolId.set(item.id);
+    if (ev.dataTransfer) ev.dataTransfer.effectAllowed = 'copy';
+  }
+
+  onRowDragOver(tag: string, ev: DragEvent): void {
+    if (!this.dragPoolId()) return;
+    ev.preventDefault();
+    if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'copy';
+    if (this.overRow() !== tag) this.overRow.set(tag);
+  }
+
+  onRowDragLeave(tag: string): void {
+    if (this.overRow() === tag) this.overRow.set(null);
+  }
+
+  /** 池里的节点拖到左栏某个节点上：只有同名可以覆盖（整体替换配置，保留 tag/位置） */
+  async onRowDrop(targetTag: string, ev: DragEvent): Promise<void> {
+    ev.preventDefault();
+    this.overRow.set(null);
+    const id = this.dragPoolId();
+    this.dragPoolId.set(null);
+    if (!id) return;
+    const item = this.pool.nodes().find((n) => n.id === id);
+    const b = this.nodeBackend();
+    if (!item || !b) return;
+    if (item.tag !== targetTag) {
+      this.note.set(`只有同名节点可以覆盖：池里是「${item.tag}」，拖动的是「${targetTag}」`);
+      return;
+    }
+    if (this.draftSvc.dirty()) {
+      this.note.set('这台路由上还有未保存的草稿：先去「配置」页保存或还原，再覆盖同名节点');
+      return;
+    }
+    this.note.set('覆盖中…');
+    try {
+      await this.draftSvc.load(b);
+      const base = this.draftSvc.baseDoc();
+      if (!base) {
+        this.note.set(this.draftSvc.error() || '目标路由配置读不出来');
+        return;
+      }
+      const doc: ConfigDoc = structuredClone(base);
+      const res = replaceSameNameNode(doc, item, targetTag);
+      if (!res.ok) {
+        this.note.set(`未覆盖：${res.reason}`);
+        return;
+      }
+      this.draftSvc.stage(doc);
+      this.draftTarget.set(b);
+      this.note.set(
+        `已用共享池里「${item.tag}」的配置覆盖 ${b.name || b.api} 的同名节点（tag/位置不变）→ 点上面的「保存并重启」写回路由`,
+      );
+    } catch (e) {
+      this.note.set(errMsg(e));
+    }
+  }
+
   remove(id: string): void {
     this.pool.removeNode(id);
     this.note.set('已从共享池移除');
@@ -446,16 +550,20 @@ export class SharedPanel implements OnInit {
   async saveDraft(): Promise<void> {
     const b = this.draftTarget() ?? this.ruleBackend();
     if (!b) return;
-    this.rulesNote.set('保存中（备份 → 校验 → 替换 → 重启）…');
+    const setBoth = (msg: string): void => {
+      this.rulesNote.set(msg);
+      this.note.set(msg);
+    };
+    setBoth('保存中（备份 → 校验 → 替换 → 重启）…');
     await this.draftSvc.save(b);
     if (this.draftSvc.warn()) {
-      this.rulesNote.set(`⚠ ${this.draftSvc.warn()}`);
+      setBoth(`⚠ ${this.draftSvc.warn()}`);
     } else if (this.draftSvc.needCreds()) {
-      this.rulesNote.set(`✗ ${this.draftSvc.error()}（先到「配置」页保存一次录入凭据）`);
+      setBoth(`✗ ${this.draftSvc.error()}（先到「配置」页保存一次录入凭据）`);
     } else if (this.draftSvc.error()) {
-      this.rulesNote.set(`✗ ${this.draftSvc.error()}`);
+      setBoth(`✗ ${this.draftSvc.error()}`);
     } else {
-      this.rulesNote.set(`✓ 已保存并重启 ${b.name || b.api}；草稿已清空`);
+      setBoth(`✓ 已保存并重启 ${b.name || b.api}；草稿已清空`);
       this.draftTarget.set(null);
       this.docs.delete(b.api);
       await this.loadRules();
@@ -466,6 +574,7 @@ export class SharedPanel implements OnInit {
     const b = this.draftTarget() ?? this.ruleBackend();
     this.draftTarget.set(null);
     this.rulesNote.set('已丢弃暂存修改');
+    this.note.set('已丢弃暂存修改');
     if (b) await this.draftSvc.load(b);
   }
 }

@@ -149,6 +149,21 @@ export class SharedPoolService {
     return { ok: true, dup: !!same };
   }
 
+  /** 编辑池里的节点（整体替换 JSON；tag 改了也允许，同来源同 tag 的去重口径不变） */
+  updateNode(id: string, node: AnyObj): { ok: boolean; reason?: string } {
+    const tag = String(node['tag'] ?? '').trim();
+    const type = String(node['type'] ?? '');
+    if (!tag) return { ok: false, reason: '节点必须有 tag' };
+    if (!type) return { ok: false, reason: '节点必须有 type' };
+    const list = this.nodes();
+    const cur = list.find((n) => n.id === id);
+    if (!cur) return { ok: false, reason: '池里找不到这条' };
+    const clash = list.find((n) => n.id !== id && n.sourceApi === cur.sourceApi && n.tag === tag);
+    if (clash) return { ok: false, reason: `同来源已有同名 tag「${tag}」` };
+    this.save({ nodes: list.map((n) => (n.id === id ? { ...n, tag, node: structuredClone(node) } : n)) });
+    return { ok: true };
+  }
+
   removeNode(id: string): void {
     this.save({ nodes: this.nodes().filter((n) => n.id !== id) });
   }
@@ -310,4 +325,40 @@ export class SharedPoolService {
       return { ok: false, added: 0, error: (e as Error)?.message ?? 'JSON 解析失败' };
     }
   }
+}
+
+/**
+ * 把池里的节点**覆盖**到文档里的同名节点上（同名才允许）：
+ *   · 目标必须存在同名 outbound / endpoint，且与池条目同类型（出站↔出站、endpoint↔endpoint）；
+ *   · 用池里的配置整体替换（tag 沿用目标的同名 tag，位置不变）；
+ *   · 不同名一律拒绝 —— 不会新增节点、不会改 tag、不动分组/规则引用。
+ */
+export function replaceSameNameNode(
+  doc: ConfigDoc,
+  poolNode: { tag: string; node: AnyObj; kind: PoolKind },
+  targetTag: string,
+): { ok: boolean; reason?: string; kind?: PoolKind } {
+  if (poolNode.tag !== targetTag) {
+    return { ok: false, reason: `只有同名节点可以覆盖：拖的是「${poolNode.tag}」，目标是「${targetTag}」` };
+  }
+  const groupsWhere = (key: 'outbounds' | 'endpoints'): AnyObj[] =>
+    Array.isArray(doc.root[key]) ? (doc.root[key] as AnyObj[]) : [];
+  const findIn = (key: 'outbounds' | 'endpoints'): { list: AnyObj[]; idx: number } | null => {
+    const list = groupsWhere(key);
+    const idx = list.findIndex((o) => String(o['tag'] ?? '') === targetTag);
+    return idx >= 0 ? { list, idx } : null;
+  };
+  const inOb = findIn('outbounds');
+  const inEp = findIn('endpoints');
+  const hit = inOb ?? inEp;
+  if (!hit) return { ok: false, reason: `目标路由上没有叫「${targetTag}」的节点` };
+  const targetKind: PoolKind = inEp && !inOb ? 'endpoint' : 'outbound';
+  if (targetKind !== poolNode.kind) {
+    return {
+      ok: false,
+      reason: `类型不同不能覆盖：池里这条是 ${poolNode.kind === 'endpoint' ? 'endpoints' : '普通出站'}，路由上的是 ${targetKind === 'endpoint' ? 'endpoints' : '普通出站'}`,
+    };
+  }
+  hit.list[hit.idx] = { ...structuredClone(poolNode.node), tag: targetTag };
+  return { ok: true, kind: targetKind };
 }

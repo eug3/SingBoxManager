@@ -2032,3 +2032,21 @@ app-config-pane .cfggate { flex: 1 1 auto; min-height: 0; overflow: auto; }
 }
 .shp-row.isshared { opacity: .78; cursor: default; }
 .shp-row.isshared:hover { background: transparent; }
+
+/* 共享页：池条目拖到同名节点上的落点高亮 + 池内 JSON 编辑器 */
+.shp-row.dropover {
+  outline: 2px dashed var(--acc); outline-offset: -2px; background: #eef9f1; border-radius: 3px;
+}
+.shp-prow { cursor: grab; }
+.shp-edit-btn {
+  margin-left: auto; border: 1px solid #dce6f1; background: #fff; color: #4a5b6e;
+  border-radius: 3px; font-size: 10px; padding: 0 6px; cursor: pointer;
+}
+.shp-edit-btn:hover { border-color: var(--acc); color: #0f6b4f; }
+.shp-prow .shp-del { margin-left: 4px; }
+.shp-edit { padding: 6px 4px 8px; border-bottom: 1px dashed #e4ebf3; }
+.shp-edit textarea {
+  width: 100%; min-height: 140px; max-height: 260px; font-family: var(--mono); font-size: 10px;
+  border: 1px solid var(--line); border-radius: 3px; padding: 6px;
+}
+.shp-edit-err { color: var(--bad); font-size: 11px; padding: 4px 0; }
