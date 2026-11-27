@@ -96,7 +96,7 @@
 </div>
 
 <!-- 内容区（唯一滚动区）：按当前子 tab 渲染对应页面 -->
-<div class="bp-body" [class.bp-fill]="tab() === 'logs'">
+<div class="bp-body" [class.bp-fill]="tab() === 'logs' || (tab() === 'config' && configFill())">
 @switch (tab()) {
   <!-- 概览子页：独立组件（速率 / 连接数 / 内存曲线 + 分组延时速览） -->
   @case ('overview') {
@@ -179,7 +179,7 @@
 
   <!-- 配置子页：独立组件（连接门禁 + config.json 读取 / 编辑 / 暂存复核 / 应用并重启） -->
   @case ('config') {
-    <app-config-pane [backend]="backend()" />
+    <app-config-pane [backend]="backend()" (fillChange)="configFill.set($event)" />
   }
 
   <!-- 规则子页：sing-box 实际生效的规则表（只读，可重新拉取） -->

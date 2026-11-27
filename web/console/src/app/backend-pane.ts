@@ -163,6 +163,8 @@ export class BackendPane implements OnDestroy {
 
   /** 当前激活的子 tab（挂载后按 App 记住的子页同步一次：input 在构造时还没赋值） */
   readonly tab = signal<PaneTab>('overview');
+  /** 配置页在编辑态要求内容区撑满高度（编辑器 100%，内部滚动而不是整页滚） */
+  readonly configFill = signal(false);
   /** 子 tab 定义（数组顺序即渲染顺序） */
   readonly tabs: { key: PaneTab; label: string }[] = [
     { key: 'overview', label: '概览' },

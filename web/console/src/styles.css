@@ -1824,22 +1824,32 @@ dialog.cfm-dialog::backdrop { background: rgba(20, 32, 48, .35); }
 }
 .rr-add button:hover { color: var(--acc2); border-color: var(--acc); }
 
-/* 配置页编辑视图：Monaco 撑满窗口剩余高度（100%），不再是固定的 420px；
-   页面其余部分（diff / 校验提示）仍随页面滚动，diff 自己有 max-height 上限。 */
+/* 配置页：编辑视图用「撑满 + 内部滚动」的 flex 列，编辑器默认 100% 高度
+   （不再写死 420px，也不用 JS 量窗口；backend-pane 在 config 编辑时加 .bp-fill） */
+app-config-pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+.cfg-edit {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+.cfg-edit .cfgdiff { flex: 0 1 auto; max-height: 24vh; }
+.cfg-edit .cfgissues { flex: 0 1 auto; max-height: 16vh; overflow: auto; }
+.cfg-edit .cfgactions { flex: 0 0 auto; }
 .cfgedit {
   display: flex;
   flex-direction: column;
-  /* 兜底高度：JS 量到「视口 - 编辑区顶部 - 动作行」后会用 inline style 覆盖（=100% 剩余高度） */
-  height: calc(100dvh - 420px);
-  min-height: 240px;
+  flex: 1 1 auto;
+  min-height: 200px;
   margin: 4px 0 6px;
 }
 .cfgedit app-monaco-editor { flex: 1 1 auto; min-height: 0; }
-@media (max-height: 720px) {
-  /* 矮窗口：保底 380px，超出部分交给页面滚动，避免编辑器被压成一条 */
-  .cfgedit { height: 380px; }
-}
-
 /* 拆解与合并弹窗：条件规则行 / 拖动把手 / 字段标签 */
 .rr-row.cond { background: #fbfcfe; }
 .rr-kind {

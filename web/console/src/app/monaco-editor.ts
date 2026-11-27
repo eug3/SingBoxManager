@@ -59,12 +59,12 @@ function loadMonaco(): Promise<any> {
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `<div class="monaco-host" #host></div>`,
   styles: `
-    /* fill 模式：撑满父容器剩余高度（父容器需是 flex 列且自己高度确定）；
-       固定模式：给一个缺省高度，由页面整体滚动 */
-    :host { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+    /* 默认就是「100% 高度」：撑满父容器（父容器需给出确定高度或 flex 剩余空间）；
+       加 .fill 时再显式吃满 flex 剩余空间（编辑器页面用） */
+    :host { display: flex; flex-direction: column; min-height: 0; min-width: 0; height: 100%; }
     :host(.fill) { flex: 1 1 auto; }
-    .monaco-host { width: 100%; height: 420px; border: 1px solid var(--line); }
-    :host(.fill) .monaco-host { flex: 1 1 auto; height: auto; min-height: 180px; }
+    .monaco-host { width: 100%; height: 100%; min-height: 180px; border: 1px solid var(--line); }
+    :host(.fill) .monaco-host { flex: 1 1 auto; min-height: 180px; }
   `,
   host: { '[class.fill]': 'fill()' },
 })
@@ -73,8 +73,8 @@ function loadMonaco(): Promise<any> {
  * 资源来自本站 /static/monaco/vs（AMD loader，离线可用）；外部 setValue 与
  * 用户输入通过 lastEmitted 去重，避免「输出→回填→再输出」回环。
  *
- * 高度：默认固定 420px；传 [fill]="true" 时撑满父容器剩余空间（浏览器窗口缩放、
- * 侧栏折叠、断点行变化都会经 ResizeObserver 同步给 Monaco 重新布局）。
+ * 高度：默认 **100%**（撑满父容器，父容器要给高度或 flex 剩余空间）；传 [fill]="true" 时
+ * 再显式吃满 flex 剩余空间（浏览器窗口缩放、侧栏折叠、断点行变化都会经 ResizeObserver 通知重排）。
  */
 export class MonacoEditorComponent implements OnDestroy {
   readonly value = input<string>('');

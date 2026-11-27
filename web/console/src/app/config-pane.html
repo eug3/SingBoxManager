@@ -143,13 +143,14 @@
   </div>
 }
 
-<!-- ===== 编辑视图：整份 config.json + diff + 结构预检 ===== -->
+<!-- ===== 编辑视图：整份 config.json + diff + 结构预检（默认占满可用高度 100%） ===== -->
 @if (editing()) {
+  <div class="cfg-edit">
   <div class="cfgwarn">
     ⚠ 编辑的是整份 <code>config.json</code>（含节点密钥/UUID）。保存会写回 {{ host() }} 并重启 sing-box（约 1 秒断流，失败自动回滚）。
   </div>
-  <!-- 编辑器撑满窗口剩余高度（100% 高度：父亲 .cfgedit 给定高度，Monaco 走 fill 模式） -->
-  <div class="cfgedit" #edWrap [style.height.px]="editH() || null">
+  <!-- 编辑器默认 100% 高度：.cfg-edit 是撑满的 flex 列，.cfgedit 用 flex:1 吃掉剩余空间 -->
+  <div class="cfgedit">
     <app-monaco-editor [value]="raw()" [fill]="true" (valueChange)="onEdit($event)" />
   </div>
   @if (jsonError()) {
@@ -188,6 +189,7 @@
       }
     </div>
   }
+  </div>
 } @else if (loaded()) {
   <!-- 分流规则（只读开关；基准=当前文档） -->
   @if (rulesOpen()) {
