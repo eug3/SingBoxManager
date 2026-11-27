@@ -148,7 +148,10 @@
   <div class="cfgwarn">
     ⚠ 编辑的是整份 <code>config.json</code>（含节点密钥/UUID）。保存会写回 {{ host() }} 并重启 sing-box（约 1 秒断流，失败自动回滚）。
   </div>
-  <app-monaco-editor [value]="raw()" (valueChange)="onEdit($event)" />
+  <!-- 编辑器撑满窗口剩余高度（100% 高度：父亲 .cfgedit 给定高度，Monaco 走 fill 模式） -->
+  <div class="cfgedit" #edWrap [style.height.px]="editH() || null">
+    <app-monaco-editor [value]="raw()" [fill]="true" (valueChange)="onEdit($event)" />
+  </div>
   @if (jsonError()) {
     <div class="dim small" style="color: var(--bad)">JSON 语法错误：{{ jsonError() }}</div>
   }

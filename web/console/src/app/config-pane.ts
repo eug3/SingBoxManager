@@ -1,4 +1,16 @@
-import { ChangeDetectionStrategy, Component, computed, effect, inject, input, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  ElementRef,
+  afterNextRender,
+  computed,
+  effect,
+  inject,
+  input,
+  signal,
+  viewChild,
+} from '@angular/core';
 import { Backend } from './models';
 import { RouterCredInfo, RouterService } from './router.service';
 import { BackendsService } from './backends.service';
@@ -38,7 +50,8 @@ export class ConfigPane {
   readonly backend = input.required<Backend>();
 
   private readonly router = inject(RouterService); // 99 的路由配置/凭据/校验/重启接口
-  private readonly bsvc = inject(BackendsService); // 全局 clash 密钥与后端清单
+  private readonly bsvc = inject(BackendsService);
+  private readonly destroyRef = inject(DestroyRef); // 全局 clash 密钥与后端清单
   /** 页内确认框（取代原生 confirm） */
   private readonly ui = inject(ConfirmService);
 
@@ -56,6 +69,15 @@ export class ConfigPane {
   readonly loaded = signal(false); // 是否成功读到过配置（只读表与多数按钮的前提）
   /** 「更多▾」菜单开关（重启 / 分流规则 / 分组看板 / 路由凭据） */
   readonly moreOpen = signal(false);
+
+  /** 编辑视图出现后量一次高度；窗口尺寸变化时重量（编辑器跟着 100% 填满剩余空间） */
+  private watchEditorHeight(): void {
+    afterNextRender(() => this.measureEditor());
+    this.scheduleMeasure();
+    const onResize = (): void => this.measureEditor();
+    window.addEventListener('resize', onResize);
+    this.destroyRef.onDestroy(() => window.removeEventListener('resize', onResize));
+  }
 
   // —— 节点新增/编辑弹窗（表单与分享链接都在弹窗里，见 node-create-dialog.ts）——
   readonly nodeDialog = signal(false);       // 弹窗开关
@@ -83,6 +105,7 @@ export class ConfigPane {
   readonly credsAllow = signal<string[]>([]);         // 99 允许配置凭据的主机白名单
 
   constructor() {
+    this.watchEditorHeight();
     // 后端或全局密钥变化时自动重读；没密钥直接进连接页，别停在「读取中」
     effect(() => {
       const b = this.backend();
@@ -255,10 +278,37 @@ export class ConfigPane {
       this.raw.set(this.original());
     }
     this.editing.set(!this.editing());
+    this.scheduleMeasure();
   }
 
   /** 格式化时发现的「需要看一眼」的情况（类型冲突改名 / 旧 tag 残留） */
   readonly fmtWarn = signal<string[]>([]);
+
+  // —— 编辑视图高度：让 Monaco 撑满「打开编辑后剩余的窗口高度」——
+  /** 编辑区外壳（量它的 top 决定编辑器高度） */
+  private readonly edWrap = viewChild<ElementRef<HTMLElement>>('edWrap');
+  /** 编辑器像素高度（0 = 还没量，先用 CSS 兜底） */
+  readonly editH = signal(0);
+
+  /** 等 DOM 更新完再量（editing 切换 / 布局变化后调用） */
+  private scheduleMeasure(): void {
+    setTimeout(() => requestAnimationFrame(() => this.measureEditor()), 0);
+  }
+
+  /**
+   * 量一次编辑器高度 = 编辑区顶部 → 页面底栏（footer）之间，扣掉底部动作行的高度。
+   * 用真实 footer 位置而不是 innerHeight，避免动作按钮被页脚盖住（编辑器仍可滚）。
+   */
+  measureEditor(): void {
+    const el = this.edWrap()?.nativeElement;
+    if (!el) return;
+    const top = el.getBoundingClientRect().top;
+    const foot = document.querySelector('footer.foot')?.getBoundingClientRect().top;
+    const limit = (foot && foot > top ? foot : window.innerHeight) - 8;
+    const reserve = 44; // 动作行（⇧ 格式化 / 校验 / 应用 / 还原）
+    // 兜底 240px：矮窗口也别把底部动作行挤到页脚下面（宁可编辑器小一点，页面还能滚）
+    this.editH.set(Math.max(240, Math.round(limit - top - reserve)));
+  }
 
   /**
    * 格式化（只改暂存区，不写回路由）：
@@ -356,6 +406,7 @@ export class ConfigPane {
       const res = await this.router.apply(this.backend(), this.raw(), this.sha());
       const summary = res.changed ? `✓ 已应用并重启（${res.ms}ms）：${res.log}` : `未变化，跳过重启：${res.log}`;
       this.editing.set(false);
+      this.scheduleMeasure();
       await this.reload();
       this.log.set(summary + '\n' + this.log()); // reload 会覆盖 log，把应用结果补在最前
     } catch (e) {
@@ -529,5 +580,6 @@ export class ConfigPane {
   private enterReview(d: ConfigDoc): void {
     this.raw.set(serializeConfig(d, this.original()));
     this.editing.set(true);
+    this.scheduleMeasure();
   }
 }
