@@ -11,6 +11,7 @@ import { ChangeDetectionStrategy, Component, computed, effect, inject, signal } 
 import { BackendPane } from './backend-pane';
 import { RuleEditor } from './rule-editor';
 import { BackendsService } from './backends.service';
+import { SharedPanel } from './shared-panel';
 import { ClashService } from './clash.service';
 import { Backend, CONSOLE_VERSION, PAGE_ORIGINS } from './models';
 import type { PaneTab } from './backend-pane';
@@ -22,7 +23,7 @@ import { Toast } from './toast';
 @Component({
   selector: 'app-root',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [BackendPane, RuleEditor, ShareConfigDialog, ConfirmDialog, Toast],
+  imports: [SharedPanel, BackendPane, RuleEditor, ShareConfigDialog, ConfirmDialog, Toast],
   templateUrl: './app.html',
 })
 /** 根组件：组装顶栏 / 主 tab / 内容区 / 页脚，并驱动存储体检与 sing-box 版本探测 */
@@ -41,6 +42,14 @@ export class App {
   readonly backends = this.bsvc.backends;
   /** 当前主 tab：'b'+序号 = 第 n 个后端面板，'edit' = 规则编辑；没有后端时落在规则编辑 */
   readonly active = signal<string>(this.backends().length ? 'b0' : 'edit');
+  /** 共享编辑面板开关 */
+  readonly poolOpen = signal(false);
+
+  /** 当前激活的后端（共享编辑用；停在规则编辑时为 null） */
+  readonly activeBackend = computed(() => {
+    const i = this.activeIndex();
+    return i === null ? null : this.backends()[i] ?? null;
+  });
   /** 当前激活后端的下标（active 不是 'b<n>' 时为 null，即停在规则编辑） */
   readonly activeIndex = computed<number | null>(() => {
     const m = /^b(\d+)$/.exec(this.active());

@@ -1,0 +1,124 @@
+<!-- 共享编辑：跨后端共享池（节点 → 池 → 另一台路由的新增节点） -->
+<div class="modal-mask" (click)="onMask($event)">
+  <div class="modal shp-modal" role="dialog" aria-modal="true" aria-label="共享编辑">
+    <div class="modal-hd">
+      <b>共享编辑</b>
+      <span class="dim small">跨路由共享池 · 左侧拖到右侧即可共享</span>
+      <button class="x" (click)="closed.emit()" title="关闭">✕</button>
+    </div>
+
+    <div class="modal-body shp-body">
+      <!-- 左：当前路由的节点 -->
+      <section class="shp-col">
+        <div class="shp-hd">
+          <b>当前路由节点</b>
+          <span class="dim small">{{ backend()?.name || backend()?.api || '未选后端' }}</span>
+        </div>
+        <div class="shp-actions">
+          <button (click)="addPicked()" [disabled]="!picked().length">加入共享池 →</button>
+          <span class="dim small">勾选或直接拖到右边</span>
+        </div>
+        <div class="shp-list">
+          @if (loading()) {
+            <div class="dim small">读取配置中…</div>
+          } @else if (err()) {
+            <div class="modal-note bad">✗ {{ err() }}</div>
+          } @else {
+            @for (n of src(); track n.tag) {
+              <label
+                class="shp-row"
+                draggable="true"
+                (dragstart)="onDragStart(n, $event)"
+                [title]="'拖到右侧共享池：' + n.tag"
+              >
+                <input
+                  type="checkbox"
+                  [checked]="isPicked(n.tag)"
+                  (change)="togglePick(n.tag, $any($event.target).checked)"
+                />
+                <span class="shp-tag">{{ n.tag }}</span>
+                <span class="shp-type">{{ n.type }}</span>
+                <span class="shp-server">{{ n.server }}</span>
+              </label>
+            } @empty {
+              <div class="dim small">这个路由没有可共享的节点（分组 / DIRECT 不参与共享）</div>
+            }
+          }
+        </div>
+      </section>
+
+      <!-- 右：共享池 -->
+      <section
+        class="shp-col shp-pool"
+        [class.over]="over()"
+        (dragover)="onDragOver($event)"
+        (dragleave)="onDragLeave()"
+        (drop)="onDrop($event)"
+      >
+        <div class="shp-hd">
+          <b>共享池</b>
+          <span class="dim small">{{ total() }} 个节点 · 拖到这里即可加入</span>
+        </div>
+        <div class="shp-actions">
+          <button (click)="openExport()">导出 JSON</button>
+          <button (click)="openImport()">导入 JSON</button>
+          <span class="spacer"></span>
+          <button class="danger" (click)="clearAll()" [disabled]="!total()">清空</button>
+        </div>
+
+        @if (importOpen()) {
+          <div class="shp-io">
+            <textarea
+              [value]="importText()"
+              (input)="importText.set($any($event.target).value)"
+              placeholder="粘贴导出的 JSON"
+            ></textarea>
+            <div class="shp-io-actions">
+              <button class="acc" (click)="doImport()" [disabled]="!importText().trim()">导入</button>
+              <button (click)="importOpen.set(false); importText.set('')">取消</button>
+            </div>
+          </div>
+        }
+        @if (exportOpen()) {
+          <div class="shp-io">
+            <textarea readonly [value]="importText()"></textarea>
+            <div class="shp-io-actions">
+              <button class="acc" (click)="doExport()">复制到剪贴板</button>
+              <button (click)="exportOpen.set(false)">关闭</button>
+            </div>
+          </div>
+        }
+
+        <div class="shp-list">
+          @for (g of groups(); track g.sourceApi) {
+            <div class="shp-src">
+              <div class="shp-src-hd">来自 <b>{{ g.sourceName }}</b> · {{ g.items.length }} 个</div>
+              @for (n of g.items; track n.id) {
+                <div class="shp-row">
+                  <span class="shp-tag">{{ n.tag }}</span>
+                  <span class="shp-type">{{ n.node['type'] }}</span>
+                  <span class="shp-server">{{ n.node['server'] }}:{{ n.node['server_port'] }}</span>
+                  <button class="shp-del" (click)="remove(n.id)" title="从共享池移除">✕</button>
+                </div>
+              }
+            </div>
+          } @empty {
+            <div class="dim small">
+              共享池还是空的：在左边勾选节点（或拖过来）。之后到「新增节点 → 共享池」页签就能选用。
+            </div>
+          }
+        </div>
+        @if (note()) {
+          <div class="shp-note">{{ note() }}</div>
+        }
+      </section>
+    </div>
+
+    <div class="modal-ft">
+      <span class="dim small">
+        存本浏览器（localStorage）；换设备用「导出 / 导入 JSON」搬。池内节点保留完整密钥字段，别外发。
+      </span>
+      <button (click)="closed.emit()">关闭</button>
+    </div>
+  </div>
+</div>

@@ -3,6 +3,7 @@ import {
   Component,
   computed,
   effect,
+  inject,
   input,
   output,
   signal,
@@ -11,9 +12,10 @@ import {
 import { AnyObj, ConfigDoc, addNode, findNode, groups, updateNode } from './config-ops';
 import { NODE_TYPES, NodeForm, buildNode, emptyForm, formFromNode } from './node-form';
 import { ParsedNode, parseShareLinks } from './share-link';
+import { SharedPoolService } from './shared-pool.service';
 
 /** 录入方式：表单单节点 / 分享链接批量 */
-type EntryMode = 'form' | 'links';
+type EntryMode = 'form' | 'links' | 'pool';
 
 /**
  * ⑤ 列头「＋」新建节点 / 配置页「新增/编辑节点」共用弹窗。
@@ -52,6 +54,10 @@ export class NodeCreateDialog {
   readonly parsed = signal<ParsedNode[]>([]);
   /** 表单/导入错误 */
   readonly err = signal('');
+  /** 共享池（跨路由复用节点） */
+  readonly poolSvc = inject(SharedPoolService);
+  readonly poolGroups = computed(() => this.poolSvc.bySource());
+  readonly poolTotal = computed(() => this.poolSvc.nodes().length);
 
   /** 类型下拉的协议清单 */
   readonly nodeTypes = NODE_TYPES;
@@ -87,9 +93,9 @@ export class NodeCreateDialog {
     });
   }
 
-  /** 切页签（编辑模式不允许切到分享链接） */
+  /** 切页签（编辑模式只允许表单） */
   setMode(m: EntryMode): void {
-    if (this.isEdit() && m === 'links') return;
+    if (this.isEdit() && m !== 'form') return;
     this.mode.set(m);
     this.err.set('');
   }
@@ -111,6 +117,35 @@ export class NodeCreateDialog {
 
   isGroupOn(name: string): boolean {
     return this.groupsSel().includes(name);
+  }
+
+  /**
+   * 从共享池导入：**原样克隆**出站对象（保留 tls/transport/密钥等全部字段，不走表单以免丢字段），
+   * 目标路由里 tag 已存在时自动加来源前缀；产出新文档交给调用方暂存。
+   */
+  importPool(item: { id: string; tag: string; sourceName: string }): void {
+    const base = this.base();
+    if (!base) {
+      this.err.set('配置还没读到，稍后再试');
+      return;
+    }
+    const found = this.poolSvc.nodes().find((n) => n.id === item.id);
+    if (!found) {
+      this.err.set('共享池里找不到这个节点（可能已被移除）');
+      return;
+    }
+    const doc: ConfigDoc = structuredClone(base);
+    let tag = '';
+    try {
+      tag = this.poolSvc.importInto(doc, found);
+    } catch (e) {
+      this.err.set((e as Error)?.message ?? String(e));
+      return;
+    }
+    this.err.set('');
+    this.docChange.emit(doc);
+    this.closed.emit();
+    void tag;
   }
 
   /** 表单提交：buildNode 校验 → addNode / updateNode → 抛新文档 */

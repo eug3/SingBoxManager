@@ -12,7 +12,33 @@
         <div class="ntabs">
           <button type="button" class="ntab" [class.on]="mode() === 'form'" (click)="setMode('form')">表单填写</button>
           <button type="button" class="ntab" [class.on]="mode() === 'links'" (click)="setMode('links')">分享链接导入</button>
-          @if (mode() === 'links') {
+          <button type="button" class="ntab" [class.on]="mode() === 'pool'" (click)="setMode('pool')">
+            共享池{{ poolTotal() ? '（' + poolTotal() + '）' : '' }}
+          </button>
+          @if (mode() === 'pool') {
+        <div class="shp-pick">
+          <div class="dim small shp-pick-hd">
+            从其它路由共享过来的节点，点「导入」直接写进当前配置（tag 冲突自动加来源前缀）；
+            池子为空时先去右上角「⇄ 共享编辑」把节点拖进去。
+          </div>
+          @for (g of poolGroups(); track g.sourceApi) {
+            <div class="shp-pick-src">来自 <b>{{ g.sourceName }}</b></div>
+            @for (n of g.items; track n.id) {
+              <div class="shp-pick-row">
+                <span class="shp-tag">{{ n.tag }}</span>
+                <span class="shp-type">{{ n.node['type'] }}</span>
+                <span class="shp-server">{{ n.node['server'] }}:{{ n.node['server_port'] }}</span>
+                <span class="spacer"></span>
+                <button class="acc mini" (click)="importPool(n)">导入</button>
+              </div>
+            }
+          } @empty {
+            <div class="dim small">共享池是空的：右上角「⇄ 共享编辑」里把节点拖进去。</div>
+          }
+        </div>
+      }
+
+      @if (mode() === 'links') {
             <span class="dim small">每行一条，支持 ss / vmess / vless / trojan / hysteria2 / socks</span>
           }
         </div>

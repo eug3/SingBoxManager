@@ -54,7 +54,7 @@ export function serializeConfig(doc: ConfigDoc, like: string): string {
 }
 
 /** outbounds 数组（缺省空） */
-function outbounds(doc: ConfigDoc): AnyObj[] {
+export function outbounds(doc: ConfigDoc): AnyObj[] {
   return Array.isArray(doc.root['outbounds']) ? (doc.root['outbounds'] as AnyObj[]) : [];
 }
 

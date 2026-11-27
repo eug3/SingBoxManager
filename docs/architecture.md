@@ -137,6 +137,8 @@ backend-pane.ts / .html    一台路由的面板：概览/分组/连接/流向/�
 connections.ts / .html     「连接」子页：活跃/已关闭/全部三档 + 搜索/筛选/排序/分组/列设置 + 详情抽屉（订阅共享连接快照做差分）
 connections-model.ts       连接纯函数：快照差分(速率/空转/已关闭)/搜索正则/排序/筛选/分组/列定义
 overview.ts / .html        概览：速率/连接数/内存曲线 + 模式切换 + 网络信息（hist 缓存 localStorage）
+shared-pool.service.ts  跨后端共享池（localStorage）：加/删节点、按来源分组、tag 冲突加前缀、导出/导入 JSON
+shared-panel.ts / .html 顶栏「⇄ 共享编辑」面板：左当前路由节点（勾选/拖拽）→ 右共享池
 config-pane.ts / .html     「配置」子页：门禁→读取→暂存→校验→应用；工具条只留 刷新/编辑 JSON/更多▾；节点表检索 + 新增/编辑走 NodeCreateDialog
 rule-editor.ts / .html     「规则编辑」主 tab：左侧文件树（可新建/重命名/删除 JSON，支持右键菜单）+ 右侧 Monaco 读取/校验/格式化/发布
 flow-anim.ts / .html       「流向」子页：六列 band 流向图组件（数据加载/rAF 鱼/交互/全屏/缩放/普通·强调视图/微型图/列头 ＋ 新建）
