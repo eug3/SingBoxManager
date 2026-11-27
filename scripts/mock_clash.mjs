@@ -271,6 +271,8 @@ const server = createServer(async (req, res) => {
         { type: 'trojan', tag: '🇺🇸 美国 03', server: '1.1.1.3', server_port: 443 },
         { type: 'vmess', tag: '🇸🇬 新加坡 04', server: '1.1.1.4', server_port: 443 },
         { type: 'direct', tag: 'DIRECT' },
+        { type: 'direct', tag: 'direct' },      // 小写变体：格式化时并入 DIRECT
+        { type: 'selector', tag: 'OpenAi', outbounds: ['DIRECT'] }, // 混合大小写：格式化时变大写
         { type: 'block', tag: 'REJECT' },
       ],
       route: {
@@ -287,6 +289,8 @@ const server = createServer(async (req, res) => {
           { rule_set: ['rs-tg'], outbound: '📲 电报信息' },
           { rule_set: ['rs-github', 'rs-msft'], outbound: '🚀 节点选择' },
           { rule_set: ['cn_ip'], outbound: 'DIRECT' },
+          { ip_cidr: ['192.168.0.0/16'], outbound: 'direct' },
+          { rule_set: ['rs-apple'], outbound: 'OpenAi' },
         ],
         final: '🐟 漏网之鱼',
       },

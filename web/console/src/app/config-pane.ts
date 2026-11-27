@@ -6,7 +6,7 @@ import { MonacoEditorComponent } from './monaco-editor';
 import { RuleSelector } from './rule-selector';
 import { GroupBoard } from './group-board';
 import { NodeCreateDialog } from './node-create-dialog';
-import { ConfigDoc, deleteImpact, deleteNode, groups, nodes, parseConfig, serializeConfig, validateDoc } from './config-ops';
+import { ConfigDoc, deleteImpact, deleteNode, groups, nodes, normalizeOutboundTags, parseConfig, serializeConfig, validateDoc } from './config-ops';
 import { lineDiff } from './line-diff';
 import { errMsg } from './util';
 import { ConfirmService } from './confirm.service';
@@ -257,9 +257,51 @@ export class ConfigPane {
     this.editing.set(!this.editing());
   }
 
+  /** 格式化时发现的「需要看一眼」的情况（类型冲突改名 / 旧 tag 残留） */
+  readonly fmtWarn = signal<string[]>([]);
+
+  /**
+   * 格式化（只改暂存区，不写回路由）：
+   *  1) 出站 tag 统一大写 + 同步所有引用（分组成员 / default / detour / 规则出口 / final）；
+   *     大写后撞名且类型相同则合并（`direct` → `DIRECT`），类型不同则改名并提示；
+   *  2) JSON 重新按 2 空格缩进排版。
+   * 桶 tag（rule_set）对应 NAS 文件名，不在格式化范围内。
+   */
+  format(): void {
+    if (!this.raw()) {
+      this.err.set('配置还没读到，先「保存并读取配置」');
+      return;
+    }
+    if (this.jsonError()) {
+      this.err.set('JSON 语法错误，先修好再格式化：' + this.jsonError());
+      return;
+    }
+    let doc: ConfigDoc;
+    try {
+      doc = parseConfig(this.raw());
+    } catch (e) {
+      this.err.set('配置解析失败：' + errMsg(e));
+      return;
+    }
+    const res = normalizeOutboundTags(doc);
+    this.raw.set(JSON.stringify(doc.root, null, 2) + '\n');
+    this.err.set('');
+    this.fmtWarn.set(res.warnings);
+    const bits: string[] = [];
+    if (res.renamed.length) bits.push(`大写 ${res.renamed.length} 个出站 tag`);
+    if (res.merged.length) bits.push(`合并 ${res.merged.length} 个（${res.merged.map((m) => `${m.from}→${m.to}`).join('、')}）`);
+    if (res.refs) bits.push(`同步 ${res.refs} 处引用`);
+    this.log.set(
+      bits.length
+        ? '⇧ 格式化完成：' + bits.join(' · ') + '（只改暂存区，点「应用并重启」才写回路由）'
+        : '⇧ 格式化完成：出站 tag 已是全大写，只整理了 JSON 缩进（未写回路由）',
+    );
+  }
+
   /** 撤销：丢弃全部暂存，回到最近一次读取的原文 */
   revert(): void {
     this.raw.set(this.original());
+    this.fmtWarn.set([]);
     this.log.set('已还原为读取到的内容');
   }
 

@@ -702,3 +702,160 @@ export function pruneOrphanGroups(doc: ConfigDoc, only?: readonly string[]): str
   arr.push(...kept);
   return [...doomed];
 }
+
+/* ────────────────── 格式化：出站 tag 统一大写 ────────────────── */
+
+export interface TagNormalizeResult {
+  /** 只是改名（大写化） */
+  renamed: { from: string; to: string }[];
+  /** 大写后撞名且类型相同 → 合并（删掉原条目，引用指向已存在那个） */
+  merged: { from: string; to: string }[];
+  /** 改写掉的引用处数（分组成员 / 规则出口 / final / detour） */
+  refs: number;
+  /** 需要人看一眼的情况（类型不同被迫改名 / 组内自引用被去掉等） */
+  warnings: string[];
+}
+
+/**
+ * 「格式化」里的 tag 规范化：把 outbounds[].tag 统一成大写，并同步所有引用。
+ *
+ * 口径（与用户约定）：
+ *  · 只动**出站 tag**；桶 tag（route.rule_set[].tag，对应 NAS 文件名）不动；
+ *  · 中文 / emoji tag 没有大小写，保持原样；
+ *  · 大写后与已有 tag 撞名：同类型 → 合并（`direct` 并入 `DIRECT`）；不同类型 → 改名为 `<UP>_2` 并记 warning；
+ *  · 引用点：outbounds[].outbounds（成员）、outbounds[].detour、route.rules[].outbound、
+ *    route.rules[].action.outbound、route.final、dns.servers[].detour；成员列表顺带去重 / 去掉自引用；
+ *  · 幂等：已经全大写的配置再跑一次不会产生任何改动。
+ */
+export function normalizeOutboundTags(doc: ConfigDoc): TagNormalizeResult {
+  const res: TagNormalizeResult = { renamed: [], merged: [], refs: 0, warnings: [] };
+  const list = Array.isArray(doc.root['outbounds']) ? (doc.root['outbounds'] as AnyObj[]) : [];
+  const byTag = new Map<string, AnyObj>();
+  for (const o of list) {
+    const t = o['tag'];
+    if (typeof t === 'string' && !byTag.has(t)) byTag.set(t, o);
+  }
+  const rename = new Map<string, string>();
+  const dropped = new Set<string>();
+  for (const [tag, o] of byTag) {
+    const up = tag.toUpperCase();
+    if (up === tag) continue;
+    const exist = byTag.get(up);
+    if (!exist) {
+      rename.set(tag, up);
+      res.renamed.push({ from: tag, to: up });
+      continue;
+    }
+    if (String(exist['type']) === String(o['type'])) {
+      rename.set(tag, up);
+      dropped.add(tag);
+      res.merged.push({ from: tag, to: up });
+      continue;
+    }
+    let n = 2;
+    let cand = `${up}_${n}`;
+    while (byTag.has(cand)) {
+      n += 1;
+      cand = `${up}_${n}`;
+    }
+    rename.set(tag, cand);
+    res.renamed.push({ from: tag, to: cand });
+    res.warnings.push(`「${tag}」大写后与「${up}」撞名但类型不同（${String(o['type'])} ≠ ${String(exist['type'])}），改名 ${cand}`);
+  }
+  if (!rename.size) return res;
+
+  const fix = (v: unknown): unknown => {
+    if (typeof v !== 'string') return v;
+    const to = rename.get(v);
+    if (to === undefined) return v;
+    res.refs += 1;
+    return to;
+  };
+  const fixMembers = (owner: AnyObj): void => {
+    const arr = owner['outbounds'];
+    if (!Array.isArray(arr)) return;
+    const seen = new Set<string>();
+    const next: unknown[] = [];
+    for (const m of arr) {
+      const t = fix(m);
+      const s = String(t);
+      if (seen.has(s)) continue;
+      seen.add(s);
+      next.push(t);
+    }
+    const selfTag = typeof owner['tag'] === 'string' ? String(fix(owner['tag'])) : '';
+    owner['outbounds'] = selfTag ? next.filter((m) => String(m) !== selfTag) : next;
+  };
+
+  // 1) 先改所有引用（此时 tag 还是旧名，rename 表按旧名查）
+  /** detour 在任何层级都指某个出站 tag（http_clients / dns.servers / inbounds / endpoints…），全树改写 */
+  const fixDetours = (node: unknown): void => {
+    if (Array.isArray(node)) {
+      node.forEach(fixDetours);
+      return;
+    }
+    if (node && typeof node === 'object') {
+      const o = node as AnyObj;
+      if (typeof o['detour'] === 'string') o['detour'] = fix(o['detour']);
+      for (const v of Object.values(o)) fixDetours(v);
+    }
+  };
+  fixDetours(doc.root);
+
+  for (const o of list) {
+    fixMembers(o);
+    // selector 的 default 也是出站 tag（漏了它会变成「default 不在成员里」）
+    if (typeof o['default'] === 'string') o['default'] = fix(o['default']);
+  }
+  const route = doc.root['route'];
+  if (route && typeof route === 'object' && !Array.isArray(route)) {
+    const r = route as AnyObj;
+    if (typeof r['final'] === 'string') r['final'] = fix(r['final']);
+    for (const rule of Array.isArray(r['rules']) ? (r['rules'] as AnyObj[]) : []) {
+      if (typeof rule['outbound'] === 'string') rule['outbound'] = fix(rule['outbound']);
+      const act = rule['action'];
+      if (act && typeof act === 'object' && !Array.isArray(act) && typeof (act as AnyObj)['outbound'] === 'string') {
+        (act as AnyObj)['outbound'] = fix((act as AnyObj)['outbound']);
+      }
+    }
+  }
+  const dns = doc.root['dns'];
+  if (dns && typeof dns === 'object' && !Array.isArray(dns)) {
+    for (const s of Array.isArray((dns as AnyObj)['servers']) ? ((dns as AnyObj)['servers'] as AnyObj[]) : []) {
+      if (s && typeof s === 'object' && typeof s['detour'] === 'string') s['detour'] = fix(s['detour']);
+    }
+  }
+
+  // 2) 再改 tag 本身 + 丢掉被合并掉的重复出站
+  const kept: AnyObj[] = [];
+  for (const o of list) {
+    const t = o['tag'];
+    if (typeof t === 'string' && dropped.has(t)) continue;
+    if (typeof t === 'string' && rename.has(t)) o['tag'] = rename.get(t)!;
+    kept.push(o);
+  }
+  list.length = 0;
+  list.push(...kept);
+
+  // 3) 兜底：扫一遍还有没有残留旧 tag（正常应为空；只记 warning 不改）
+  const leftovers: string[] = [];
+  const walk = (node: unknown, path: string): void => {
+    if (typeof node === 'string') {
+      if (rename.has(node)) leftovers.push(`${path} = ${node}`);
+      return;
+    }
+    if (Array.isArray(node)) {
+      node.forEach((v, i) => walk(v, `${path}[${i}]`));
+      return;
+    }
+    if (node && typeof node === 'object') {
+      for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
+        if (k === 'type') continue; // 类型名（direct/block…）不是 tag，不参与残留检查
+        walk(v, path ? `${path}.${k}` : k);
+      }
+    }
+  };
+  walk(doc.root, '');
+  for (const l of leftovers.slice(0, 5)) res.warnings.push(`旧 tag 残留：${l}`);
+  return res;
+}

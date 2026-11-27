@@ -153,6 +153,11 @@
     <div class="dim small" style="color: var(--bad)">JSON 语法错误：{{ jsonError() }}</div>
   }
   <div class="cfgactions">
+    <button
+      (click)="format()"
+      [disabled]="busy()"
+      title="出站 tag 统一大写 + 同步引用（分组成员/default/detour/规则出口/final）+ JSON 缩进整理；只改暂存区，不写回路由"
+    >⇧ 格式化</button>
     <button (click)="check()" [disabled]="busy()">校验（sing-box check）</button>
     <button class="acc" (click)="apply()" [disabled]="busy()">应用并重启</button>
     <button (click)="revert()" [disabled]="busy()">还原</button>
@@ -163,6 +168,14 @@
   @if (diff().lines.length) {
     <pre class="cfgdiff">@for (l of diff().lines; track $index) {<span [class.add]="l.kind === 'add'" [class.del]="l.kind === 'del'">{{ l.kind === 'add' ? '+ ' : '- ' }}{{ l.text }}
 </span>}</pre>
+  }
+  @if (fmtWarn().length) {
+    <div class="cfgissues" style="border-color: #e6b800">
+      <b>格式化提示 {{ fmtWarn().length }} 条（已按最合理方式处理，确认后可直接应用）：</b>
+      @for (w of fmtWarn(); track $index) {
+        <div>· {{ w }}</div>
+      }
+    </div>
   }
   @if (issues().length) {
     <div class="cfgissues">

@@ -183,3 +183,32 @@ sing-box 的 `route.rules` 是**自上而下第一条命中即停**。TUN 进来
 - 早前（未收敛时）记录：右键出现「⇄ 拆解与合并…」→ 弹窗 3 组；`＋ 组` 后拖 `rs-msft` 进新组 → 落盘
   `#1 ["rs-github"]`、`#2 ["rs-msft"]`（插在原规则后）；把 `cn_ip` 拖进 `rs-tg` 组 → 落盘
   `#0 ["rs-tg","cn_ip"] → 📲 电报信息`、原 DIRECT 规则消失；两者均「✓ 保存成功」。
+
+## 8. 配置页「⇧ 格式化」：出站 tag 统一大写 + 引用同步（2026-11-27）
+
+问题背景：sing-box 的 outbound tag 大小写敏感，而两台路由的配置里同时存在 `direct`（小写）
+和 `DIRECT`（大写）、`OpenAi`/`Bard`/`SocialNetwork` 这类混合写法 —— 规则里引用哪个是哪个很难看出来，
+日志/`/connections` 的代理名也对不上。
+
+### 8.1 用法
+配置页 →「编辑 JSON」→ 工具条「⇧ 格式化」→ 看 diff → 「校验」→「应用并重启」。
+格式化只改**编辑器里的暂存文本**，不写回路由；写回仍走原来的备份 / check / 重启 / 回滚链路。
+
+### 8.2 口径（`normalizeOutboundTags()`）
+- **只动出站 tag**：`outbounds[].tag` 统一 `.toUpperCase()`；中文 / emoji tag 没有大小写，保持原样；
+- **引用同步**：`outbounds[].outbounds`（成员）、`outbounds[].default`（selector 默认项）、
+  任意层级的 `detour`（http_clients / dns.servers / inbounds / endpoints…）、`route.rules[].outbound`
+  （含 `action.outbound`）、`route.final`；
+- **撞名处理**：大写后与已有 tag 冲突时 —— 同类型 → 合并（`direct` 并入 `DIRECT`，删掉重复条目，
+  引用统一指向保留的那个）；类型不同 → 改名为 `<UP>_2` 并在弹窗里给 warning；
+- 成员列表顺带去重、去掉自引用；末尾扫一遍残留旧 tag（排除 `type` 字段）作为提示；
+- **不动桶 tag**（`route.rule_set[].tag` 对应 NAS 文件名，改名要同步改文件与 url）；
+- **幂等**：已经全大写的配置再点一次只整理缩进，不产生任何 tag 改动。
+
+### 8.3 验收（2026-11-27）
+- 纯函数（用两台路由**真配置**做夹具）26 项全 PASS：引用零悬空、改名数 13/14、合并 1 个（direct→DIRECT）、
+  改写 90/87 处引用、无重复 tag、成员无重复/无自引用、幂等、`validateDoc` 通过、类型冲突改名 + warning；
+- **真实内核校验**：把归一化后的配置拷到 172.16.8.1 与 192.168.31.32，
+  `sing-box check`（1.15.0-alpha.13）**两台都通过**（未重启服务，校验后删除临时文件）；
+- UI（mock）：配置页 → 编辑 JSON → ⇧ 格式化 → 应用并重启 → 落盘 `tags: DIRECT, OPENAI`，
+  规则出口全部改写（`direct`→`DIRECT`、`OpenAi`→`OPENAI`）。
