@@ -1,7 +1,7 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { Backend } from './models';
 import { RouterService } from './router.service';
-import { ConfigDoc, applyGroupRefs, parseConfig, routeRules, ruleSetRefs, serializeConfig } from './config-ops';
+import { ConfigDoc, applyGroupRefs, detachGroupRefs, parseConfig, routeRules, ruleSetRefs, serializeConfig } from './config-ops';
 import { errMsg } from './util';
 
 /** 一台路由在一个批次里的执行状态 */
@@ -28,9 +28,12 @@ export interface BatchSummary {
 }
 
 /** 一条共享规则的套用目标：所有「用得上这组」的路由（有同名出口） */
+export type BatchMode = 'apply' | 'detach';
+
 export interface ApplyPlan {
   group: string;
   refs: string[];
+  mode: BatchMode;
   steps: BatchStep[];
 }
 
@@ -56,7 +59,7 @@ export class RuleApplyBatchService {
   private cancelRequested = false;
 
   /** 预演：只读各路由配置，算出哪些要改、哪些已一致、哪些没有同名出口 */
-  async plan(group: string, refs: string[], backends: Backend[]): Promise<ApplyPlan> {
+  async plan(group: string, refs: string[], backends: Backend[], mode: BatchMode = 'apply'): Promise<ApplyPlan> {
     const steps: BatchStep[] = [];
     for (const b of backends) {
       const step: BatchStep = {
@@ -72,20 +75,31 @@ export class RuleApplyBatchService {
         const res = await this.router.config(b);
         const doc = parseConfig(res.config);
         const probe = structuredClone(doc);
-        const r = applyGroupRefs(probe, group, refs);
-        if (!r.ok) {
-          step.state = 'skipped';
-          step.detail = r.reason ?? '不适用';
-        } else if (r.insertedAt === undefined && !r.added.length && !r.removed.length && !r.removedRules) {
-          step.state = 'skipped';
-          step.unchanged = true;
-          step.detail = '已与共享规则一致，无需改动';
+        if (mode === 'detach') {
+          const r = detachGroupRefs(probe, group, refs);
+          if (r.removed === 0) {
+            step.state = 'skipped';
+            step.unchanged = true;
+            step.detail = '没有挂着这条共享规则，无需解除';
+          } else {
+            step.detail = `将撤掉 ${r.removed} 条共享规则（出口与组内节点不动）`;
+          }
         } else {
-          step.detail =
-            r.insertedAt !== undefined
-              ? `将新增 1 条规则（出口 ${group}）`
-              : `将改：+${r.added.length} / −${r.removed.length} 个规则集` +
-                (r.removedRules ? `，合并 ${r.removedRules} 条` : '');
+          const r = applyGroupRefs(probe, group, refs);
+          if (!r.ok) {
+            step.state = 'skipped';
+            step.detail = r.reason ?? '不适用';
+          } else if (r.insertedAt === undefined && !r.added.length && !r.removed.length && !r.removedRules) {
+            step.state = 'skipped';
+            step.unchanged = true;
+            step.detail = '已与共享规则一致，无需改动';
+          } else {
+            step.detail =
+              r.insertedAt !== undefined
+                ? `将新增 1 条规则（出口 ${group}）`
+                : `将改：+${r.added.length} / −${r.removed.length} 个规则集` +
+                  (r.removedRules ? `，合并 ${r.removedRules} 条` : '');
+          }
         }
       } catch (e) {
         step.state = 'skipped';
@@ -93,7 +107,7 @@ export class RuleApplyBatchService {
       }
       steps.push(step);
     }
-    return { group, refs, steps };
+    return { group, refs, mode, steps };
   }
 
   /** 有几台真的要动（决定「开始」按钮是否可点） */
@@ -128,7 +142,7 @@ export class RuleApplyBatchService {
       this.patch(i, { state: 'running', detail: '读取配置…', error: '' });
       const t0 = Date.now();
       try {
-        await this.applyOne(step.backend, plan.group, plan.refs, (msg) => this.patch(i, { detail: msg }));
+        await this.applyOne(step.backend, plan.group, plan.refs, plan.mode, (msg) => this.patch(i, { detail: msg }));
         this.patch(i, { state: 'ok', ms: Date.now() - t0 });
       } catch (e) {
         this.patch(i, { state: 'fail', error: errMsg(e), ms: Date.now() - t0 });
@@ -159,13 +173,25 @@ export class RuleApplyBatchService {
     b: Backend,
     group: string,
     refs: string[],
+    mode: BatchMode,
     progress: (msg: string) => void,
   ): Promise<void> {
     progress('读取配置…');
     const res = await this.router.config(b);
     const doc = parseConfig(res.config);
-    const r = applyGroupRefs(doc, group, refs);
-    if (!r.ok) throw new Error(r.reason);
+    let what: string;
+    if (mode === 'detach') {
+      const r = detachGroupRefs(doc, group, refs);
+      if (!r.removed) throw new Error('没有可解除的共享规则');
+      what = `已撤掉 ${r.removed} 条共享规则`;
+    } else {
+      const r = applyGroupRefs(doc, group, refs);
+      if (!r.ok) throw new Error(r.reason);
+      what =
+        r.insertedAt !== undefined
+          ? '新增 1 条规则'
+          : `+${r.added.length} / −${r.removed.length} 规则集`;
+    }
     const text = serializeConfig(doc, res.config);
     progress('sing-box check…');
     const chk = await this.router.check(b, text);
@@ -175,7 +201,6 @@ export class RuleApplyBatchService {
     // 99 的 apply 是同步的：备份→替换→重启→健康检查→失败回滚全部做完才返回；
     // 失败走非 2xx（上面 catch），这里只兜底 ok=false
     if (out && out.ok === false) throw new Error(`应用失败：${(out.log || '').trim().slice(0, 300) || '路由返回 ok=false'}`);
-    const what = r.insertedAt !== undefined ? '新增 1 条规则' : `+${r.added.length} / −${r.removed.length} 规则集`;
     // changed=false：内容其实没变（99 侧比对），未重启 —— 如实告诉用户
     progress(out.changed === false ? `${what} · 内容未变，未重启` : `${what} · 已重启并健康`);
   }

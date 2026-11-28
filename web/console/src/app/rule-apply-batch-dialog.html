@@ -2,8 +2,10 @@
 <div class="modal-mask" (click)="onMask($event)">
   <div class="modal rab-modal" role="dialog" aria-modal="true" aria-label="应用到所有路由">
     <div class="modal-hd">
-      <b>应用共享规则</b>
-      <span class="dim small">「{{ group() }}」→ {{ refs().length }} 个规则集 · 逐台执行</span>
+      <b>{{ mode() === 'detach' ? '解除应用' : '应用共享规则' }}</b>
+      <span class="dim small">
+        「{{ group() }}」→ {{ refs().length }} 个规则集 · {{ mode() === 'detach' ? '从各路由撤掉这条共享规则' : '逐台执行' }}
+      </span>
       <button class="x" (click)="close()" [disabled]="phase() === 'running'" title="关闭">✕</button>
     </div>
 
@@ -45,11 +47,18 @@
         @if (phase() === 'confirm') {
           @if (pendingTotal()) {
             <div class="modal-note warn">
-              将对 <b>{{ pendingTotal() }}</b> 台路由执行：套用规则集 → sing-box check → 备份 → 替换 → 重启（约 1 秒断流）。
-              失败的路由会自动回滚到原配置，不影响其它路由。
+              @if (mode() === 'detach') {
+                将对 <b>{{ pendingTotal() }}</b> 台路由解除应用：删掉这条共享规则挂上去的规则（sing-box check → 备份 → 替换 → 重启，约 1 秒断流）。
+                <b>出口本身与组内节点不动</b>，这组回到各自独立管理。失败的路由会自动回滚。
+              } @else {
+                将对 <b>{{ pendingTotal() }}</b> 台路由执行：套用规则集 → sing-box check → 备份 → 替换 → 重启（约 1 秒断流）。
+                失败的路由会自动回滚到原配置，不影响其它路由。
+              }
             </div>
           } @else {
-            <div class="modal-note">所有路由都已与这条共享规则一致，不需要改动。</div>
+            <div class="modal-note">
+              {{ mode() === 'detach' ? '没有路由挂着这条共享规则，无需解除。' : '所有路由都已与这条共享规则一致，不需要改动。' }}
+            </div>
           }
         }
 
@@ -75,7 +84,7 @@
     <div class="modal-ft">
       @if (phase() === 'confirm') {
         <button class="acc" (click)="start()" [disabled]="!pendingTotal()">
-          {{ pendingTotal() ? '开始（' + pendingTotal() + ' 台）' : '无需改动' }}
+          {{ pendingTotal() ? (mode() === 'detach' ? '解除（' : '开始（') + pendingTotal() + ' 台）' : '无需改动' }}
         </button>
         <button (click)="close()">取消</button>
       } @else if (phase() === 'running') {

@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject, input, output, signal } from '@angular/core';
 import { Backend } from './models';
-import { ApplyPlan, BatchStep, RuleApplyBatchService } from './rule-apply-batch.service';
+import { ApplyPlan, BatchMode, BatchStep, RuleApplyBatchService } from './rule-apply-batch.service';
 import { errMsg } from './util';
 
 type Phase = 'planning' | 'confirm' | 'running' | 'done';
@@ -21,6 +21,8 @@ export class RuleApplyBatchDialog implements OnInit {
   readonly group = input.required<string>();
   readonly refs = input.required<string[]>();
   readonly backends = input.required<Backend[]>();
+  /** apply = 应用到全部；detach = 解除应用（从各路由撤掉这条共享规则） */
+  readonly mode = input<BatchMode>('apply');
   readonly closed = output<void>();
   /** 全部跑完后通知父组件刷新状态 */
   readonly finished = output<void>();
@@ -54,7 +56,7 @@ export class RuleApplyBatchDialog implements OnInit {
     this.phase.set('planning');
     this.planError.set('');
     try {
-      const p = await this.batch.plan(this.group(), this.refs(), this.backends());
+      const p = await this.batch.plan(this.group(), this.refs(), this.backends(), this.mode());
       this.plan.set(p);
       this.phase.set('confirm');
     } catch (e) {

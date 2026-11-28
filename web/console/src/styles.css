@@ -2149,3 +2149,19 @@ app-config-pane .cfggate { flex: 1 1 auto; min-height: 0; overflow: auto; }
 .rab-summary .ok { color: #0f8f68; font-weight: 600; }
 .rab-summary .bad { color: #c8384a; font-weight: 600; }
 .shp-rule-edit textarea { min-height: 90px; }
+
+/* 共享规则池：启动核对（漂移告警 / 路由器统计 / 解除应用） */
+.shp-cnt.drift { background: #fde8e8; color: #b42318; }
+.shp-statline b { font-weight: 600; color: #1f3b5b; }
+.shp-statline b.ok { color: #0f6b4f; }
+.shp-statline b.warn { color: #8a5a12; }
+.shp-statline .sep { color: #c3cdd9; margin: 0 2px; }
+.shp-drift {
+  flex: 0 0 auto; margin-bottom: 8px; padding: 8px 10px;
+  border: 1px solid #f0b4ae; background: #fdf5f4; color: #9b2c22; border-radius: 4px; font-size: 12px;
+}
+.shp-drift-row { display: flex; align-items: center; gap: 10px; padding: 4px 0 0; flex-wrap: wrap; }
+.shp-drift-row .acc.mini { margin-left: auto; }
+.pill-state.drift { color: #b42318; background: #fde8e8; border-color: #f0b4ae; }
+.shp-mini.danger { color: #b42318; border-color: #f0b4ae; }
+.shp-mini.danger:hover { background: #fdf5f4; }

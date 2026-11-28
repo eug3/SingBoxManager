@@ -20,7 +20,10 @@
         <span class="shp-cnt warn" title="未应用：各路由仍在各自独立管理">{{ rulesStats().pending }} 未应用</span>
       }
       @if (rulesStats().applied) {
-        <span class="shp-cnt ok" title="已应用：所有路由都采用该套规则集">{{ rulesStats().applied }} 已应用</span>
+        <span class="shp-cnt ok" title="已应用：所有相关路由都采用该套规则集">{{ rulesStats().applied }} 已应用</span>
+      }
+      @if (drift().length) {
+        <span class="shp-cnt drift" title="池里标了已应用、但路由实际没跟上的规则数">{{ drift().length }} 漂移</span>
       }
     </button>
     <span class="spacer"></span>
@@ -267,8 +270,25 @@
           <b>共享规则池</b>
           <span class="dim small">{{ rulesTotal() }} 个组名 · 拖到这里即可加入</span>
           <span class="spacer"></span>
-          <span class="dim small">已应用 {{ rulesStats().applied }} / 未应用 {{ rulesStats().pending }}</span>
+          <span class="dim small shp-statline">
+            规则：已应用 <b class="ok">{{ rulesStats().applied }}</b> / 未应用 <b class="warn">{{ rulesStats().pending }}</b>
+            <span class="sep">·</span>
+            路由器：共 <b>{{ rulesStats().routers }}</b> 台，全部一致 <b class="ok">{{ rulesStats().routersOk }}</b> 台
+            @if (!auditDone()) { <span class="dim">（核对中…）</span> }
+          </span>
         </div>
+        @if (drift().length) {
+          <div class="shp-drift">
+            <b>⚠ 启动核对发现 {{ drift().length }} 条「已应用」的共享规则在实际路由上没跟上：</b>
+            @for (d of drift(); track d.rule.id) {
+              <div class="shp-drift-row">
+                <span class="shp-gtag">{{ d.rule.group }}</span>
+                <span>未一致：{{ d.routers.map((x) => x.name).join('、') }}</span>
+                <button class="acc mini" (click)="openBatch(d.rule)">重新应用到全部</button>
+              </div>
+            }
+          </div>
+        }
         <div class="shp-list">
           @for (r of rulesList(); track r.id) {
             <div class="shp-rrule">
@@ -276,7 +296,9 @@
                 <span class="shp-gtag">{{ r.group }}</span>
                 <span class="dim small shp-count">{{ r.refs.length }} 个规则集</span>
                 <span class="spacer"></span>
-                @if (ruleStatus()[r.id]?.applied) {
+                @if (isDrifted(r)) {
+                  <span class="pill-state drift" [title]="'池里标了已应用，但路由实际没跟上：' + statusText(r)">⚠ 已应用但未同步</span>
+                } @else if (ruleStatus()[r.id]?.applied) {
                   <span class="pill-state on" [title]="statusText(r)">已应用</span>
                 } @else {
                   <span class="pill-state off" [title]="statusText(r)">未应用</span>
@@ -285,17 +307,15 @@
                   class="acc mini"
                   (click)="openBatch(r)"
                   title="把这条共享规则应用到所有路由：先预演每台要改什么，确认后逐台执行（check → 备份 → 替换 → 重启），失败自动回滚"
-                >应用到所有路由</button>
-                <button class="shp-mini" (click)="startEditRule(r)" title="修改这条共享规则的规则集（每行一个）">编辑</button>
-                @if (ruleStatus()[r.id]?.applied) {
-                  <button class="shp-mini" (click)="markApplied(r, false)" title="改回未应用">改未应用</button>
-                } @else {
+                >应用到全部</button>
+                @if (ruleStatus()[r.id]?.applied || isDrifted(r)) {
                   <button
-                    class="shp-mini ok"
-                    (click)="markApplied(r, true)"
-                    title="自动判定不成立时，手动确认所有路由都采用这套规则集"
-                  >标为已应用</button>
+                    class="shp-mini danger"
+                    (click)="openDetach(r)"
+                    title="解除应用：把这条共享规则从各路由撤掉（只删共享规则挂上去的那条，出口与组内节点不动），这组回到各自独立管理"
+                  >解除应用</button>
                 }
+                <button class="shp-mini" (click)="startEditRule(r)" title="修改这条共享规则的规则集（每行一个）">编辑</button>
                 <button class="shp-del" (click)="pool.removeRule(r.id)" title="从共享规则池移除">✕</button>
               </div>
               <div class="shp-refs">
@@ -345,6 +365,7 @@
     <app-rule-apply-batch-dialog
       [group]="r.group"
       [refs]="r.refs"
+      [mode]="batchMode()"
       [backends]="backends()"
       (finished)="onBatchFinished()"
       (closed)="batchFor.set(null)"

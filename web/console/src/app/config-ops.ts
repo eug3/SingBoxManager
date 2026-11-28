@@ -1158,3 +1158,27 @@ export function applyGroupRefs(
   for (let i = rules.length - 1; i >= 0; i -= 1) if (drop.has(i)) rules.splice(i, 1);
   return { ok: true, added, removed, removedRules: hits.length - 1 };
 }
+
+/**
+ * 「解除应用」：把目标路由上**由共享规则挂上去的那条规则**撤掉，让这组回到各自独立管理。
+ *   · 只删「outbound = group 且引用 rule_set 且集合与 refs 完全一致」的规则（即确实是共享规则挂的那条）；
+ *   · 路由自己另外写的、带条件的、集合不同的规则一律不动；
+ *   · 出口本身（组 / 组内节点）不动 —— 解除后这个组名只是不再挂共享的规则集。
+ * 返回删掉了几条；0 = 没有可解除的（本来就不一致或没挂过）。
+ */
+export function detachGroupRefs(doc: ConfigDoc, group: string, refs: string[]): { removed: number } {
+  const target = [...new Set(refs.map(String))].sort().join('\n');
+  let removed = 0;
+  const rules = routeRules(doc);
+  for (let i = rules.length - 1; i >= 0; i -= 1) {
+    const r = rules[i];
+    if (String(r['outbound'] ?? '') !== group) continue;
+    const cur = ruleSetRefs(r);
+    if (!cur.length) continue;
+    if ([...cur].sort().join('\n') === target) {
+      rules.splice(i, 1);
+      removed += 1;
+    }
+  }
+  return { removed };
+}

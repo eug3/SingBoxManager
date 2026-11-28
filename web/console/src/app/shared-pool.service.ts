@@ -502,6 +502,14 @@ export function groupStatus(
   });
 }
 
+/** 一条规则在某台路由上的归属（启动核对用） */
+export type RouterFit = 'same' | 'drift' | 'na' | 'unknown';
+
+/** 启动核对：这条规则在哪几台「应该一致却不一致」（池里标了已应用、路由实际没跟上） */
+export function driftedRouters(status: GroupStatusPerRouter[]): GroupStatusPerRouter[] {
+  return status.filter((s) => (s.hasOutbound || s.err) && !s.same);
+}
+
 /** 汇总：全部有同名出口的路由都一致 → 已应用 */
 export function isAppliedEverywhere(status: GroupStatusPerRouter[]): boolean {
   const used = status.filter((s) => s.hasOutbound || !!s.err);

@@ -3,6 +3,7 @@ import {
   AnyObj,
   ConfigDoc,
   applyGroupRefs,
+  detachGroupRefs,
   endpoints,
   groupRuleRefs,
   groups,
@@ -16,6 +17,7 @@ import { BackendsService } from './backends.service';
 import { ConfigDraftService } from './config-draft.service';
 import { RouterService } from './router.service';
 import { RuleApplyBatchDialog } from './rule-apply-batch-dialog';
+import { RuleApplyBatchService } from './rule-apply-batch.service';
 import {
   GroupStatusPerRouter,
   PoolNode,
@@ -23,6 +25,7 @@ import {
   SharedPoolService,
   groupStatus,
   sameRefSet,
+  driftedRouters,
   isAppliedEverywhere,
   nodeFingerprint,
   replaceSameNameNode,
@@ -65,6 +68,8 @@ export class SharedPanel implements OnInit {
   private readonly bsvc = inject(BackendsService);
   /** 共享规则池的套用落到这个草稿服务（待保存条 / 应用并重启链路与流向图一致） */
   readonly draftSvc = inject(ConfigDraftService);
+  /** 批量编排（预演/逐台执行/汇总） */
+  private readonly batch = inject(RuleApplyBatchService);
   readonly pool = inject(SharedPoolService);
 
   readonly backends = this.bsvc.backends;
@@ -133,14 +138,62 @@ export class SharedPanel implements OnInit {
   readonly rulesList = computed(() => this.pool.rulesList());
   readonly rulesTotal = computed(() => this.pool.rules().length);
   /** 页签徽标 / 头部统计：以「实时判定」为准（读不到路由时退回手动标记） */
+  /** 路由器维度统计：一共几台、其中「所有共享规则都一致」的有几台 */
+  readonly routerStats = computed(() => {
+    const st = this.ruleStatus();
+    const backs = this.backends();
+    const routers = backs.length;
+    let routersOk = 0;
+    for (const b of backs) {
+      const name = b.name || b.api;
+      let ok = true;
+      for (const r of this.pool.rules()) {
+        const per = st[r.id]?.per.find((p) => p.name === name);
+        if (per && (per.hasOutbound || per.err) && !per.same) {
+          ok = false;
+          break;
+        }
+      }
+      if (ok) routersOk += 1;
+    }
+    return { routers, routersOk };
+  });
+
   readonly rulesStats = computed(() => {
     const st = this.ruleStatus();
     const all = this.pool.rules();
     const known = all.filter((r) => st[r.id] !== undefined);
-    if (!known.length) return this.pool.rulesStats();
+    if (!known.length) return { ...this.pool.rulesStats(), routers: 0, routersOk: 0 };
     const applied = known.filter((r) => st[r.id].applied).length;
-    return { applied, pending: known.length - applied };
+    return { applied, pending: known.length - applied, ...this.routerStats() };
   });
+
+  /** 启动核对是否已完成（所有后端都读过一遍配置） */
+  readonly auditDone = computed(() => {
+    const docs = this.allDocs();
+    return this.backends().every((b) => docs[b.api] !== undefined);
+  });
+
+  /**
+   * 启动核对结果：池里**标了已应用**、但某台路由实际没跟上的（漂移）。
+   * 这是用户最该先处理的：池说是共享的，路由却各行其是。
+   */
+  readonly drift = computed(() => {
+    const st = this.ruleStatus();
+    const out: { rule: PoolRules; routers: GroupStatusPerRouter[] }[] = [];
+    for (const r of this.pool.rules()) {
+      const marked = r.applied === true || st[r.id]?.applied === true;
+      if (!marked) continue;
+      const bad = driftedRouters(st[r.id]?.per ?? []);
+      if (bad.length) out.push({ rule: r, routers: bad });
+    }
+    return out;
+  });
+
+  /** 某条规则当前是否「在漂移」（标了已应用但有路由没跟上） */
+  isDrifted(r: PoolRules): boolean {
+    return this.drift().some((d) => d.rule.id === r.id);
+  }
 
   readonly note = signal('');
   /** 池里正在编辑的条目 id（null = 没在编辑） */
@@ -174,8 +227,9 @@ export class SharedPanel implements OnInit {
     );
   }
   readonly rulesNote = signal('');
-  /** 批量应用弹窗：对哪条规则开着（null = 关） */
+  /** 批量弹窗：对哪条规则开着（null = 关）；mode 决定是「应用到全部」还是「解除应用」 */
   readonly batchFor = signal<PoolRules | null>(null);
+  readonly batchMode = signal<'apply' | 'detach'>('apply');
   /** 规则条目编辑：哪条在编、编辑中的 refs 文本（每行一个） */
   readonly editRuleId = signal<string | null>(null);
   readonly editRuleText = signal('');
@@ -183,13 +237,27 @@ export class SharedPanel implements OnInit {
 
   /** 「应用到所有路由」：打开预演弹窗 */
   openBatch(r: PoolRules): void {
+    this.batchMode.set('apply');
     this.batchFor.set(r);
   }
 
-  /** 弹窗跑完：重新核对各路由状态 */
+  /** 解除应用：把这条共享规则从各路由撤掉（回到各自独立），同样走预演→逐台→汇总 */
+  openDetach(r: PoolRules): void {
+    this.batchMode.set('detach');
+    this.batchFor.set(r);
+  }
+
+  /** 弹窗跑完：重新核对各路由状态；解除应用成功的话，把池里的「已应用」标记一并清掉 */
   onBatchFinished(): void {
+    const r = this.batchFor();
+    const sum = this.batch.summary();
+    if (r && this.batchMode() === 'detach' && sum && sum.changed > 0) {
+      this.pool.setRuleApplied(r.id, false);
+      this.rulesNote.set(`已解除「${r.group}」的应用（${sum.changed} 台路由撤掉了共享规则）：这组回到各自独立管理`);
+    } else {
+      this.rulesNote.set('批量应用已结束，状态已按各路由实际配置重新核对');
+    }
     void this.refreshAllDocs(true);
-    this.rulesNote.set('批量应用已结束，状态已按各路由实际配置重新核对');
   }
 
   startEditRule(r: PoolRules): void {
