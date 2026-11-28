@@ -46,8 +46,10 @@ func routerInit() string { return env("ROUTER_INIT", defaultRouterInit) }
 // 三次都失败返回最后一次的错误。
 func sshExec(host string, cred routerCred, cmd string, stdin []byte, timeout time.Duration) (string, error) {
 	var lastErr error
+	var lastOut string
 	for attempt := 1; attempt <= 3; attempt++ {
 		out, err := sshExecOnce(host, cred, cmd, stdin, timeout)
+		lastOut = out
 		if err == nil {
 			return out, nil
 		}
@@ -57,7 +59,8 @@ func sshExec(host string, cred routerCred, cmd string, stdin []byte, timeout tim
 		}
 		time.Sleep(time.Duration(attempt) * 400 * time.Millisecond)
 	}
-	return "", lastErr
+	// 三次都失败：保留最后一次的输出（原来是 ""，导致「脚本明明打了日志，页面和日志里都看不到」）
+	return lastOut, lastErr
 }
 
 // sshExecOnce 单次 SSH 会话：拨号 → 建会话 → 跑命令 → 收输出，带整体超时。

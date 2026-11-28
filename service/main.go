@@ -153,6 +153,12 @@ func main() {
 	mux.HandleFunc("POST /router/restart", handleRouterRestart)
 	mux.HandleFunc("POST /router/check", handleRouterCheck)
 	mux.HandleFunc("POST /router/apply", handleRouterApply)
+	// sing-box 版本管理：99 下载缓存 → 推送部署到路由（下载/删除不需要 host，部署按 host 鉴权）
+	mux.HandleFunc("GET /router/versions", handleVersionList)
+	mux.HandleFunc("GET /router/versions/available", handleVersionAvailable)
+	mux.HandleFunc("POST /router/versions/download", handleVersionDownload)
+	mux.HandleFunc("POST /router/versions/deploy", handleVersionDeploy)
+	mux.HandleFunc("POST /router/versions/remove", handleVersionRemove)
 	mux.HandleFunc("GET /router/credentials", handleRouterCredentialsList)
 	mux.HandleFunc("POST /router/credentials", handleRouterCredentialsSet)
 	mux.HandleFunc("DELETE /router/credentials", handleRouterCredentialsDelete)

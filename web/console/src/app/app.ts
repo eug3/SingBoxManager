@@ -10,6 +10,7 @@
 import { ChangeDetectionStrategy, Component, computed, effect, inject, signal } from '@angular/core';
 import { BackendPane } from './backend-pane';
 import { RuleEditor } from './rule-editor';
+import { VersionPane } from './version-pane';
 import { BackendsService } from './backends.service';
 import { SharedPanel } from './shared-panel';
 import { ClashService } from './clash.service';
@@ -23,7 +24,7 @@ import { Toast } from './toast';
 @Component({
   selector: 'app-root',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [SharedPanel, BackendPane, RuleEditor, ShareConfigDialog, ConfirmDialog, Toast],
+  imports: [SharedPanel, BackendPane, RuleEditor, VersionPane, ShareConfigDialog, ConfirmDialog, Toast],
   templateUrl: './app.html',
 })
 /** 根组件：组装顶栏 / 主 tab / 内容区 / 页脚，并驱动存储体检与 sing-box 版本探测 */

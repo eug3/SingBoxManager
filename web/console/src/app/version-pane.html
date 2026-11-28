@@ -1,0 +1,211 @@
+<!-- 版本管理：左=受管路由现状（可部署）｜右=99 上的版本库（下载/删除）｜下方=操作结果与日志 -->
+<div class="vp-page">
+  <div class="vp-cols">
+    <!-- ═══ 左：路由 ═══ -->
+    <section class="vp-col">
+      <div class="vp-hd">
+        <b>路由</b>
+        <span class="dim small">{{ routers().length }} 台</span>
+        <span class="spacer"></span>
+        <button (click)="refresh()" [disabled]="loading()">{{ loading() ? '读取中…' : '刷新' }}</button>
+      </div>
+
+      @if (loadErr()) {
+        <div class="modal-note bad">✗ {{ loadErr() }}</div>
+      } @else if (loading() && !routers().length) {
+        <div class="dim small vp-pad">正在探测各路由的 sing-box 版本…</div>
+      } @else {
+        @for (r of routers(); track r.host) {
+          <div class="vp-router" [class.busy]="deploying() === r.host">
+            <div class="vp-r-top">
+              <b>{{ r.name || r.host }}</b>
+              <span class="vp-host">{{ r.host }}</span>
+              <span class="vp-arch">{{ r.arch || '架构未知' }}{{ r.libc ? ' · ' + r.libc : '' }}</span>
+              @if (r.error) {
+                <span class="vp-bad" [title]="r.error">✗ 探测失败</span>
+              }
+            </div>
+            <div class="vp-r-meta">
+              <span>当前版本 <b class="mono">{{ r.version || '—' }}</b></span>
+              <span class="dim">二进制 {{ r.binMB }} MB</span>
+              <span class="dim">磁盘可用 {{ r.freeMB }} MB</span>
+              <span class="dim" [class.warn]="!r.backup">{{ r.backup ? '有 .prev.gz 备份' : '无备份' }}</span>
+            </div>
+            @if (r.error) {
+              <div class="vp-r-err">{{ r.error }}</div>
+            }
+            <div class="vp-r-act">
+              <button
+                class="acc"
+                (click)="openDeploy(r)"
+                [disabled]="deploying() === r.host || !r.arch || !deployCandidates(r).length"
+                [title]="
+                  !r.arch ? '未探到架构，无法选择对应的包'
+                  : !deployCandidates(r).length
+                    ? '还没有 ' + r.arch + '-' + (variantFor(r) || '默认') + ' 的包：先在右侧版本库下载'
+                    : '选择版本并部署到 ' + (r.name || r.host)
+                "
+              >{{ deploying() === r.host ? '部署中…' : '部署…' }}</button>
+            </div>
+          </div>
+        } @empty {
+          <div class="dim small vp-pad">还没有受管路由：先在「＋ 添加后端」里加。</div>
+        }
+      }
+
+      <div class="vp-foot dim small">
+        缓存目录 <span class="mono">{{ cacheDir() || '—' }}</span> · 下载走镜像
+        @for (m of mirrors(); track m) {
+          <span class="vp-mirror">{{ m || '直连' }}</span>
+        }
+      </div>
+    </section>
+
+    <!-- ═══ 右：版本库 ═══ -->
+    <section class="vp-col vp-lib">
+      <div class="vp-hd">
+        <b>版本库</b>
+        <span class="dim small">{{ local().length }} 个包 · 99 可用 {{ (freeMB() / 1024).toFixed(1) }} GB</span>
+        <span class="spacer"></span>
+        <input
+          class="vp-q"
+          type="search"
+          [value]="query()"
+          (input)="query.set($any($event.target).value)"
+          placeholder="搜版本…"
+        />
+        <label class="vp-chk">
+          <input type="checkbox" [checked]="onlyCached()" (change)="onlyCached.set($any($event.target).checked)" />
+          只看已缓存
+        </label>
+        <button (click)="loadReleases(true)" title="重新拉官方 tag 列表（服务端缓存 10 分钟）">刷新列表</button>
+      </div>
+
+      @if (releaseWarn()) {
+        <div class="vp-warn">⚠ {{ releaseWarn() }}</div>
+      }
+
+      @if (local().length) {
+        <div class="vp-local">
+          @for (c of local(); track c.version + '|' + c.arch) {
+            <span class="vp-pkg" [title]="'来源 ' + (c.source || '—') + ' · 下载于 ' + atOf(c.at) + ' · sha256 ' + (c.sha256 || '—').slice(0, 16)">
+              <span class="vp-pkg-ver">{{ c.version }}</span>
+              <b>{{ c.arch }}-{{ c.variant || 'default' }}</b>
+              <span class="dim">{{ mbOf(c.size) }}</span>
+              <button class="vp-x" (click)="remove(c.version, c.arch, c.variant)" title="从 99 删除这个包">✕</button>
+            </span>
+          }
+        </div>
+      } @else {
+        <div class="dim small vp-pad">99 上还没有缓存的包：在下面挑一个版本下载。</div>
+      }
+
+      <div class="vp-list">
+        @for (rel of releaseRows(); track rel.version) {
+          <div class="vp-rel">
+            <span class="vp-ver mono">{{ rel.version }}</span>
+            <span class="vp-stage" [class.pre]="rel.prerelease">{{ rel.note }}</span>
+            <span class="spacer"></span>
+            @for (t of targets(); track t.arch + '|' + t.variant) {
+              <button
+                class="vp-dl"
+                [class.on]="hasPkg(rel.version, t.arch, t.variant)"
+                [disabled]="!!downloading()"
+                (click)="hasPkg(rel.version, t.arch, t.variant) ? remove(rel.version, t.arch, t.variant) : download(rel.version, t.arch, t.variant)"
+                [title]="
+                  hasPkg(rel.version, t.arch, t.variant)
+                    ? '已缓存在 99（点击删除）'
+                    : '下载 linux-' + t.arch + '-' + (t.variant || '默认') + ' 包到 99'
+                "
+              >{{
+                hasPkg(rel.version, t.arch, t.variant)
+                  ? t.arch + (t.variant ? '-' + t.variant : '') + ' ✓'
+                  : downloading() === rel.version + '|' + t.arch + '|' + t.variant
+                    ? t.arch + ' 下载中…'
+                    : t.arch + (t.variant ? '-' + t.variant : '') + ' ↓'
+              }}</button>
+            }
+            @if (!targets().length) {
+              <span class="dim small">先探测到路由架构才能选择下载</span>
+            }
+          </div>
+        } @empty {
+          <div class="dim small vp-pad">没有匹配的版本。</div>
+        }
+      </div>
+    </section>
+  </div>
+
+  <!-- 部署结果 -->
+  @if (deployResult(); as res) {
+    <div class="vp-result" [class.ok]="res.ok" [class.bad]="!res.ok">
+      <div class="vp-res-hd">
+        <b>{{ res.ok ? '✓ 部署成功' : '✗ 部署失败' }}</b>
+        <span>{{ res.host }}</span>
+        <span class="mono">{{ res.before || '?' }} → {{ res.after || res.version }}</span>
+        <span class="dim">包 {{ res.sizeMB }} MB · 上传 {{ res.uploadSecs.toFixed(1) }}s · 总 {{ res.secs.toFixed(1) }}s</span>
+        <span class="dim">{{ res.backup ? '已留 .prev.gz 备份' : '无备份' }}</span>
+        <span class="spacer"></span>
+        <button (click)="deployResult.set(null)">关闭</button>
+      </div>
+      @if (!res.ok && res.error) {
+        <div class="vp-res-err">{{ res.error }}</div>
+      }
+      <pre class="vp-log">{{ res.log }}</pre>
+    </div>
+  }
+
+  <!-- 操作日志 -->
+  @if (log().length) {
+    <div class="vp-footlog">
+      @for (l of log(); track $index) {
+        <div class="vp-line" [class.ok]="l.kind === 'ok'" [class.bad]="l.kind === 'bad'">
+          <span class="dim">{{ l.at }}</span> {{ l.text }}
+        </div>
+      }
+    </div>
+  }
+</div>
+
+<!-- 部署确认弹窗 -->
+@if (deployFor(); as r) {
+  <div class="modal-mask" (click)="deployFor.set(null)">
+    <div class="modal vp-modal" (click)="$event.stopPropagation()">
+      <div class="modal-hd">
+        <b>部署 sing-box</b>
+        <span class="dim small">{{ r.name || r.host }} · {{ r.arch }} · 当前 {{ r.version || '—' }}</span>
+      </div>
+      <div class="modal-body">
+        <label class="vp-pick">
+          <span>目标版本</span>
+          <select [value]="deployVersion()" (change)="deployVersion.set($any($event.target).value)">
+            @for (c of deployCandidates(r); track c.version) {
+              <option [value]="c.version">{{ c.version }}{{ c.version === r.version ? '（与当前相同）' : '' }}</option>
+            }
+          </select>
+        </label>
+        <div class="modal-note warn">
+          流程：上传新二进制 → 校验能跑且版本匹配 → 压缩备份旧二进制 → 原子替换 → 用新二进制 check 现有配置 → 重启 → 健康检查
+          （约 1–3 秒断流）。任一步失败自动回滚到旧二进制并重启。
+          <br />磁盘：新二进制 + 压缩备份要占用约 {{ r.binMB }} MB + 40%，当前可用 {{ r.freeMB }} MB。
+        </div>
+        @if (!deployCandidates(r).length) {
+          <div class="modal-note bad">
+            ✗ 没有 {{ r.arch }}-{{ variantFor(r) || '默认' }} 的包：路由是 {{ r.libc || '未知 libc' }}，
+            OpenWrt / GL.iNet 必须用 musl 静态包（默认包是 glibc 动态链接，推上去会 not found）。
+          </div>
+        }
+        @if (deployVersion() === r.version) {
+          <div class="modal-note">目标版本与当前相同：等于原地重装同一版本（可用于验证部署链路）。</div>
+        }
+        @if (deployErr()) {
+          <div class="modal-note bad">✗ {{ deployErr() }}</div>
+        }
+      </div>
+      <div class="modal-ft">
+        <button class="acc" (click)="doDeploy()" [disabled]="!deployVersion()">开始部署</button>
+        <button (click)="deployFor.set(null)">取消</button>
+      </div>
+    </div>
+  </div>
+}

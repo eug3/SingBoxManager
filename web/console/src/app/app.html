@@ -35,6 +35,7 @@
     }
     <button class="tab add" (click)="addBackend()">＋ 添加后端</button>
     <button class="tab right" [class.on]="active() === 'edit'" (click)="active.set('edit')">🧩 规则编辑</button>
+    <button class="tab" [class.on]="active() === 'ver'" (click)="active.set('ver')" title="sing-box 版本管理：在 99 下载版本包，再部署到受管路由">⤓ 版本管理</button>
     <button class="tab" [class.on]="active() === 'pool'" (click)="active.set('pool')" title="跨路由共享池：把节点共享给其它路由用">⇄ 共享编辑</button>
   </nav>
 
@@ -60,6 +61,10 @@
 
     @if (active() === 'pool') {
       <app-shared-panel [initialBackend]="activeBackend()" />
+    }
+
+    @if (active() === 'ver') {
+      <app-version-pane />
     }
 
   </div>

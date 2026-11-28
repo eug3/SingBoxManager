@@ -192,6 +192,38 @@ sing-box 没有 reload/写配置 API，所以「改节点配置 → 生效」由
 - 回滚：`sudo install -m 0755 /usr/local/bin/vault-edit.bak-login-<ts> /usr/local/bin/vault-edit && sudo systemctl restart vault-edit`。
 - 注意：默认口令与路由 root 口令相同，服务只监听内网；建议改成专用口令。
 
+## 4.8 版本管理（sing-box 升级/回滚，2026-11-28 上线）
+
+控制台右上「⤓ 版本管理」（紧挨「🧩 规则编辑」）：**99 负责下载与缓存，再推送到路由**，浏览器只做编排。
+
+### 用法
+1. 左栏「路由」显示每台的 `架构 · libc`、当前版本、二进制大小、分区可用、有没有 `.prev.gz` 备份；
+2. 右栏「版本库」列出官方 tag（100 个，服务端缓存 10 分钟）。按路由的**架构 + libc** 自动给出该下的包，
+   例如 `arm64-musl ↓`——点一下就在 99 下载（约 5–40 秒），再点变 ✓（点击 = 删除缓存）；
+3. 点路由的「部署…」→ 选已缓存版本 →「开始部署」：上传 → 校验能跑且版本匹配 → **gzip 压缩备份**旧二进制
+   → 原子 rename 替换 → 用新二进制 `check` 现有配置 → 重启 → 健康检查（约 1–3 秒断流）；
+   任一步失败**自动回滚**并重启，页面显示 `before → after`、上传/总耗时、备份状态与完整脚本日志。
+
+### 关键约束（踩过的坑）
+- **libc 必须匹配**：官方默认包（`sing-box-<v>-linux-<arch>.tar.gz`）是 **glibc 动态链接 + 附带 `libcronet.so`**，
+  推到 OpenWrt / GL.iNet（musl）上直接 `not found`。**必须用 `-musl` 变体（静态，约 83MB）**。
+  控制台按探测到的 libc 强制校验，选错会直接拒绝并说明原因。
+- **99 直连 GitHub 不通**（github.com 超时），走镜像：`SINGBOX_MIRRORS` 默认
+  `https://gh-proxy.com/,https://ghfast.top/`（末项空 = 直连兜底）。实测 gh-proxy.com ≈ 1.6MB/s。
+- **磁盘**：192 的 overlay 只剩约 145MB，而部署峰值 = 新二进制（85MB）+ gz 备份（约 30MB）。
+  所以备份用 `gzip -c`（`.prev.gz` 约 29MB）而不是整份拷贝；部署前服务端会按
+  `新二进制 + 40% + 8MB` 预检，不够就直接拒绝（507）。
+- 替换必须 `mv` 重命名（正在运行的二进制**不能** `cat >` 覆盖，否则 `Text file busy`）。
+- 缓存目录 `/var/lib/vault-edit/singbox/<版本>/<上游文件名>`（`SINGBOX_CACHE` 可改，权限 0700）；
+  元信息 `*.meta.json` 记 sha256 与下载来源；页面可删单个包。
+- 实测：172 用 `1.15.0-alpha.13 arm64-musl` 原地重装成功——上传 80MB/11.8s、总 50.9s、
+  备份 29MB、重启后 `state=started`、配置 check OK、**内存 106MB → 65MB**。
+
+### 回滚
+- 自动：部署脚本在「新二进制 check 配置失败」或「重启后不健康」时，用 `.prev.gz` 还原并重启；
+- 手动：`gzip -dc /opt/sing-box/sing-box.prev.gz > /opt/sing-box/sing-box.rb && chmod 755 … && mv … sing-box`
+  再 `/etc/init.d/sing-box restart`；或在页面里选旧版本再部署一次（99 缓存着旧包时最快）。
+
 ## 5. 坑（都是踩过的）
 
 1. **纯 ip_cidr 规则的顺序敏感性**：桶合并时只测域名会漏 IP 语义（曾把 telegram IP 段前移抢了 rs-tg 的活）；改桶结构要跑域名+IP 双维等价验证
