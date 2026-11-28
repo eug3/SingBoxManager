@@ -1998,22 +1998,36 @@ app-config-pane .cfggate { flex: 1 1 auto; min-height: 0; overflow: auto; }
 .shp-kind { font-size: 9px; color: #8a5a12; background: #fdf3e2; border: 1px solid #f0dcc0; border-radius: 3px; padding: 0 4px; }
 
 /* 共享规则池：组名行 / 规则集 chips */
-.shp-grow, .shp-rrule { align-items: center; }
+.shp-grow { align-items: center; }
+.shp-rrule { align-items: stretch; }
 .shp-gtag {
   font-family: var(--mono); color: #14507a; background: #eaf3fb; border: 1px solid #cfe2f3;
   border-radius: 3px; padding: 0 6px; font-size: 11px; white-space: nowrap;
 }
-.shp-refs { display: flex; gap: 4px; flex-wrap: wrap; flex: 1 1 auto; min-width: 0; }
+.shp-refs { display: flex; gap: 4px 6px; flex-wrap: wrap; flex: 1 1 auto; min-width: 0; }
 .shp-ref {
   font-size: 10px; color: #4a5b6e; background: #f4f7fb; border: 1px solid #e3eaf3;
   border-radius: 3px; padding: 0 5px; white-space: nowrap;
+  /* 超长 tag 用省略号收尾，完整内容走 title 悬停 */
+  max-width: 15ch; overflow: hidden; text-overflow: ellipsis; display: inline-block;
+  vertical-align: bottom;
 }
+.shp-count { white-space: nowrap; color: #8794a5; }
+/* 规则池条目：上行（组名/状态/操作）+ 下行（规则集 chips）两行卡片，行间对齐更整齐 */
+.shp-rrule {
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 8px 10px; border: 1px solid #eef2f8; border-radius: 4px; background: #fff;
+  margin-bottom: 6px;
+}
+.shp-rrule-hd { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.shp-rrule-hd .spacer { flex: 1 1 auto; }
+.shp-rrule .shp-refs { padding-left: 2px; }
 .shp-add {
   margin-left: auto; border: 1px solid #cfe2f3; background: #f7fbff; color: #2b6ea8;
   border-radius: 3px; font-size: 11px; padding: 0 6px; cursor: pointer;
 }
 .shp-add:hover { background: #eaf3fb; }
-.shp-rrule .acc.mini { margin-left: auto; }
+.shp-rrule-hd .acc.mini { margin-left: 0; }
 
 /* 共享编辑页：暂存修改条（规则池套用后的保存入口） */
 .shp-draftbar {

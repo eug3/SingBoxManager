@@ -243,10 +243,10 @@
                 <span class="shp-gtag">{{ g.group }}</span>
                 <span class="shp-refs">
                   @for (r of g.refs; track r) {
-                    <span class="shp-ref">{{ r }}</span>
+                    <span class="shp-ref" [title]="r">{{ r }}</span>
                   }
                 </span>
-                <span class="dim small">{{ g.refs.length }} 集 / {{ g.rules }} 条规则</span>
+                <span class="dim small shp-count">{{ g.refs.length }} 集 / {{ g.rules }} 条</span>
                 <button class="shp-add" (click)="addGroupRow(g)" title="加入共享规则池">＋</button>
               </div>
             } @empty {
@@ -271,31 +271,35 @@
         </div>
         <div class="shp-list">
           @for (r of rulesList(); track r.id) {
-            <div class="shp-row shp-rrule">
-              <span class="shp-gtag">{{ r.group }}</span>
-              <span class="shp-refs">
-                @for (x of r.refs; track x) {
-                  <span class="shp-ref">{{ x }}</span>
+            <div class="shp-rrule">
+              <div class="shp-rrule-hd">
+                <span class="shp-gtag">{{ r.group }}</span>
+                <span class="dim small shp-count">{{ r.refs.length }} 个规则集</span>
+                <span class="spacer"></span>
+                @if (ruleStatus()[r.id]?.applied) {
+                  <span class="pill-state on" [title]="statusText(r)">已应用</span>
+                } @else {
+                  <span class="pill-state off" [title]="statusText(r)">未应用</span>
                 }
-              </span>
-              @if (ruleStatus()[r.id]?.applied) {
-                <span class="pill-state on" [title]="statusText(r)">已应用</span>
-              } @else {
-                <span class="pill-state off" [title]="statusText(r)">未应用</span>
-              }
-              <button class="acc mini" (click)="applyRules(r)" title="把这套规则集套用到当前路由（同组名的规则 / 出口）">
-                套用到本路由
-              </button>
-              @if (ruleStatus()[r.id]?.applied) {
-                <button class="shp-mini" (click)="markApplied(r, false)" title="改回未应用">改未应用</button>
-              } @else {
-                <button
-                  class="shp-mini ok"
-                  (click)="markApplied(r, true)"
-                  title="自动判定不成立时，手动确认所有路由都采用这套规则集"
-                >标为已应用</button>
-              }
-              <button class="shp-del" (click)="pool.removeRule(r.id)" title="从共享规则池移除">✕</button>
+                <button class="acc mini" (click)="applyRules(r)" title="把这套规则集套用到当前路由（同组名的规则 / 出口）">
+                  套用到本路由
+                </button>
+                @if (ruleStatus()[r.id]?.applied) {
+                  <button class="shp-mini" (click)="markApplied(r, false)" title="改回未应用">改未应用</button>
+                } @else {
+                  <button
+                    class="shp-mini ok"
+                    (click)="markApplied(r, true)"
+                    title="自动判定不成立时，手动确认所有路由都采用这套规则集"
+                  >标为已应用</button>
+                }
+                <button class="shp-del" (click)="pool.removeRule(r.id)" title="从共享规则池移除">✕</button>
+              </div>
+              <div class="shp-refs">
+                @for (x of r.refs; track x) {
+                  <span class="shp-ref" [title]="x">{{ x }}</span>
+                }
+              </div>
             </div>
             @if (!ruleStatus()[r.id]?.applied) {
               <div class="shp-rstatus dim small">{{ statusText(r) }}</div>
