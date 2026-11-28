@@ -185,6 +185,15 @@ sing-box 没有 reload/写配置 API，所以「改节点配置 → 生效」由
   ```
   文件不存在时服务**自动按默认口令 `rvnc1984` 创建**；改口令 = 改 `password` 后 `systemctl restart vault-edit`
   （改完所有已登录浏览器立即失效，因为签名里含口令哈希）。
+- **口令不落日志**：启动日志只报「默认口令」还是「自定义口令」，从不打印口令本身
+  （早期版本每次启动都会把 `rvnc1984` 写进 journal，即使已改成别的口令——已修）。
+- **配置坏了 fail-closed**：`login.json` 读不出 / JSON 解析失败 / `password` 为空时，服务**不退出**，
+  但会用一个随机且不落盘的口令，**页面登录必然失败**（日志里有明确警告，请修文件后重启）；
+  与此同时 `/health` 与带 `X-Vault-Key` 的脚本、发布链照常可用。
+  早期版本此时会**悄悄回落到默认口令**，等于登录门强度就是一个公开值——已修。
+- **文件权限**：`/etc/vault-edit/` 是 `0700`，`login.json`、`sbm.db`、`sbm.db-wal`、`sbm.db-shm`
+  全是 `0600`。库里存的是路由 SSH 口令与存储口令的明文，**边车文件（-wal/-shm）必须和主库一样紧**
+  （早期版本只 chmod 了主库，实测 `sbm.db-wal` 是 0644，本机任何用户可读——已修）。
 - **会话**：Cookie `sbm_session=v1.<过期时间>.<HMAC-SHA256(过期|口令哈希)>`，`HttpOnly` + `SameSite=Lax`，`Max-Age` 7 天。
 - **拦截规则**：未登录访问页面 → 302 到 `/login`；接口 → 401 `未登录`。
   **放行**：`/login`、`/logout`、`/health`、`favicon`；以及**带正确 `X-Vault-Key` 的请求**（发布脚本、`check.sh`、控制台前端自己的接口调用都走这条，不受登录门影响）。
@@ -224,6 +233,32 @@ sing-box 没有 reload/写配置 API，所以「改节点配置 → 生效」由
 - 手动：`gzip -dc /opt/sing-box/sing-box.prev.gz > /opt/sing-box/sing-box.rb && chmod 755 … && mv … sing-box`
   再 `/etc/init.d/sing-box restart`；或在页面里选旧版本再部署一次（99 缓存着旧包时最快）。
 
+## 4.9 2026-11-28 全量审计后的行为变化（运维可感知）
+
+对着 Go 后端 / 前端核心 / 前端流量三块做了一次全量只读审计（24 个 .go + 33 个前端文件），
+以下是**行为真的变了**的部分，排障时别按老经验理解：
+
+- **远端失败会报真实原因了**：原 `sshExec` 把「命令非零退出」也当可重试故障，重跑 3 次后只回第 3 次的输出。
+  于是 `/router/check` 对坏 JSON 报 `open /tmp/vault-check-…: no such file`（真实 JSON 错误被吞），
+  `/router/apply` 的 `BACKUP_FAILED` / `UNHEALTHY_ROLLBACK` / **`ROLLBACK_FAILED`** 全被改写成
+  「no such file」。现在：只对**连不上**重试（拨号/建会话），命令本身不重试、首次输出原样返回。
+  症状变化：失败信息变成真正的 sing-box / 脚本报错，**耗时从三秒级降到亚秒级**。
+- **版本部署的配置校验挪到替换之前**：先在 `<bin>.new` 上 `check -c`，不过就什么都不动。
+  于是「配置校验失败」不再需要回滚，也就没有原来那步「解开 .prev.gz 又 ENOSPC」的风险；
+  回滚失败会明确报 `ROLLBACK_RESTORE_FAILED`（HTTP 500），不再谎报「已自动回滚」。
+- **登录门口令不进日志 + 配置坏了 fail-closed**（详见 §4.7）。
+- **`/etc/vault-edit/` 收紧到 0700，库与边车文件 0600**（详见 §4.7）。
+- **接口有请求体上限 16MB、编译有 2 分钟超时、主端口加了读超时**（不设写超时，避免掐断长部署）。
+- **共享规则树按「这一行属于哪台路由」取 refs**：多台同时展开时，在甲的行上点「＋」拿到的是甲的
+  规则集（以前会拿到最后展开那台的，导致「应用到全部」把错的 refs 推到所有路由）。
+- **「应用到全部」跑完状态会刷新**（以前弹窗报成功、列表还显示「未应用 / 漂移」）。
+- **规则编辑器连点两个桶不会串内容**（以前快切时编辑器标题是 B、内容是 A，此时点发布会覆盖 B 桶）。
+- **版本清单按数值排序**（`alpha.15` 不再排在 `alpha.9` 后面）。
+- **「版本管理」前置校验失败不再卡死整页**（原来模板读不存在的 `uploadSecs` 抛 TypeError）。
+
+验证口径：`cd service && go vet ./... && go test ./...`（27 条）；`cd web/console && node test/run-ops-tests.mjs`
+（183 断言）；`npx tsc --noEmit -p tsconfig.app.json`（0 错误）；`scripts/check.sh`（基础 13 项 / 全量 23 项）。
+
 ## 5. 坑（都是踩过的）
 
 1. **纯 ip_cidr 规则的顺序敏感性**：桶合并时只测域名会漏 IP 语义（曾把 telegram IP 段前移抢了 rs-tg 的活）；改桶结构要跑域名+IP 双维等价验证
@@ -262,7 +297,12 @@ sing-box 没有 reload/写配置 API，所以「改节点配置 → 生效」由
 ## 7. 待办 / 可选方向
 
 - [x] ~~各路由放行页面来源~~（2026-11-21 完成：管理机 LAN 来源 + 虚拟内网来源，均 `sing-box check` 后重启，实测 ACAO 正常）
-- [ ] **轮换 clash secret / X-Vault-Key**：旧 key 已在公开仓库历史里；轮换顺序=改各路由 `clash_api.secret` → 改管理机 `/etc/vault-edit.env` → 重启 vault-edit → 各路由重启 sing-box → 页面重填密钥
+- [ ] **轮换 clash secret / X-Vault-Key**：旧 key 已在公开仓库历史里；
+      2026-11-28 全量审计**再确认一次**：`web/console/test/ops/fixtures/router-32.json`、
+      `router-32-api.json`、`router-172.16.8.1.json` 是整份路由配置，含 clash secret、
+      API secret、代理口令、UUID。这些是**真实值**不是占位符，仓库又是公开的 ——
+      轮换时记得这份清单；换完把夹具里的值替换成明显的假值并补一次单测跑通。
+      轮换顺序=改各路由 `clash_api.secret`轮换顺序=改各路由 `clash_api.secret` → 改管理机 `/etc/vault-edit.env` → 重启 vault-edit → 各路由重启 sing-box → 页面重填密钥
 - [ ] rule-set `.json` 源 + manifest.json 公网可下载的收口（移出共享目录或接受现状）
 - [ ] clash-api 9090 监听 0.0.0.0 的安全面收窄（长期待办）
 - [ ] 主路由 dns 收口漂移修复（uci list server + noresolv）
