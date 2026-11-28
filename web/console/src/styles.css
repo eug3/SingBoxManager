@@ -2116,3 +2116,36 @@ app-config-pane .cfggate { flex: 1 1 auto; min-height: 0; overflow: auto; }
   border-radius: 4px; font-size: 12px;
 }
 .cfgcredok .mini { margin-left: auto; }
+
+/* 共享规则：批量应用弹窗（预演 → 逐台执行 → 汇总） */
+.rab-modal { width: min(760px, 96vw); }
+.rab-wait { padding: 12px 0; }
+.rab-list { display: flex; flex-direction: column; gap: 4px; max-height: 52vh; overflow: auto; }
+.rab-row {
+  display: grid; grid-template-columns: 22px minmax(96px, 150px) 1fr auto;
+  gap: 8px; align-items: center; padding: 6px 8px; font-size: 12px;
+  border: 1px solid #eef2f8; border-radius: 4px; background: #fff;
+}
+.rab-row.pending { border-color: #f0d9b5; background: #fdf9f0; }
+.rab-row.running { border-color: var(--acc); background: #f2fbf6; }
+.rab-row.ok { border-color: #b9e3cd; background: #f4fcf8; }
+.rab-row.fail { border-color: #f0b4ae; background: #fdf5f4; }
+.rab-ic { text-align: center; font-weight: 600; color: #8794a5; }
+.rab-row.ok .rab-ic { color: #0f8f68; }
+.rab-row.fail .rab-ic { color: #c8384a; }
+.rab-row.running .rab-ic { color: var(--acc); }
+.rab-name { font-weight: 600; color: #1f3b5b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rab-detail { color: #566579; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rab-detail .rab-err { color: #c8384a; white-space: normal; word-break: break-all; }
+.rab-state { font-size: 11px; color: #8794a5; white-space: nowrap; }
+.rab-state.ok { color: #0f8f68; }
+.rab-state.skip { color: #8a5a12; }
+.rab-progress { padding: 6px 0; }
+.rab-summary {
+  display: flex; gap: 14px; flex-wrap: wrap; align-items: center;
+  margin-top: 8px; padding: 8px 10px; border: 1px solid #b9e3cd; background: #f1fbf5; border-radius: 4px; font-size: 12px;
+}
+.rab-summary.hasfail { border-color: #f0b4ae; background: #fdf5f4; }
+.rab-summary .ok { color: #0f8f68; font-weight: 600; }
+.rab-summary .bad { color: #c8384a; font-weight: 600; }
+.shp-rule-edit textarea { min-height: 90px; }

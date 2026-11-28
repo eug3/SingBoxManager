@@ -281,9 +281,12 @@
                 } @else {
                   <span class="pill-state off" [title]="statusText(r)">未应用</span>
                 }
-                <button class="acc mini" (click)="applyRules(r)" title="把这套规则集套用到当前路由（同组名的规则 / 出口）">
-                  套用到本路由
-                </button>
+                <button
+                  class="acc mini"
+                  (click)="openBatch(r)"
+                  title="把这条共享规则应用到所有路由：先预演每台要改什么，确认后逐台执行（check → 备份 → 替换 → 重启），失败自动回滚"
+                >应用到所有路由</button>
+                <button class="shp-mini" (click)="startEditRule(r)" title="修改这条共享规则的规则集（每行一个）">编辑</button>
                 @if (ruleStatus()[r.id]?.applied) {
                   <button class="shp-mini" (click)="markApplied(r, false)" title="改回未应用">改未应用</button>
                 } @else {
@@ -300,6 +303,24 @@
                   <span class="shp-ref" [title]="x">{{ x }}</span>
                 }
               </div>
+              @if (editRuleId() === r.id) {
+                <div class="shp-edit shp-rule-edit">
+                  <textarea
+                    [value]="editRuleText()"
+                    (input)="editRuleText.set($any($event.target).value)"
+                    spellcheck="false"
+                    placeholder="每行一个规则集 tag，如 rs-github"
+                  ></textarea>
+                  @if (editRuleErr()) {
+                    <div class="shp-edit-err">✗ {{ editRuleErr() }}</div>
+                  }
+                  <div class="shp-io-actions">
+                    <button class="acc" (click)="saveEditRule(r)">保存</button>
+                    <button (click)="cancelEditRule()">取消</button>
+                    <span class="dim small">改了规则集会回到「未应用」；点「应用到所有路由」同步前，各路由保持原样</span>
+                  </div>
+                </div>
+              }
             </div>
             @if (!ruleStatus()[r.id]?.applied) {
               <div class="shp-rstatus dim small">{{ statusText(r) }}</div>
@@ -318,5 +339,15 @@
         </div>
       </section>
     </div>
+  }
+
+  @if (batchFor(); as r) {
+    <app-rule-apply-batch-dialog
+      [group]="r.group"
+      [refs]="r.refs"
+      [backends]="backends()"
+      (finished)="onBatchFinished()"
+      (closed)="batchFor.set(null)"
+    />
   }
 </div>

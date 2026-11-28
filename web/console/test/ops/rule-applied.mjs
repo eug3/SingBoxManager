@@ -114,3 +114,20 @@ ok('sameRefSet 内容不同 false', !sameRefSet(['a', 'b'], ['a', 'c']));
 }
 
 export const results = out;
+
+// ── 追加：规则条目编辑（updateRuleRefs）──
+{
+  const svc = new SharedPoolService();
+  svc.addRuleGroup('G', ['rs-a'], { api: 'r1', name: '甲' });
+  const id = svc.rules()[0].id;
+  svc.setRuleApplied(id, true);
+  const r1 = svc.updateRuleRefs(id, ['rs-a', 'rs-b']);
+  ok('编辑 refs 成功', r1.ok && svc.rules()[0].refs.join() === 'rs-a,rs-b', JSON.stringify(r1));
+  ok('改了 refs → 回到未应用', svc.rules()[0].applied === false && svc.rules()[0].appliedAt === undefined);
+  svc.setRuleApplied(id, true);
+  const r2 = svc.updateRuleRefs(id, ['rs-b', 'rs-a']);
+  ok('集合相同（仅顺序）→ 保持已应用', r2.ok && svc.rules()[0].applied === true, JSON.stringify(svc.rules()[0]));
+  ok('空列表拒绝', !svc.updateRuleRefs(id, []).ok);
+  ok('去重 + 去空白', svc.updateRuleRefs(id, [' rs-a ', 'rs-a', '', 'rs-c']).ok && svc.rules()[0].refs.join() === 'rs-a,rs-c');
+  ok('不存在的 id 拒绝', !svc.updateRuleRefs('nope', ['x']).ok);
+}

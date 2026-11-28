@@ -1,0 +1,90 @@
+<!-- 共享规则 → 应用到所有路由：预演计划 → 确认 → 逐台执行 → 汇总 -->
+<div class="modal-mask" (click)="onMask($event)">
+  <div class="modal rab-modal" role="dialog" aria-modal="true" aria-label="应用到所有路由">
+    <div class="modal-hd">
+      <b>应用共享规则</b>
+      <span class="dim small">「{{ group() }}」→ {{ refs().length }} 个规则集 · 逐台执行</span>
+      <button class="x" (click)="close()" [disabled]="phase() === 'running'" title="关闭">✕</button>
+    </div>
+
+    <div class="modal-body">
+      @if (planError()) {
+        <div class="modal-note bad">✗ {{ planError() }}</div>
+      } @else if (phase() === 'planning') {
+        <div class="dim small rab-wait">正在读取各路由配置，预演改动…</div>
+      } @else if (plan()) {
+        <!-- 计划 / 进度 / 结果 共用一张表 -->
+        <div class="rab-list">
+          @for (s of steps(); track s.backend.api; let i = $index) {
+            @if (phase() === 'confirm') {
+              <div class="rab-row" [class.pending]="s.state === 'pending'">
+                <span class="rab-ic">{{ icon(s) }}</span>
+                <span class="rab-name">{{ s.name }}</span>
+                <span class="rab-detail">{{ s.detail || stateText(s) }}</span>
+                <span class="rab-state" [class.ok]="s.unchanged" [class.skip]="s.state === 'skipped' && !s.unchanged">
+                  {{ stateText(s) }}
+                </span>
+              </div>
+            } @else {
+              <div class="rab-row" [class.running]="s.state === 'running'" [class.ok]="s.state === 'ok'" [class.fail]="s.state === 'fail'">
+                <span class="rab-ic">{{ icon(s) }}</span>
+                <span class="rab-name">{{ s.name }}</span>
+                <span class="rab-detail">
+                  @if (s.state === 'fail') {
+                    <span class="rab-err">{{ s.error }}</span>
+                  } @else {
+                    {{ s.detail }}
+                  }
+                </span>
+                <span class="rab-state">{{ stateText(s) }}</span>
+              </div>
+            }
+          }
+        </div>
+
+        @if (phase() === 'confirm') {
+          @if (pendingTotal()) {
+            <div class="modal-note warn">
+              将对 <b>{{ pendingTotal() }}</b> 台路由执行：套用规则集 → sing-box check → 备份 → 替换 → 重启（约 1 秒断流）。
+              失败的路由会自动回滚到原配置，不影响其它路由。
+            </div>
+          } @else {
+            <div class="modal-note">所有路由都已与这条共享规则一致，不需要改动。</div>
+          }
+        }
+
+        @if (phase() === 'running') {
+          <div class="rab-progress dim small">正在执行第 {{ currentIdx() }} / {{ pendingTotal() }} 台…（关闭按钮已禁用，跑完再关）</div>
+        }
+
+        @if (phase() === 'done' && summary()) {
+          <div class="rab-summary" [class.hasfail]="summary()!.failed > 0">
+            <b>完成</b>
+            <span class="ok">✓ 成功 {{ summary()!.changed }}</span>
+            <span class="dim">＝ 已一致 {{ summary()!.unchanged }}</span>
+            <span class="dim">– 跳过 {{ summary()!.skipped }}</span>
+            <span class="bad">✗ 失败 {{ summary()!.failed }}</span>
+          </div>
+          @if (summary()!.failed > 0) {
+            <div class="modal-note bad">有 {{ summary()!.failed }} 台失败（见上方红色原因）。这些路由已自动回滚，未被改坏；可修正原因后重试。</div>
+          }
+        }
+      }
+    </div>
+
+    <div class="modal-ft">
+      @if (phase() === 'confirm') {
+        <button class="acc" (click)="start()" [disabled]="!pendingTotal()">
+          {{ pendingTotal() ? '开始（' + pendingTotal() + ' 台）' : '无需改动' }}
+        </button>
+        <button (click)="close()">取消</button>
+      } @else if (phase() === 'running') {
+        <button (click)="cancelRun()">执行完当前这台后停止</button>
+      } @else if (phase() === 'done') {
+        <button class="acc" (click)="close()">关闭</button>
+      } @else {
+        <button (click)="close()" [disabled]="phase() === 'running'">取消</button>
+      }
+    </div>
+  </div>
+</div>

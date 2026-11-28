@@ -255,6 +255,15 @@ const server = createServer(async (req, res) => {
   if (path === '/proxies') return json(res, PROXIES);
   if (path === '/rules') return json(res, ROUTES);
   // 3/4 弹窗（规则集 / 分组）需要 /router/config：给一份带多分组、多节点、多 rule_set 的假配置
+  // sing-box check 的 mock：MOCK_CHECK_FAIL=1 时模拟校验不过（用于批量应用的失败分支）
+  if (path === '/router/check') {
+    let host = 'mock';
+    try { host = JSON.parse((await readBody(req)) || '{}').host || 'mock'; } catch { /* 忽略 */ }
+    if (process.env.MOCK_CHECK_FAIL === '1') {
+      return json(res, { ok: false, host, output: 'FATAL route.rules[0]: outbound not found: NOPE' });
+    }
+    return json(res, { ok: true, host, output: '' });
+  }
   // 测试用：MOCK_CONFIG_FAIL=1 让 /router/config 返回 SSH 失败（验证连接页/凭据逻辑）
   if (path === '/router/config' && process.env.MOCK_CONFIG_FAIL === '1') {
     return json(res, { ok: false, error: 'ssh: handshake failed: ssh: unable to authenticate (Permission denied)' }, 500);

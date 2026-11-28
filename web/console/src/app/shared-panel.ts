@@ -15,12 +15,14 @@ import { Backend } from './models';
 import { BackendsService } from './backends.service';
 import { ConfigDraftService } from './config-draft.service';
 import { RouterService } from './router.service';
+import { RuleApplyBatchDialog } from './rule-apply-batch-dialog';
 import {
   GroupStatusPerRouter,
   PoolNode,
   PoolRules,
   SharedPoolService,
   groupStatus,
+  sameRefSet,
   isAppliedEverywhere,
   nodeFingerprint,
   replaceSameNameNode,
@@ -52,6 +54,7 @@ type Section = 'nodes' | 'rules';
 @Component({
   selector: 'app-shared-panel',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [RuleApplyBatchDialog],
   templateUrl: './shared-panel.html',
 })
 export class SharedPanel implements OnInit {
@@ -171,6 +174,57 @@ export class SharedPanel implements OnInit {
     );
   }
   readonly rulesNote = signal('');
+  /** 批量应用弹窗：对哪条规则开着（null = 关） */
+  readonly batchFor = signal<PoolRules | null>(null);
+  /** 规则条目编辑：哪条在编、编辑中的 refs 文本（每行一个） */
+  readonly editRuleId = signal<string | null>(null);
+  readonly editRuleText = signal('');
+  readonly editRuleErr = signal('');
+
+  /** 「应用到所有路由」：打开预演弹窗 */
+  openBatch(r: PoolRules): void {
+    this.batchFor.set(r);
+  }
+
+  /** 弹窗跑完：重新核对各路由状态 */
+  onBatchFinished(): void {
+    void this.refreshAllDocs(true);
+    this.rulesNote.set('批量应用已结束，状态已按各路由实际配置重新核对');
+  }
+
+  startEditRule(r: PoolRules): void {
+    this.editRuleId.set(r.id);
+    this.editRuleErr.set('');
+    this.editRuleText.set(r.refs.join('\n'));
+  }
+
+  cancelEditRule(): void {
+    this.editRuleId.set(null);
+    this.editRuleErr.set('');
+  }
+
+  /** 保存编辑：refs 变了就回到未应用，并提示去同步（未同步前各路由不受影响） */
+  saveEditRule(r: PoolRules): void {
+    const refs = this.editRuleText()
+      .split(/[\n,，]+/)
+      .map((x) => x.trim())
+      .filter(Boolean);
+    const res = this.pool.updateRuleRefs(r.id, refs);
+    if (!res.ok) {
+      this.editRuleErr.set(res.reason ?? '保存失败');
+      return;
+    }
+    const changed = !sameRefSet(refs, r.refs);
+    this.editRuleId.set(null);
+    if (changed) {
+      this.rulesNote.set(
+        `已修改「${r.group}」的规则集（${refs.length} 个）。它已回到「未应用」——点「应用到所有路由」让各路由同步；未同步前各路由保持原样、不受影响。`,
+      );
+    } else {
+      this.rulesNote.set(`「${r.group}」没有变化`);
+    }
+  }
+
   /** 勾选待加入节点池的 tag */
   readonly picked = signal<string[]>([]);
   readonly importOpen = signal(false);

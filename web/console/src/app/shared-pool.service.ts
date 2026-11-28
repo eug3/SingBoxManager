@@ -225,6 +225,21 @@ export class SharedPoolService {
     return { ok: true, dup: !!same };
   }
 
+  /** 编辑规则条目的规则集引用（组名不变）。改完回到「未应用」——需再同步一次才能让各路由跟上 */
+  updateRuleRefs(id: string, refs: string[]): { ok: boolean; reason?: string } {
+    const list = [...new Set(refs.map((x) => String(x).trim()).filter(Boolean))];
+    if (!list.length) return { ok: false, reason: '至少保留一个规则集' };
+    const cur = this.rules().find((r) => r.id === id);
+    if (!cur) return { ok: false, reason: '池里找不到这条' };
+    const same = sameRefSet(cur.refs, list);
+    this.save({
+      rules: this.rules().map((r) =>
+        r.id === id ? { ...r, refs: list, applied: same ? r.applied : false, appliedAt: same ? r.appliedAt : undefined } : r,
+      ),
+    });
+    return { ok: true };
+  }
+
   /** 设置某条规则的「已应用 / 未应用」状态 */
   setRuleApplied(id: string, applied: boolean): void {
     this.save({
