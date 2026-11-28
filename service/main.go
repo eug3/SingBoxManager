@@ -6,6 +6,9 @@ package main
 //
 // 路由表（实现分散在同包各文件）：
 //   GET  /health                     健康与配置自检            main.go
+//   GET  /login                      单口令登录页（一周免登录）  login.go
+//   POST /login                      校验口令 → 下发会话 Cookie login.go
+//   GET|POST /logout                 退出登录（清 Cookie）      login.go
 //   GET  /                           302 → /edit/              main.go
 //   GET  /edit/                      Angular 管理台（SPA）     files.go
 //   GET  /static/                    Monaco 等本地静态资源     files.go
@@ -59,6 +62,9 @@ func main() {
 		log.Printf("SQLite 就绪：%s", dbFile())
 	}
 
+	// 登录门：读 /etc/vault-edit/login.json（不存在则按默认口令 rvnc1984 创建）
+	loadLogin()
+
 	// 存储配置：读库（无记录则用 env 默认值），并热装到全局
 	applyShareConfig(loadShareConfig())
 
@@ -88,6 +94,12 @@ func main() {
 			"shareReady": shareErr == nil, "shareFiles": len(shareInfo), "shareError": errText(shareErr),
 		})
 	})
+
+	// 登录（单口令；登录后一周免登录）
+	mux.HandleFunc("GET /login", handleLoginPage)
+	mux.HandleFunc("POST /login", handleLoginSubmit)
+	mux.HandleFunc("GET /logout", handleLogout)
+	mux.HandleFunc("POST /logout", handleLogout)
 
 	// 根路径 → 管理台
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
@@ -153,7 +165,7 @@ func main() {
 		fail(w, 404, "not found")
 	})
 
-	srv := &http.Server{Addr: listen, Handler: mux}
+	srv := &http.Server{Addr: listen, Handler: loginGate(mux)}
 	log.Printf("vault-edit (go) listening on %s · share=%s · page=%s · static=%s", listen, shareDir, pageDir, staticDir)
 	if err := srv.ListenAndServe(); err != nil {
 		log.Fatal(err)

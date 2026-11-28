@@ -175,6 +175,23 @@ sing-box 没有 reload/写配置 API，所以「改节点配置 → 生效」由
 - 超时 / 链路抖动这类临时失败先**静默重试 2 次**（间隔 0.7s / 1.4s），不会立刻弹页要人填；
 - 想改口令：连接页「要改口令？」或「配置 → 更多 → 路由凭据」；口令只提交给 99，页面不保存、不回显。
 
+## 4.7 登录门（2026-11-28 上线）
+
+管理台前面加了一道**单口令登录**：没有用户名，只输密码；登录后本浏览器 **7 天**免登录。
+
+- **配置文件** `/etc/vault-edit/login.json`（0600，root；`LOGIN_FILE` 可覆盖路径），服务启动时读一次：
+  ```json
+  { "password": "rvnc1984", "sessionSecret": "<自动生成的随机串>", "sessionDays": 7 }
+  ```
+  文件不存在时服务**自动按默认口令 `rvnc1984` 创建**；改口令 = 改 `password` 后 `systemctl restart vault-edit`
+  （改完所有已登录浏览器立即失效，因为签名里含口令哈希）。
+- **会话**：Cookie `sbm_session=v1.<过期时间>.<HMAC-SHA256(过期|口令哈希)>`，`HttpOnly` + `SameSite=Lax`，`Max-Age` 7 天。
+- **拦截规则**：未登录访问页面 → 302 到 `/login`；接口 → 401 `未登录`。
+  **放行**：`/login`、`/logout`、`/health`、`favicon`；以及**带正确 `X-Vault-Key` 的请求**（发布脚本、`check.sh`、控制台前端自己的接口调用都走这条，不受登录门影响）。
+- 控制台顶栏 ⏻ = 退出登录（`/logout` 清 Cookie）。
+- 回滚：`sudo install -m 0755 /usr/local/bin/vault-edit.bak-login-<ts> /usr/local/bin/vault-edit && sudo systemctl restart vault-edit`。
+- 注意：默认口令与路由 root 口令相同，服务只监听内网；建议改成专用口令。
+
 ## 5. 坑（都是踩过的）
 
 1. **纯 ip_cidr 规则的顺序敏感性**：桶合并时只测域名会漏 IP 语义（曾把 telegram IP 段前移抢了 rs-tg 的活）；改桶结构要跑域名+IP 双维等价验证

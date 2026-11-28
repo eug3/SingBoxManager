@@ -42,6 +42,11 @@ export class App {
   readonly backends = this.bsvc.backends;
   /** 当前主 tab：'b'+序号 = 第 n 个后端面板，'edit' = 规则编辑；没有后端时落在规则编辑 */
   readonly active = signal<string>(this.backends().length ? 'b0' : 'edit');
+  /** 退出登录：服务端清 Cookie 后回到登录页 */
+  logout(): void {
+    location.href = '/logout';
+  }
+
   /** 上一次停在的后端下标（切到「规则编辑 / 共享编辑」页时用来给共享编辑选默认来源） */
   private readonly lastBackendIdx = signal<number | null>(this.backends().length ? 0 : null);
 

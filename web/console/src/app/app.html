@@ -9,6 +9,7 @@
         <span class="dot"></span>{{ statusText() }}
       </button>
       <button class="hgear" title="修改存储与公网入口配置" (click)="openShareConfig($event)">⚙</button>
+      <button class="hgear" title="退出登录（清除本机登录状态）" (click)="logout()">⏻</button>
     </span>
     @if (shareCfgOpen()) {
       <app-share-config (closed)="onShareCfgClosed($event)" />

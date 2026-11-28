@@ -2,6 +2,7 @@
 # service/(Go 二进制 + systemd) → 99号机。前端（Angular）由 scripts/deploy_console.sh 单独部署，本脚本不再上传页面
 # 用法: ROUTER_PW='99号机口令' VAULT_KEY='clash secret' scripts/deploy_service.sh
 # 说明: VAULT_KEY 只落到 99 的 /etc/vault-edit.env(0600)，不进仓库、不进二进制
+#       登录口令在 /etc/vault-edit/login.json（服务首次启动自动按默认值创建，不由此脚本管理）
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
