@@ -26,7 +26,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -103,9 +102,6 @@ func versionMirrors() []string {
 	for _, p := range strings.Split(raw, ",") {
 		out = append(out, strings.TrimSpace(p))
 	}
-	if len(out) == 0 {
-		out = append(out, "")
-	}
 	return out
 }
 
@@ -136,9 +132,6 @@ func versionMetaPath(version, arch, variant string) string {
 	}
 	return filepath.Join(versionCacheDir(), version, name+".meta.json")
 }
-
-// allVersionTag 版本号规范成 tag（带 v）
-func allVersionTag(version string) string { return "v" + version }
 
 // ---- 缓存清单 ----
 
@@ -206,10 +199,13 @@ func scanVersionCache() []cachedVersion {
 		}
 	}
 	sort.Slice(out, func(i, j int) bool {
-		if out[i].Version != out[j].Version {
-			return out[i].Version > out[j].Version
+		if c := compareVersion(out[i].Version, out[j].Version); c != 0 {
+			return c > 0 // 版本高的在前：按数值比，不是字符串比（否则 1.9.0 会排在 1.10.0 前）
 		}
-		return out[i].Arch < out[j].Arch
+		if out[i].Arch != out[j].Arch {
+			return out[i].Arch < out[j].Arch
+		}
+		return out[i].Variant < out[j].Variant
 	})
 	return out
 }
@@ -1039,6 +1035,3 @@ func handleVersionRemove(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, 200, map[string]any{"ok": true, "removed": removed})
 }
-
-// runtimeArch 99 自己的架构（前端提示「本机是 amd64」用，纯信息）
-func runtimeArch() string { return runtime.GOARCH }

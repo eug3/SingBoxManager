@@ -77,18 +77,24 @@ func probeShare(fs ShareFS, publicBase, sample string) map[string]any {
 	if publicBase != "" {
 		h.URL = publicBase + sample
 		t1 := time.Now()
-		req, _ := http.NewRequest(http.MethodGet, h.URL+"?probe="+fmt.Sprint(t1.UnixNano()), nil)
-		req.Header.Set("Cache-Control", "no-cache")
-		resp, err := healthClient.Do(req)
+		// publicBase 可由 /share/config 落库：含控制字符 / 非法转义时 NewRequest 会失败。
+		// 原写法忽略错误，下一行 req 为 nil 直接 panic（顶栏状态点每次都炸）。
+		req, err := http.NewRequest(http.MethodGet, h.URL+"?probe="+fmt.Sprint(t1.UnixNano()), nil)
 		if err != nil {
-			h.Error = err.Error()
+			h.Error = "公网地址非法：" + err.Error()
 		} else {
-			body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-			resp.Body.Close()
-			h.Status = resp.StatusCode
-			h.Size = len(body)
-			h.OK = resp.StatusCode == http.StatusOK && len(body) > 0
-			h.Mtime = resp.Header.Get("Last-Modified")
+			req.Header.Set("Cache-Control", "no-cache")
+			resp, derr := healthClient.Do(req)
+			if derr != nil {
+				h.Error = derr.Error()
+			} else {
+				body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+				resp.Body.Close()
+				h.Status = resp.StatusCode
+				h.Size = len(body)
+				h.OK = resp.StatusCode == http.StatusOK && len(body) > 0
+				h.Mtime = resp.Header.Get("Last-Modified")
+			}
 		}
 		h.MS = time.Since(t1).Milliseconds()
 	} else {

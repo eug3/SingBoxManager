@@ -5,6 +5,7 @@ package main
 // 运行：cd service && go test ./...
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -166,5 +167,31 @@ func TestRemoteScripts(t *testing.T) {
 		if !strings.Contains(r, marker) {
 			t.Errorf("restartScript 缺标记 %q", marker)
 		}
+	}
+}
+
+// probeShare 在 publicBase 非法（NewRequest 失败）时不能 panic：
+// publicBase 可经 /share/config 落库，原写法忽略 NewRequest 的错误，req 为 nil 直接崩，顶栏状态点每次都炸。
+func TestProbeShareBadPublicBaseDoesNotPanic(t *testing.T) {
+	dir := t.TempDir()
+	fs := &localShare{dir: dir}
+	// 含控制字符 → http.NewRequest 返回错误
+	bad := "http://exa\x7fmple.com/rule-set/"
+	var resp map[string]any
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				t.Fatalf("probeShare panic 了：%v", r)
+			}
+		}()
+		resp = probeShare(fs, bad, "rs-tg.srs")
+	}()
+	// httpPart 是 probeShare 内部的局部类型，外面断不出来；对 JSON 编码结果断言
+	b, _ := json.Marshal(resp["http"])
+	if !strings.Contains(string(b), `"error"`) {
+		t.Fatalf("应报出公网地址非法：%s", b)
+	}
+	if resp["ok"] != false {
+		t.Fatalf("整体不应为 ok：%v", resp["ok"])
 	}
 }
