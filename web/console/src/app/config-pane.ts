@@ -356,8 +356,11 @@ export class ConfigPane {
 
   /**
    * 格式化（只改暂存区，不写回路由）：
-   *  1) 出站 tag 统一大写 + 同步所有引用（分组成员 / default / detour / 规则出口 / final）；
-   *     大写后撞名且类型相同则合并（`direct` → `DIRECT`），类型不同则改名并提示；
+   *  1) 出站 / 端点 tag 按类型统一大小写 + 同步所有引用（分组成员 / default / detour / 规则出口 / final）：
+   *     · 出口分组（selector / urltest）→ 大写；
+   *     · 服务器节点 / 端点（endpoints）→ 小写；
+   *     · 内置 direct / block 等 → 大写（与内核隐式小写 direct 区分，避免误合并）；
+   *     改大小写后撞名且类型相同则合并（`direct` → `DIRECT`），类型不同则改名并提示；
    *  2) JSON 重新按 2 空格缩进排版。
    * 桶 tag（rule_set）对应 NAS 文件名，不在格式化范围内。
    */
@@ -382,13 +385,21 @@ export class ConfigPane {
     this.err.set('');
     this.fmtWarn.set(res.warnings);
     const bits: string[] = [];
-    if (res.renamed.length) bits.push(`大写 ${res.renamed.length} 个出站 tag`);
+    if (res.renamed.length) {
+      // 改名里区分「变成大写」和「变成小写」，让摘要如实反映两类规则
+      const up = res.renamed.filter((r) => r.to === r.to.toUpperCase() && r.to !== r.to.toLowerCase()).length;
+      const lo = res.renamed.filter((r) => r.to === r.to.toLowerCase() && r.to !== r.to.toUpperCase()).length;
+      const parts: string[] = [];
+      if (up) parts.push(`分组 → 大写 ${up} 个`);
+      if (lo) parts.push(`节点/端点 → 小写 ${lo} 个`);
+      bits.push(parts.join('、') || `改大小写 ${res.renamed.length} 个 tag`);
+    }
     if (res.merged.length) bits.push(`合并 ${res.merged.length} 个（${res.merged.map((m) => `${m.from}→${m.to}`).join('、')}）`);
     if (res.refs) bits.push(`同步 ${res.refs} 处引用`);
     this.log.set(
       bits.length
         ? '⇧ 格式化完成：' + bits.join(' · ') + '（只改暂存区，点「应用并重启」才写回路由）'
-        : '⇧ 格式化完成：出站 tag 已是全大写，只整理了 JSON 缩进（未写回路由）',
+        : '⇧ 格式化完成：tag 大小写已符合规则（分组大写 / 节点小写），只整理了 JSON 缩进（未写回路由）',
     );
   }
 

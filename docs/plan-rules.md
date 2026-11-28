@@ -510,3 +510,30 @@ mock 双后端：池里 3 条（2 条标已应用）→ 启动核对「⚠ 1 条
 验收：`npm run test:ops` **151/151 PASS**（detach 新增 4 条：读不到不算漂移、归入 unknown、仍不算已应用、漂移与 unknown 并存各归各的）；
 线上真路由只读核对：`OPENAI` → 已应用（误报消除），`📲 电报信息`（真只挂 rs-tg）→ 「⚠ 已应用但未同步 · 甲 32、乙 GL」，
 页签「1 已应用 · 1 漂移」与事实一致。
+
+### 8.1 格式化的大小写规则改为「按类型」（2026-11-28 修订）
+原规则「出站 tag 一律大写」会让服务器节点也变成 `LAN-FD-SA`。新规则：
+
+| 对象 | 大小写 | 例子 |
+|---|---|---|
+| 出口分组（`selector` / `urltest`） | **大写** | `OPENAI`、`BALANCE`、`IP_DIRECT` |
+| 服务器节点（shadowsocks/vmess/vless/trojan/hysteria2/socks/masque…） | **小写** | `lan-fd-sa`、`warp-98`、`shayuqite` |
+| 端点（`endpoints[]`，如 masque-client） | **小写** | `masque-arm` |
+| 内置 `direct` / `block` / `dns` | **大写**（不变） | `DIRECT`、`REJECT` —— 与内核隐式的小写 `direct` 区分，避免误合并 |
+| 中文 / emoji | 无大小写，原样 | `🚀 节点选择` |
+| 桶 tag（`route.rule_set[].tag`） | 不动 | 对应 NAS 文件名 |
+
+- `tagCasing(type, inEndpoints)` 单点决定大小写；`normalizeOutboundTags` 对 `outbounds[]` 与 `endpoints[]` 一起处理，
+  引用同步覆盖分组成员 / `default` / 任意层级 `detour` / 规则出口 / `route.final`。
+- **互换场景修复**：分组 `proxy` 想要 `PROXY`、节点 `PROXY` 想要 `proxy` 时，原来用原始 tag 表判撞名会把两个**都**改名；
+  现在先算每个 tag 的目标名，只有「占用者改完还留在那个名字上」才算真撞 → 两者各得其所、都不改名。
+- **残留扫描误报修复**：兜底扫描跳过 `outbounds[].tag` / `endpoints[].tag` 定义点——新名可能恰好等于另一 tag 的旧名
+  （互换场景），不跳过会把正确的新 tag 误报成「旧 tag 残留」。
+- 摘要文案改为「分组 → 大写 N 个、节点/端点 → 小写 M 个 · 合并 … · 同步 K 处引用」，无改动时提示
+  「tag 大小写已符合规则（分组大写 / 节点小写）」。
+
+验收：`format-casing` 28 条（两方向、内置不变、端点、引用同步、幂等、emoji、同类型合并、互换场景各得其所且无残留误报、
+真撞名仍改名+warning、两台真机夹具零悬空）；`npm run test:ops` **179/179 PASS**；
+两台真机配置格式化后送 99 `/router/check` → **真内核 sing-box check 均 OK**（未写回路由）。
+踩坑：① 重复声明 `GROUP_TYPES`（已有导出常量）；② 重命名变量后模板字符串里残留 `exist` 引用——编译能过、运行才炸，
+单元测试是必要防线；③ 测试脚本调 `/router/check` 漏传 `host` 字段会得到 `ok:false` 且 output 为空，别误判成格式化出错。

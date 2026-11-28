@@ -715,8 +715,27 @@ export function pruneOrphanGroups(doc: ConfigDoc, only?: readonly string[]): str
 
 /* ────────────────── 格式化：出站 tag 统一大写 ────────────────── */
 
+/** 服务器节点 / 端点类型：这些 tag 用**小写**（lan-fd-sa、warp-98…） */
+const NODE_TYPES = new Set([
+  'shadowsocks', 'shadowsocksr', 'vmess', 'vless', 'trojan', 'hysteria', 'hysteria2',
+  'tuic', 'socks', 'http', 'ssh', 'wireguard', 'masque-client', 'anytls', 'tor', 'sing-mux',
+]);
+
+/**
+ * 一个出站/端点该用哪种大小写：
+ *  · endpoints 数组里的一律是端点 → 小写；
+ *  · outbounds 里 selector/urltest → 大写；
+ *  · outbounds 里服务器节点协议 → 小写；
+ *  · 其它（direct / block / dns 等内置类型）→ 大写（与历史约定一致，且避免 DIRECT↔direct 合并）。
+ */
+export function tagCasing(type: unknown, inEndpoints = false): 'upper' | 'lower' {
+  const t = String(type ?? '');
+  if (inEndpoints || NODE_TYPES.has(t)) return 'lower';
+  return 'upper';
+}
+
 export interface TagNormalizeResult {
-  /** 只是改名（大写化） */
+  /** 改名（分组/内置 → 大写；节点/端点 → 小写） */
   renamed: { from: string; to: string }[];
   /** 大写后撞名且类型相同 → 合并（删掉原条目，引用指向已存在那个） */
   merged: { from: string; to: string }[];
@@ -727,10 +746,12 @@ export interface TagNormalizeResult {
 }
 
 /**
- * 「格式化」里的 tag 规范化：把 outbounds[].tag 统一成大写，并同步所有引用。
+ * 「格式化」里的 tag 规范化：按类型统一大小写并同步所有引用。
  *
- * 口径（与用户约定）：
- *  · 只动**出站 tag**；桶 tag（route.rule_set[].tag，对应 NAS 文件名）不动；
+ * 口径（2026-11-28 与用户约定）：
+ *  · **出口分组**（selector / urltest）→ 大写；**服务器节点 / 端点** → 小写；
+ *    内置 direct / block 等保持大写（见 tagCasing）；
+ *  · 只动**出站 / 端点的 tag**；桶 tag（route.rule_set[].tag，对应 NAS 文件名）不动；
  *  · 中文 / emoji tag 没有大小写，保持原样；
  *  · 大写后与已有 tag 撞名：同类型 → 合并（`direct` 并入 `DIRECT`）；不同类型 → 改名为 `<UP>_2` 并记 warning；
  *  · 引用点：outbounds[].outbounds（成员）、outbounds[].detour、route.rules[].outbound、
@@ -739,7 +760,14 @@ export interface TagNormalizeResult {
  */
 export function normalizeOutboundTags(doc: ConfigDoc): TagNormalizeResult {
   const res: TagNormalizeResult = { renamed: [], merged: [], refs: 0, warnings: [] };
-  const list = Array.isArray(doc.root['outbounds']) ? (doc.root['outbounds'] as AnyObj[]) : [];
+  if (!Array.isArray(doc.root['outbounds'])) doc.root['outbounds'] = [];
+  const list = doc.root['outbounds'] as AnyObj[];
+  const eps = Array.isArray(doc.root['endpoints']) ? (doc.root['endpoints'] as AnyObj[]) : [];
+  // 分组 / 内置 → 大写；节点 → 小写；端点（endpoints 数组）→ 小写
+  const wantCase = (o: AnyObj, inEp: boolean): string => {
+    const t = String(o['tag'] ?? '');
+    return tagCasing(o['type'], inEp) === 'lower' ? t.toLowerCase() : t.toUpperCase();
+  };
   const byTag = new Map<string, AnyObj>();
   for (const o of list) {
     const t = o['tag'];
@@ -747,31 +775,55 @@ export function normalizeOutboundTags(doc: ConfigDoc): TagNormalizeResult {
   }
   const rename = new Map<string, string>();
   const dropped = new Set<string>();
-  for (const [tag, o] of byTag) {
-    const up = tag.toUpperCase();
-    if (up === tag) continue;
-    const exist = byTag.get(up);
-    if (!exist) {
-      rename.set(tag, up);
-      res.renamed.push({ from: tag, to: up });
-      continue;
+  // 先算出每个 tag「想要」的最终名，判撞名时要把「占用者自己也要改走」的情况排除，
+  // 否则互相挡路（分组 proxy 想要 PROXY、节点 PROXY 想要 proxy）会被双双改名。
+  const wanted = new Map<string, string>();
+  for (const o of list) wanted.set(String(o['tag'] ?? ''), wantCase(o, false));
+  for (const o of eps) wanted.set(String(o['tag'] ?? ''), wantCase(o, true));
+  /** 某个原始 tag 最终会不会还留在这个名字上（不改名 = 还占着） */
+  const stays = (t: string): boolean => {
+    const w = wanted.get(t);
+    return w === undefined || w === t;
+  };
+  const taken = new Set<string>();
+  const plan = (o: AnyObj, inEp: boolean): void => {
+    const tag = String(o['tag'] ?? '');
+    if (!tag || rename.has(tag)) return;
+    const want = wantCase(o, inEp);
+    if (want === tag) {
+      taken.add(tag);
+      return;
     }
-    if (String(exist['type']) === String(o['type'])) {
-      rename.set(tag, up);
+    // 想要的名字被谁占着？只有「对方改完还留在那个名字上」才算真撞
+    const holder = byTag.get(want);
+    const occupied = (holder !== undefined && stays(want)) || taken.has(want);
+    if (!occupied) {
+      rename.set(tag, want);
+      taken.add(want);
+      res.renamed.push({ from: tag, to: want });
+      return;
+    }
+    if (holder && String(holder['type']) === String(o['type'])) {
+      rename.set(tag, want);
       dropped.add(tag);
-      res.merged.push({ from: tag, to: up });
-      continue;
+      res.merged.push({ from: tag, to: want });
+      return;
     }
     let n = 2;
-    let cand = `${up}_${n}`;
-    while (byTag.has(cand)) {
+    let cand = `${want}_${n}`;
+    while (taken.has(cand) || (byTag.has(cand) && stays(cand))) {
       n += 1;
-      cand = `${up}_${n}`;
+      cand = `${want}_${n}`;
     }
     rename.set(tag, cand);
+    taken.add(cand);
     res.renamed.push({ from: tag, to: cand });
-    res.warnings.push(`「${tag}」大写后与「${up}」撞名但类型不同（${String(o['type'])} ≠ ${String(exist['type'])}），改名 ${cand}`);
-  }
+    res.warnings.push(
+      `「${tag}」改为目标大小写后与「${want}」撞名但类型不同（${String(o['type'])} ≠ ${String(holder?.['type'] ?? '?')}），改名 ${cand}`,
+    );
+  };
+  for (const o of list) plan(o, false);
+  for (const o of eps) plan(o, true);
   if (!rename.size) return res;
 
   const fix = (v: unknown): unknown => {
@@ -846,10 +898,27 @@ export function normalizeOutboundTags(doc: ConfigDoc): TagNormalizeResult {
   }
   list.length = 0;
   list.push(...kept);
+  const keptEp: AnyObj[] = [];
+  for (const o of eps) {
+    const t = o['tag'];
+    if (typeof t === 'string' && dropped.has(t)) continue;
+    if (typeof t === 'string' && rename.has(t)) o['tag'] = rename.get(t)!;
+    keptEp.push(o);
+  }
+  if (eps.length) {
+    eps.length = 0;
+    eps.push(...keptEp);
+  }
 
-  // 3) 兜底：扫一遍还有没有残留旧 tag（正常应为空；只记 warning 不改）
+  // 3) 兜底：扫一遍还有没有残留旧 tag（正常应为空；只记 warning 不改）。
+  // 注意跳过 outbounds[].tag / endpoints[].tag 这两个「tag 定义点」：它们刚被程序写入新名，
+  // 而新名可能恰好等于另一个 tag 的旧名（分组 proxy→PROXY、节点 PROXY→proxy 互换），
+  // 不跳过就会把正确的新 tag 误报成「残留」。
   const leftovers: string[] = [];
-  const walk = (node: unknown, path: string): void => {
+  const defPoints = new Set<AnyObj>();
+  for (const o of list) defPoints.add(o);
+  for (const o of eps) defPoints.add(o);
+  const walk = (node: unknown, path: string, key = ''): void => {
     if (typeof node === 'string') {
       if (rename.has(node)) leftovers.push(`${path} = ${node}`);
       return;
@@ -859,9 +928,11 @@ export function normalizeOutboundTags(doc: ConfigDoc): TagNormalizeResult {
       return;
     }
     if (node && typeof node === 'object') {
+      const skipTag = key === '' && defPoints.has(node as AnyObj);
       for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
         if (k === 'type') continue; // 类型名（direct/block…）不是 tag，不参与残留检查
-        walk(v, path ? `${path}.${k}` : k);
+        if (skipTag && k === 'tag') continue; // tag 定义点
+        walk(v, path ? `${path}.${k}` : k, k);
       }
     }
   };

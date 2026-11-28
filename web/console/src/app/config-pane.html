@@ -188,7 +188,7 @@
     <button
       (click)="format()"
       [disabled]="busy()"
-      title="出站 tag 统一大写 + 同步引用（分组成员/default/detour/规则出口/final）+ JSON 缩进整理；只改暂存区，不写回路由"
+      title="tag 按类型统一大小写：出口分组（selector/urltest）→ 大写，服务器节点/端点 → 小写；同步引用（分组成员/default/detour/规则出口/final）+ JSON 缩进整理；只改暂存区，不写回路由"
     >⇧ 格式化</button>
     <button (click)="check()" [disabled]="busy()">校验（sing-box check）</button>
     <button class="acc" (click)="apply()" [disabled]="busy()">应用并重启</button>
