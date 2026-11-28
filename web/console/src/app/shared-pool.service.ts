@@ -505,9 +505,18 @@ export function groupStatus(
 /** 一条规则在某台路由上的归属（启动核对用） */
 export type RouterFit = 'same' | 'drift' | 'na' | 'unknown';
 
-/** 启动核对：这条规则在哪几台「应该一致却不一致」（池里标了已应用、路由实际没跟上） */
+/**
+ * 启动核对：这条规则在哪几台「读到了配置、有同名出口、却与共享规则不一致」
+ * （池里标了已应用、路由实际没跟上）。
+ * **读不到配置的不算漂移**（那是 unknown，要单独提示「没核对到」），否则网络抖动会被误报成规则不一致。
+ */
 export function driftedRouters(status: GroupStatusPerRouter[]): GroupStatusPerRouter[] {
-  return status.filter((s) => (s.hasOutbound || s.err) && !s.same);
+  return status.filter((s) => !s.err && s.hasOutbound && !s.same);
+}
+
+/** 没核对到的路由（读配置失败）：既不能算一致，也不能算漂移 */
+export function unknownRouters(status: GroupStatusPerRouter[]): GroupStatusPerRouter[] {
+  return status.filter((s) => !!s.err);
 }
 
 /** 汇总：全部有同名出口的路由都一致 → 已应用 */

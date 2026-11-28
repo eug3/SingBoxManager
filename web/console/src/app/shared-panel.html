@@ -274,9 +274,16 @@
             规则：已应用 <b class="ok">{{ rulesStats().applied }}</b> / 未应用 <b class="warn">{{ rulesStats().pending }}</b>
             <span class="sep">·</span>
             路由器：共 <b>{{ rulesStats().routers }}</b> 台，全部一致 <b class="ok">{{ rulesStats().routersOk }}</b> 台
+            @if (rulesStats().routersUnknown) { <span class="warn">，{{ rulesStats().routersUnknown }} 台没核对到</span> }
             @if (!auditDone()) { <span class="dim">（核对中…）</span> }
           </span>
         </div>
+        @if (unknownRouters().length && auditDone()) {
+          <div class="shp-unknown dim small">
+            ⚠ 没核对到 {{ unknownRouters().length }} 台路由的配置（{{ unknownRouters().join('、') }}）：
+            这些路由不参与「已应用/漂移」判定，请检查它们是否在线、凭据是否可用，然后点「刷新」。
+          </div>
+        }
         @if (drift().length) {
           <div class="shp-drift">
             <b>⚠ 启动核对发现 {{ drift().length }} 条「已应用」的共享规则在实际路由上没跟上：</b>

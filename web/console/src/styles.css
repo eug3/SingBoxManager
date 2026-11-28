@@ -2165,3 +2165,4 @@ app-config-pane .cfggate { flex: 1 1 auto; min-height: 0; overflow: auto; }
 .pill-state.drift { color: #b42318; background: #fde8e8; border-color: #f0b4ae; }
 .shp-mini.danger { color: #b42318; border-color: #f0b4ae; }
 .shp-mini.danger:hover { background: #fdf5f4; }
+.shp-unknown { flex: 0 0 auto; margin-bottom: 6px; padding: 4px 8px; border: 1px dashed #d9e2ec; border-radius: 4px; }

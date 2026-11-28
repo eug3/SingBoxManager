@@ -1,6 +1,6 @@
 // 解除应用（detachGroupRefs）+ 启动核对漂移（driftedRouters）
 const m = await import('../../.test-build/config-ops.mjs');
-const { groupStatus, driftedRouters, isAppliedEverywhere } = await import('../../.test-build/shared-pool.mjs');
+const { groupStatus, driftedRouters, unknownRouters, isAppliedEverywhere } = await import('../../.test-build/shared-pool.mjs');
 const out = [];
 const ok = (n, c, x = '') => out.push([n, !!c, x]);
 const P = (o) => m.parseConfig(JSON.stringify(o));
@@ -51,5 +51,24 @@ const P = (o) => m.parseConfig(JSON.stringify(o));
   const a1 = P({ outbounds: [{ type: 'selector', tag: 'G', outbounds: [] }], route: { rules: [{ rule_set: 'rs-a', outbound: 'G' }] } });
   const st2 = groupStatus(['rs-a'], 'G', [{ tag: 'a', name: '甲', doc: a1 }, { tag: 'c', name: '丙', doc: c }]);
   ok('没有该组名的路由不进漂移', driftedRouters(st2).length === 0);
+}
+// 5) 读不到配置 ≠ 漂移（防误报的关键）：算 unknown，不算 drift，也不算已应用
+{
+  const a = P({ outbounds: [{ type: 'selector', tag: 'G', outbounds: [] }], route: { rules: [{ rule_set: ['rs-a'], outbound: 'G' }] } });
+  const st = groupStatus(['rs-a'], 'G', [
+    { tag: 'a', name: '甲', doc: a },
+    { tag: 'b', name: '乙', doc: null, err: '读取配置超时' },
+  ]);
+  ok('读不到的路由不算漂移', driftedRouters(st).length === 0, JSON.stringify(driftedRouters(st).map((x) => x.name)));
+  ok('读不到的路由归入 unknown', unknownRouters(st).map((x) => x.name).join() === '乙');
+  ok('读不到时仍不能算已应用（保守）', !isAppliedEverywhere(st));
+  // 真正的不一致才是漂移，且与 unknown 并存时各归各的
+  const b2 = P({ outbounds: [{ type: 'selector', tag: 'G', outbounds: [] }], route: { rules: [{ rule_set: ['rs-a', 'rs-x'], outbound: 'G' }] } });
+  const st2 = groupStatus(['rs-a'], 'G', [
+    { tag: 'a', name: '甲', doc: a },
+    { tag: 'b', name: '乙', doc: b2 },
+    { tag: 'c', name: '丙', doc: null, err: 'x' },
+  ]);
+  ok('漂移与 unknown 各归各的', driftedRouters(st2).map((x) => x.name).join() === '乙' && unknownRouters(st2).map((x) => x.name).join() === '丙');
 }
 export const results = out;

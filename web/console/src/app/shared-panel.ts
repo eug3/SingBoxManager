@@ -26,6 +26,7 @@ import {
   groupStatus,
   sameRefSet,
   driftedRouters,
+  unknownRouters,
   isAppliedEverywhere,
   nodeFingerprint,
   replaceSameNameNode,
@@ -144,34 +145,43 @@ export class SharedPanel implements OnInit {
     const backs = this.backends();
     const routers = backs.length;
     let routersOk = 0;
+    const unknown = new Set(this.unknownRouters());
     for (const b of backs) {
       const name = b.name || b.api;
+      if (unknown.has(name)) continue; // 没核对到的不算「全部一致」也不算「不一致」
       let ok = true;
       for (const r of this.pool.rules()) {
         const per = st[r.id]?.per.find((p) => p.name === name);
-        if (per && (per.hasOutbound || per.err) && !per.same) {
+        if (per && !per.err && per.hasOutbound && !per.same) {
           ok = false;
           break;
         }
       }
       if (ok) routersOk += 1;
     }
-    return { routers, routersOk };
+    return { routers, routersOk, routersUnknown: unknown.size };
   });
 
   readonly rulesStats = computed(() => {
     const st = this.ruleStatus();
     const all = this.pool.rules();
     const known = all.filter((r) => st[r.id] !== undefined);
-    if (!known.length) return { ...this.pool.rulesStats(), routers: 0, routersOk: 0 };
+    const rs = this.routerStats();
+    if (!known.length) return { ...this.pool.rulesStats(), ...rs };
     const applied = known.filter((r) => st[r.id].applied).length;
-    return { applied, pending: known.length - applied, ...this.routerStats() };
+    return { applied, pending: known.length - applied, ...rs };
   });
 
-  /** 启动核对是否已完成（所有后端都读过一遍配置） */
+  /** 启动核对是否已完成（所有后端都读过一遍配置，不论成功失败） */
   readonly auditDone = computed(() => {
     const docs = this.allDocs();
     return this.backends().every((b) => docs[b.api] !== undefined);
+  });
+
+  /** 读不到配置的路由名（这些没法核对，要单独提示，不能混进「漂移」或「一致」） */
+  readonly unknownRouters = computed(() => {
+    const docs = this.allDocs();
+    return this.backends().filter((b) => docs[b.api] === null).map((b) => b.name || b.api);
   });
 
   /**
@@ -718,9 +728,11 @@ export class SharedPanel implements OnInit {
     if (Object.keys(this.allDocs()).length === 0) return '正在核对各路由配置…';
     const used = st.per.filter((p) => p.hasOutbound || p.err);
     if (!used.length) return '未应用（没有路由有这个组名）';
-    const bad = used.filter((p) => !p.same);
+    const unknown = unknownRouters(st.per);
+    const bad = driftedRouters(st.per);
+    if (!bad.length && unknown.length) return `已应用到 ${used.length - unknown.length} 台 · ${unknown.map((p) => p.name).join('、')} 没核对到`;
     if (!bad.length) return `已应用 · ${used.length} 台路由一致`;
-    return `未应用 · ${bad.map((p) => p.name).join('、')} 未一致`;
+    return `未应用 · ${bad.map((p) => p.name).join('、')} 未一致` + (unknown.length ? `（${unknown.map((p) => p.name).join('、')} 没核对到）` : '');
   }
 
   /** 手动把状态标成已应用（自动判定不成立时，用户确认用） */
