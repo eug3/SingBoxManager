@@ -372,6 +372,41 @@ const server = createServer(async (req, res) => {
     } catch { /* 忽略坏请求体 */ }
     return json(res, { ok: true, changed: true, log: 'APPLIED' });
   }
+  // ── 版本管理（最小实现，供「版本管理」页与部署失败路径的 UI 回归）──
+  if (path === '/router/versions') {
+    return json(res, {
+      cacheDir: '/tmp/mock-singbox',
+      disk: { freeMB: 875, totalMB: 4324 },
+      local: [
+        { version: '1.15.0-alpha.15', arch: 'amd64', variant: 'musl', size: 31251303,
+          sha256: 'b'.repeat(64), at: '2026-11-28T10:34:13Z', source: 'https://gh-proxy.com/' },
+      ],
+      routers: [{ host: '127.0.0.1', name: 'mock', arch: 'amd64', libc: 'musl',
+                  version: '1.15.0-alpha.15', bin: '/opt/sing-box/sing-box', binMB: 85,
+                  freeMB: 115, backup: true, probedAt: '2026-11-28T10:34:13Z' }],
+    });
+  }
+  if (path === '/router/versions/available') {
+    return json(res, {
+      releases: [
+        { version: '1.15.0-alpha.15', note: '最新' },
+        { version: '1.15.0-alpha.14', note: '' },
+        { version: '1.15.0-alpha.9', note: '' },
+      ],
+    });
+  }
+  if (path === '/router/versions/deploy' && req.method === 'POST') {
+    await readBody(req);
+    // MOCK_DEPLOY_FAIL=1：只回 {error}（**前置校验失败**的形状，不含 uploadSecs/secs/log）。
+    // 「版本管理」页原来把这个形状强转成 DeployResp 塞进模板，模板读 uploadSecs.toFixed 直接抛
+    // TypeError 卡死 —— 这条分支就是那个回归点。
+    if (process.env.MOCK_DEPLOY_FAIL === '1') {
+      return json(res, { error: '192.168.31.32/amd64/musl 还没下载到 99，先在版本库里下载' }, 400);
+    }
+    return json(res, { ok: true, host: '127.0.0.1', version: '1.15.0-alpha.15', arch: 'amd64',
+      before: '1.15.0-alpha.15', after: '1.15.0-alpha.15', sizeMB: 85, uploadSecs: 11.8,
+      secs: 50.9, backup: true, freeMB: 115, log: 'DEPLOYED\ndowntime_s=2' });
+  }
   if (path === '/configs') return json(res, CONFIGS);
   if (path === '/connections' && req.method === 'GET') {
     step();

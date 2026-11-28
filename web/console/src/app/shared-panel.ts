@@ -94,8 +94,6 @@ export class SharedPanel implements OnInit {
   private readonly views = signal<Record<string, RouterView>>({});
   /** 树的折叠状态：展开的路由 api 集合；每台路由下「节点」「规则」两个清单也各自可折叠 */
   readonly openRouters = signal<Set<string>>(new Set());
-  readonly closedSections = signal<Set<string>>(new Set()); // key = `${api}|nodes` / `${api}|rules`
-
   private viewOf(api: string): RouterView {
     return this.views()[api] ?? { nodes: [], groups: [], loading: false, err: '' };
   }
@@ -115,19 +113,6 @@ export class SharedPanel implements OnInit {
       void this.loadRouterView(b);
     }
     this.openRouters.set(next);
-  }
-
-  /** 某台路由下的「节点 / 规则」清单折叠 */
-  toggleSection(api: string, sec: 'nodes' | 'rules'): void {
-    const key = `${api}|${sec}`;
-    const next = new Set(this.closedSections());
-    if (next.has(key)) next.delete(key);
-    else next.add(key);
-    this.closedSections.set(next);
-  }
-
-  isSectionOpen(api: string, sec: 'nodes' | 'rules'): boolean {
-    return !this.closedSections().has(`${api}|${sec}`);
   }
 
   /** 加载某台路由的节点清单与组名清单（树展开时懒加载；带缓存 + 超时） */
@@ -175,16 +160,11 @@ export class SharedPanel implements OnInit {
   /** 配置缓存：同一台路由只拉一次（两个子页共用，切页签不重复请求） */
   private readonly docs = new Map<string, ConfigDoc>();
   private readonly loads = new Map<string, Promise<ConfigDoc | null>>();
-  readonly nodeErr = signal('');
-  readonly ruleErr = signal('');
   readonly nodeLoading = signal(false);
   readonly ruleLoading = signal(false);
 
   /** 节点池：当前路由的可共享节点（树展开某台路由 = 选中它；这里从视图 Map 取） */
   readonly src = computed(() => this.viewOf(this.nodeBackend()?.api ?? '').nodes);
-  /** 规则池：当前路由里挂了规则集的组名 */
-  readonly groupRows = computed(() => this.viewOf(this.ruleBackend()?.api ?? '').groups);
-
   /** 池内指纹集合：路由上同配置的节点要打 share 标记、且不能再拖进去 */
   readonly poolKeys = computed(() => this.pool.fingerprints());
 
@@ -195,8 +175,6 @@ export class SharedPanel implements OnInit {
 
   /** 每台路由的配置（判定共享规则是否已应用到所有路由用；'' = 还没读） */
   private readonly allDocs = signal<Record<string, ConfigDoc | null>>({});
-  readonly allDocsView = this.allDocs.asReadonly();
-
   /** 规则池里每条规则在各路由上的实际状态 */
   readonly ruleStatus = computed(() => {
     const docs = this.allDocs();
@@ -501,26 +479,6 @@ export class SharedPanel implements OnInit {
       .replace(/\/$/, '');
   }
 
-  isNode(b: Backend): boolean {
-    return this.nodeBackend()?.api === b.api;
-  }
-
-  isRule(b: Backend): boolean {
-    return this.ruleBackend()?.api === b.api;
-  }
-
-  pickNodeBackend(b: Backend): void {
-    this.nodeBackend.set(b);
-    this.picked.set([]);
-    void this.loadNodes();
-  }
-
-  pickRuleBackend(b: Backend): void {
-    this.ruleBackend.set(b);
-    this.rulesNote.set('');
-    void this.loadRules();
-  }
-
   /** 切到规则子页时拉一次后端规则桶（选择器要用） */
   onSectionChange(sec: 'nodes' | 'rules'): void {
     this.section.set(sec);
@@ -528,9 +486,6 @@ export class SharedPanel implements OnInit {
   }
 
   /* ── 拉配置（带缓存 / 超时 / 防串台） ── */
-
-  private seqNode = 0;
-  private seqRule = 0;
 
   private withTimeout<T>(p: Promise<T>, ms = 12000): Promise<T> {
     return Promise.race([
@@ -565,9 +520,7 @@ export class SharedPanel implements OnInit {
     const b = this.nodeBackend();
     if (!b) return;
     this.nodeLoading.set(true);
-    this.nodeErr.set('');
     await this.loadRouterView(b);
-    this.nodeErr.set(this.viewErr(b.api));
     this.nodeLoading.set(false);
   }
 
@@ -576,9 +529,7 @@ export class SharedPanel implements OnInit {
     const b = this.ruleBackend();
     if (!b) return;
     this.ruleLoading.set(true);
-    this.ruleErr.set('');
     await this.loadRouterView(b);
-    this.ruleErr.set(this.viewErr(b.api));
     this.ruleLoading.set(false);
   }
 
@@ -905,54 +856,8 @@ export class SharedPanel implements OnInit {
     return `未应用 · ${bad.map((p) => p.name).join('、')} 未一致` + (unknown.length ? `（${unknown.map((p) => p.name).join('、')} 没核对到）` : '');
   }
 
-  /** 手动把状态标成已应用（自动判定不成立时，用户确认用） */
-  markApplied(r: PoolRules, applied: boolean): void {
-    this.pool.setRuleApplied(r.id, applied);
-    this.rulesNote.set(applied ? `已标记「${r.group}」为已应用` : `已把「${r.group}」改回未应用`);
-  }
-
   addGroupRow(b: Backend, row: { group: string; refs: string[] }): void {
     this.addGroupToPool(b, row.group, row.refs);
-  }
-
-  /** 把规则池条目套用到当前（规则子页选中的）路由 */
-  async applyRules(entry: { group: string; refs: string[] }): Promise<void> {
-    const b = this.ruleBackend();
-    if (!b) {
-      this.rulesNote.set('先选一个目标路由');
-      return;
-    }
-    if (this.draftSvc.dirty()) {
-      this.rulesNote.set('这台路由上还有未保存的草稿：先去「配置」页保存或还原，再套用共享规则池');
-      return;
-    }
-    this.rulesNote.set('套用中…');
-    try {
-      await this.draftSvc.load(b);
-      const base = this.draftSvc.baseDoc();
-      if (!base) {
-        this.rulesNote.set(this.draftSvc.error() || '目标路由配置读不出来');
-        return;
-      }
-      const doc: ConfigDoc = structuredClone(base);
-      const res = applyGroupRefs(doc, entry.group, entry.refs);
-      if (!res.ok) {
-        this.rulesNote.set(`未套用：${res.reason}`);
-        return;
-      }
-      this.draftSvc.stage(doc);
-      this.draftTarget.set(b);
-      const insertNote =
-        res.insertedAt !== undefined
-          ? `新加 1 条规则（落在 route.rules[${res.insertedAt}]，出口还是本路由自己的「${entry.group}」）`
-          : `+${res.added.length} 规则集 / −${res.removed.length}` +
-            (res.removedRules ? `，合并掉 ${res.removedRules} 条重复规则` : '');
-      this.rulesNote.set(
-        `已套用到 ${b.name || b.api} 的暂存草稿：「${entry.group}」${insertNote} → 点上面的「保存并重启」写回路由`,
-      );
-    } catch (e) {
-      this.rulesNote.set(errMsg(e));
-    }
   }
 
   async saveDraft(): Promise<void> {

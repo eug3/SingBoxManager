@@ -228,10 +228,28 @@ export class VersionPane implements OnInit {
       }
       await this.refresh();
     } catch (e) {
-      // 失败时后端也会回结构化结果（含「已回滚」），能拿到就展示
-      const body = (e as { error?: { error?: string } })?.error;
-      this.deployResult.set((body as unknown as DeployResp) ?? null);
-      this.push('bad', `部署失败：${body?.error ?? errMsg(e)}`);
+      // 两种失败形状：
+      //   · 脚本阶段失败 → 后端回完整的 DeployResp（含 before/after/log/「已回滚」等）；
+      //   · 前置校验失败（还没下载 / 架构不匹配 / 磁盘不够…）→ 只有 {error}。
+      // 原写法把后者强转成 DeployResp 直接塞给模板，模板读 uploadSecs.toFixed 就抛 TypeError 卡死页面。
+      // 这里统一补齐成一个完整对象（数值字段给 0），模板就不必处处判空。
+      const body = (e as { error?: Partial<DeployResp> & { error?: string } })?.error ?? {};
+      this.deployResult.set({
+        ok: false,
+        host: body.host ?? r.host,
+        version: body.version ?? v,
+        arch: body.arch ?? r.arch,
+        before: body.before ?? r.version,
+        after: body.after ?? '',
+        sizeMB: body.sizeMB ?? 0,
+        uploadSecs: body.uploadSecs ?? 0,
+        secs: body.secs ?? 0,
+        backup: body.backup ?? false,
+        freeMB: body.freeMB ?? 0,
+        log: body.log ?? '',
+        error: body.error ?? errMsg(e),
+      });
+      this.push('bad', `部署失败：${body.error ?? errMsg(e)}`);
       await this.refresh();
     } finally {
       this.deploying.set('');
