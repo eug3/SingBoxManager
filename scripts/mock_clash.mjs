@@ -255,6 +255,10 @@ const server = createServer(async (req, res) => {
   if (path === '/proxies') return json(res, PROXIES);
   if (path === '/rules') return json(res, ROUTES);
   // 3/4 弹窗（规则集 / 分组）需要 /router/config：给一份带多分组、多节点、多 rule_set 的假配置
+  // 测试用：MOCK_CONFIG_FAIL=1 让 /router/config 返回 SSH 失败（验证连接页/凭据逻辑）
+  if (path === '/router/config' && process.env.MOCK_CONFIG_FAIL === '1') {
+    return json(res, { ok: false, error: 'ssh: handshake failed: ssh: unable to authenticate (Permission denied)' }, 500);
+  }
   if (path === '/router/config') {
     const cfg = {
       log: { level: 'info' },

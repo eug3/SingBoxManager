@@ -2107,3 +2107,12 @@ app-config-pane .cfggate { flex: 1 1 auto; min-height: 0; overflow: auto; }
 .shp-mini.ok { color: #0f6b4f; border-color: #b9e3cd; }
 .shp-mini:hover { filter: brightness(.97); }
 .shp-rstatus { padding: 0 4px 6px 4px; border-bottom: 1px dashed #eef2f8; }
+
+/* 连接页：已保存 SSH 凭据时的提示（不用再填口令） */
+.cfgcredok {
+  grid-column: 1 / -1;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 6px 10px; border: 1px solid #b9e3cd; background: #f1fbf5; color: #0f6b4f;
+  border-radius: 4px; font-size: 12px;
+}
+.cfgcredok .mini { margin-left: auto; }

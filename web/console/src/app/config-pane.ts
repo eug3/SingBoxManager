@@ -98,6 +98,16 @@ export class ConfigPane {
   readonly gateKey = signal('');      // 待提交的 clash 密钥（留空=沿用全局已填的）
   readonly gateUser = signal('root'); // 待提交的 SSH 用户名
   readonly gatePass = signal('');     // 待提交的 SSH 口令（提交后立即清空）
+  /** 99 上是否已经存了这台路由的 SSH 凭据（存了就不用每次重填口令） */
+  readonly gateCredsSaved = signal(false);
+  /** 已存凭据的用户名（页面上回显 root 之类） */
+  readonly gateCredsUser = signal('root');
+  /** 展开「要改口令」时才显示 SSH 输入框 */
+  readonly gateShowPass = signal(false);
+  /** 连接页自动重试用过没有（避免死循环） */
+  private gateAutoTried = false;
+  /** 临时性失败（超时/抖动）的静默重试次数 */
+  private transientTries = 0;
 
   // —— 路由 SSH 凭据面板（只提交给 99 落盘，不存浏览器）——
   readonly credsOpen = signal(false);  // 凭据面板开关
@@ -113,7 +123,9 @@ export class ConfigPane {
       const vaultKey = this.bsvc.globalKey();
       if (!b.api) return;
       if (!vaultKey) {
-        this.gateError.set('请先填写 clash 密钥（路由管理密钥）与路由 SSH 账号');
+        // 没密钥时也要问一下 99 有没有存过 SSH 凭据：存过就只差密钥，别再让用户填口令
+        void this.refreshGateCreds();
+        this.gateError.set('');
         this.gate.set(true);
         return;
       }
@@ -222,20 +234,59 @@ export class ConfigPane {
       this.sha.set(res.sha256);
       this.size.set(res.size);
       this.loaded.set(true);
+      this.transientTries = 0;
       this.log.set(`已读取 ${res.host} · ${res.size}B · sha ${res.sha256.slice(0, 12)} · ${res.ms}ms`);
     } catch (e) {
       const m = errMsg(e);
       this.err.set(m);
+      // 超时/抖动这类临时失败：先静默重试两次再弹页，别让用户白填一遍
+      if (/超时|timeout|i\/o timeout|temporary|连接中断/i.test(m) && this.transientTries < 2) {
+        this.transientTries += 1;
+        this.busy.set(false);
+        setTimeout(() => void this.reload(), 700 * this.transientTries);
+        return;
+      }
       // 没凭据 / 密钥错 / SSH 失败 / 超时 → 弹连接页（像登录）
       if (/未配置路由凭据|bad key|401|ssh|Permission denied|超时|失败/i.test(m)) {
         this.gateError.set(m);
         this.gate.set(true);
         this.gateKey.set(this.bsvc.globalKey());
-        void this.loadCreds();
+        await this.refreshGateCreds();
+        // 99 已经存了这台路由的 SSH 凭据、本地也有密钥 → 先自动重试一次，别让用户白填一遍口令
+        const keyReady = !!this.gateKey().trim();
+        if (this.gateCredsSaved() && keyReady && !this.gateAutoTried) {
+          this.gateAutoTried = true;
+          await this.reload();
+          if (this.loaded()) {
+            this.gate.set(false);
+            this.gateError.set('');
+          }
+        }
       }
     } finally {
       this.busy.set(false);
     }
+  }
+
+  /** 连接页打开时问 99：这台路由的 SSH 凭据存过没有（存过就不再要求填口令） */
+  private async refreshGateCreds(): Promise<void> {
+    try {
+      const res = await this.router.credentials(this.backend());
+      const me = (res.hosts ?? []).find((h) => h.host === this.host());
+      this.gateCredsSaved.set(!!me?.configured);
+      if (me?.user) {
+        this.gateCredsUser.set(me.user);
+        this.gateUser.set(me.user);
+      }
+      this.credsHosts.set(res.hosts ?? []);
+      this.credsAllow.set(res.allow ?? []);
+    } catch {
+      // 凭据接口本身失败（如还没填密钥 → 401）→ 状态未知：口令框仍折叠，用户可点「要改口令？」展开
+      this.gateCredsSaved.set(false);
+      return;
+    }
+    // 只有明确知道「99 上没存过」才默认展开口令框
+    if (!this.gateCredsSaved()) this.gateShowPass.set(true);
   }
 
   /** 连接页提交：先存 clash 密钥（如有），再存 SSH 凭据（如有），然后重读配置 */
@@ -249,10 +300,13 @@ export class ConfigPane {
         this.bsvc.setGlobalKey(key);
         this.bsvc.updateKey(this.backend(), key);
       }
-      const user = this.gateUser().trim();
+      // 只在真的填了口令时才更新 99 上的凭据；99 已存过就直接重读
+      const user = this.gateUser().trim() || 'root';
       const pass = this.gatePass();
-      if (user && pass) {
+      if (pass) {
         await this.router.setCredentials(this.backend(), this.host(), user, pass, this.backend().name);
+        this.gateCredsSaved.set(true);
+        this.gateShowPass.set(false);
         this.gatePass.set(''); // 口令只经过一次，立即从页面内存清掉
       }
       await this.reload();
@@ -262,8 +316,11 @@ export class ConfigPane {
         this.log.set(`已连接 ${this.host()}，配置可编辑`);
       }
     } catch (e) {
+      const m = errMsg(e);
       this.gate.set(true);
-      this.gateError.set(errMsg(e));
+      this.gateError.set(m);
+      // 明确是「没凭据」才展开口令框，其它错误（网络/密钥）不用重填口令
+      if (/未配置路由凭据|Permission denied|SSH 认证失败/i.test(m)) this.gateShowPass.set(true);
     } finally {
       this.busy.set(false);
     }

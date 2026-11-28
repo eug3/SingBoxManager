@@ -144,7 +144,8 @@ sing-box 没有 reload/写配置 API，所以「改节点配置 → 生效」由
 ```
 浏览器（管理台「配置」tab，X-Vault-Key）
    → 管理机 vault-edit  /router/{config,check,apply,restart,credentials}
-   → SSH（凭据只存管理机的 /etc/vault-edit/routers.json，0600 root，host 白名单）
+   → SSH（凭据只存管理机的 SQLite `/etc/vault-edit/sbm.db`（routers 表，0600 root，host 白名单；
+     旧的 routers.json 只在首次启动时一次性迁移））
    → 路由上执行内联脚本（sh -s）+ 上传候选配置到 /tmp：
        ├ config    cat /etc/sing-box/config.json
        ├ check     上传 /tmp/vault-check-*.json → /opt/sing-box/sing-box check → 清理
@@ -161,6 +162,18 @@ sing-box 没有 reload/写配置 API，所以「改节点配置 → 生效」由
 - **并发保护**：apply 带 `expectSha`，配置被别人改过返回 **409 STALE**；内容没变返回 `NO_CHANGE`（不重启）。
 - **实测**：apply 约 1.3s、restart 约 1.1–2.4s，`downtime_s=1~2`。
 - **凭据接口**：`GET/POST/DELETE /router/credentials`；host 必须在 `ROUTER_HOSTS` 白名单（默认各路由）。
+
+### 4.6.1 SSH 口令不用每次填（2026-11-28）
+
+口令本来就存在管理机（SQLite `routers` 表），前端「配置」tab 的连接页现在会先问
+`GET /router/credentials`：
+
+- **99 上已存过这台路由的凭据** → 连接页只留「clash 密钥」一个输入框，SSH 口令折叠在
+  「要改口令？」后面（点了才展开）；按钮文案变「重试连接」；
+- **明确知道没存过**（`configured:false`）或连接报 `未配置路由凭据 / Permission denied` → 才展开口令框；
+- 打开连接页时会**自动重试一次**（凭据已存 + 密钥已在浏览器里时多数情况下直接进去，页面一闪而过）；
+- 超时 / 链路抖动这类临时失败先**静默重试 2 次**（间隔 0.7s / 1.4s），不会立刻弹页要人填；
+- 想改口令：连接页「要改口令？」或「配置 → 更多 → 路由凭据」；口令只提交给 99，页面不保存、不回显。
 
 ## 5. 坑（都是踩过的）
 

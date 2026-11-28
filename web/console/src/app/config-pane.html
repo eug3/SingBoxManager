@@ -1,16 +1,24 @@
 @if (gate()) {
   <div class="cfggate">
     <div class="cfggatehd">连接 {{ host() }}</div>
-    <div class="cfggatesub">
-      需要两样东西：这台路由的 <b>clash 密钥</b>（就是能访问 clash_api 的那个 secret，99 也用它做接口鉴权）与路由的 <b>SSH 账号</b>。
-      填完点「连接」，成功后会直接进入配置编辑。
-    </div>
+    @if (gateCredsSaved()) {
+      <div class="cfggatesub">
+        <b>99 已保存这台路由的 SSH 凭据</b>（{{ gateCredsUser() }}@{{ host() }}），口令<b>不必重填</b>；
+        只需填一次这台路由的 <b>clash 密钥</b>（就是能访问 clash_api 的 secret，99 也用它做接口鉴权），
+        密钥会存在本浏览器里。
+      </div>
+    } @else {
+      <div class="cfggatesub">
+        需要两样东西：这台路由的 <b>clash 密钥</b>（能访问 clash_api 的 secret，99 也用它做接口鉴权）与路由的 <b>SSH 账号</b>。
+        口令会保存到 99（下次自动使用，不用再填）。
+      </div>
+    }
     @if (gateError()) {
       <div class="cfggateerr">✗ {{ gateError() }}</div>
     }
     <div class="cfgform cfgformgate">
       <label class="wide">
-        <span>clash 密钥（路由 secret，留空=沿用顶部已填的）</span>
+        <span>clash 密钥（路由 secret{{ gateKey() ? '，已填，可留空沿用' : '' }}）</span>
         <input
           type="password"
           [value]="gateKey()"
@@ -19,25 +27,45 @@
           autocomplete="off"
         />
       </label>
-      <label>
-        <span>路由 SSH 用户名</span>
-        <input [value]="gateUser()" (input)="gateUser.set($any($event.target).value)" placeholder="root" />
-      </label>
-      <label>
-        <span>路由 SSH 口令</span>
-        <input
-          type="password"
-          [value]="gatePass()"
-          (input)="gatePass.set($any($event.target).value)"
-          placeholder="路由 root 口令"
-          autocomplete="off"
-        />
-      </label>
+      @if (!gateShowPass()) {
+        <div class="cfgcredok">
+          @if (gateCredsSaved()) {
+            ✓ 99 已保存 SSH 凭据 <b>{{ gateCredsUser() }}@{{ host() }}</b> —— 口令不用再输入
+          } @else {
+            ✓ SSH 口令由 99 保管（存过的会直接用）—— 通常不用再填
+          }
+          <button class="mini" (click)="gateShowPass.set(true)">要改口令？</button>
+        </div>
+      } @else {
+        <label>
+          <span>路由 SSH 用户名</span>
+          <input [value]="gateUser()" (input)="gateUser.set($any($event.target).value)" placeholder="root" />
+        </label>
+        <label>
+          <span>路由 SSH 口令（保存到 99，下次自动使用）</span>
+          <input
+            type="password"
+            [value]="gatePass()"
+            (input)="gatePass.set($any($event.target).value)"
+            placeholder="路由 root 口令"
+            autocomplete="new-password"
+          />
+        </label>
+        @if (gateCredsSaved()) {
+          <div class="dim small" style="grid-column: 1 / -1">
+            口令留空保存 = 继续用 99 上已存的那份。
+          </div>
+        }
+      }
     </div>
     <div class="cfgactions">
-      <button class="acc" (click)="connect()" [disabled]="busy()">{{ busy() ? '连接中…' : '连接' }}</button>
+      <button class="acc" (click)="connect()" [disabled]="busy()">
+        {{ busy() ? (gateCredsSaved() ? '重试中…' : '连接中…') : gateCredsSaved() ? '重试连接' : '连接' }}
+      </button>
       <button (click)="closeGate()" [disabled]="busy()">取消</button>
-      <span class="dim small">口令只提交给 99 落盘（0600），页面不保存、不回显</span>
+      <span class="dim small">
+        {{ gateCredsSaved() ? 'SSH 口令存在 99（0600），页面上不是必填' : '口令保存到 99（0600），页面不保存、不回显' }}
+      </span>
     </div>
   </div>
 } @else {
