@@ -57,21 +57,67 @@ sudo systemctl enable --now vault-edit
 sudo ss -ltnp | grep 9099
 ```
 
-服务端可配置的环境变量（`Environment=`/`EnvironmentFile=`）：
+服务端可配置的环境变量（`Environment=`/`EnvironmentFile=`）。下表与源码逐一核对过（默认值取自 `service/config.go`、`router_ssh.go`、`version.go`、`sharecfg.go`、`login.go`）：
+
+**必填**
+
+| 变量 | 默认 | 说明 |
+|---|---|---|
+| `VAULT_KEY` | **必填** | `X-Vault-Key` 校验；缺失服务拒绝启动 |
+
+**监听与页面**
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
 | `LISTEN` | `:9099` | 管理台监听地址（只在内网暴露，别改成 `0.0.0.0` 供公网） |
-| `SHARE_MODE` | `smb` | 存储模式：`smb`（默认，纯 Go SMB2 直连 NAS）/ `sftp` / `local`（本地目录或挂载点） |
-| `SMB_ADDR` / `SMB_SHARE` / `SMB_PATH` | 见 §6.6 | smb 模式参数（NAS 地址:445 / 共享名 / 共享内子目录） |
-| `SHARE_DIR` | `/mnt/hdd/WebEdit/rule-set` | **仅 local 模式**：rule-set 桶目录（本地路径或挂载点） |
 | `FILES_LISTEN` | `:9098` | 只读文件端口（仅 `/rule-set/*` 与 `/health`；对外反代这个，别暴露 9099） |
-| `DB_FILE` | `/etc/vault-edit/sbm.db` | SQLite 状态库（存储配置、路由凭据、发布记录） |
-| `PUBLIC_BASE` | — | 公网规则 URL 前缀，`/share/health` 体检用 |
 | `PAGE_DIR` | `/usr/local/share/vault-edit/edit` | Angular 前端产物目录 |
 | `STATIC_DIR` | `/usr/local/share/vault-edit/static` | Monaco 等静态资源 |
+
+**登录门**（见 runbook §4.7）
+
+| 变量 | 默认 | 说明 |
+|---|---|---|
+| `LOGIN_FILE` | `/etc/vault-edit/login.json` | 单口令登录配置；文件不存在时服务首次启动自动按默认口令创建（0600） |
+
+**状态存储**
+
+| 变量 | 默认 | 说明 |
+|---|---|---|
+| `DB_FILE` | `/etc/vault-edit/sbm.db` | SQLite 状态库（存储配置、路由凭据、发布记录） |
+| `ROUTERS_FILE` | `/etc/vault-edit/routers.json` | 路由凭据的**首次迁移源**；之后凭据都在 SQLite，此文件只读一次 |
+| `ROUTER_HOSTS` | `192.168.31.32,172.16.8.1` | 允许管理的路由白名单（逗号分隔） |
+| `SHARE_CONFIG` | `/etc/vault-edit/share.json` | 旧版存储配置文件；同上，仅作首次迁移的导入源 |
+
+**规则桶存储**（模式与参数详见 §6.6；也可启动后在管理台「⚙ 存储配置」里热改）
+
+| 变量 | 默认 | 说明 |
+|---|---|---|
+| `SHARE_MODE` | `smb` | `smb`（默认，纯 Go SMB2 直连 NAS）/ `sftp` / `local`（本地目录或挂载点） |
+| `SMB_ADDR` / `SMB_SHARE` / `SMB_PATH` | `192.168.31.8:445` / `HddShare` / `WebEdit/rule-set` | smb 模式参数（NAS 地址:445 / 共享名 / 共享内子路径）；`SMB_USER` / `SMB_PASS` / `SMB_DOMAIN` 无默认 |
+| `SFTP_ADDR` / `SFTP_PATH` | （空）/ `/volume1/WebEdit/rule-set` | sftp 模式参数；`SFTP_USER` / `SFTP_PASS` / `SFTP_KEY` 无默认 |
+| `SHARE_DIR` | `/mnt/hdd/WebEdit/rule-set` | **仅 local 模式**：rule-set 桶目录（本地路径或挂载点） |
+| `SHARE_LOCAL_DIR` | `/usr/local/share/vault-edit/rule-set` | local 模式的默认目录（存储配置未指明目录时用它） |
+| `PUBLIC_BASE` | `https://router.guaishoudejia.com/rule-set/` | 公网规则 URL 前缀，`/share/health` 体检用 |
+| `HEALTH_SAMPLE` | `rs-tg.srs` | `/share/health` 体检时抽样的桶文件名 |
+
+**路由侧路径与端口**（用于 SSH 编排；路由都是 OpenWrt / GL.iNet 的官方 sing-box 布局，一般不用改）
+
+| 变量 | 默认 | 说明 |
+|---|---|---|
+| `ROUTER_CONFIG` | `/etc/sing-box/config.json` | 路由上的配置文件 |
+| `ROUTER_SINGBOX` | `/opt/sing-box/sing-box` | 路由上的 sing-box 二进制 |
+| `ROUTER_INIT` | `/etc/init.d/sing-box` | 路由上的 init 脚本（重启用） |
+| `ROUTER_CLASH_PORT` | `9090` | 路由 clash_api 端口（校验密钥、取运行态） |
+
+**99 本机工具**
+
+| 变量 | 默认 | 说明 |
+|---|---|---|
 | `SINGBOX` | `/usr/local/bin/sing-box` | 编译 `.srs` 用 |
-| `VAULT_KEY` | **必填** | `X-Vault-Key` 校验；缺失服务拒绝启动 |
+| `SINGBOX_CACHE` | `/var/lib/vault-edit/singbox` | 「版本管理」的版本包缓存目录（按 `<版本>/<上游文件名>` 存，0700） |
+| `SINGBOX_MIRRORS` | `https://gh-proxy.com/,https://ghfast.top/,` | 下载 sing-box 的镜像前缀，逗号分隔、依次尝试；**末尾空项 = 直连兜底**（99 直连 github.com 超时，别删镜像） |
+| `SINGBOX_GH_TOKEN` | （空） | 可选。GitHub API token，只用于抬高「拉版本列表」的限额 |
 
 ## 3. 发布后端（Go 服务）
 
@@ -306,6 +352,28 @@ VAULT_KEY='<clash_api secret>' scripts/check.sh
 7. **`sshpass` 连续握手被掐**：脚本统一「一次 scp 上传全部 + 单次 ssh 安装」，sudo 口令走 `0600` 临时文件喂 `sudo -S`，不要放 argv。
 
 更多细节（桶清单、出站映射、路由版本、回滚表）见 [runbook.md](runbook.md)。
+
+## 11. 容器部署（与 §3 + §4 的裸机部署二选一）
+
+同一份镜像把 Angular 管理台、Monaco 静态资源、Go 服务、sing-box 编译器打在一起，适合不方便装 systemd 的机器。**99 号机现网用的是裸机部署（§3/§4），容器方式未在生产验证过**，先用 `.env` 里的参数在测试机跑通再切。
+
+```bash
+cp .env.example .env          # 至少填 VAULT_KEY；存储按需选 local / smb / sftp
+docker compose up -d --build  # 构建上下文必须是仓库根目录
+docker compose logs -f vault-edit
+```
+
+- 构建参数（在 `docker-compose.yml` 的 `build.args` 里覆盖）：
+  - `SINGBOX_VERSION`（默认 `1.14.4`）——**务必 ≤ 路由侧版本**。`.srs` 二进制格式随版本演进，编译器过新路由可能加载失败；路由跑 1.15 alpha 时用 1.14 稳定版产物即可。要精确对齐就填完整 tag，如 `1.15.0-alpha.13`。
+  - `GH_PROXY`（默认空）——国内网络拉 sing-box 时填镜像前缀，如 `https://gh-proxy.com/`。
+  - `MONACO_VERSION`（默认 `0.57.0`）、`NODE_IMAGE`、`GO_IMAGE`。
+- 镜像运行时是 **Alpine（musl）**，所以 Dockerfile 拉的是 `-musl` 静态版 sing-box；官方默认包是 glibc 动态链接，在 Alpine 上会 `no such file or directory`（与「版本管理」给 OpenWrt/GL.iNet 必须选 musl 包是同一个坑，见 runbook §4.8）。
+- 端口：`9099` 管理台（只应对内网暴露）、`9098` 只读规则源（可对外反代）。
+- 卷：`vault-data`（SQLite、`routers.json`、`share.json`、登录配置都在 `/var/lib/vault-edit`）、`./data/rule-set`（local 模式的桶目录；改用 smb/sftp 可删掉这行）。
+- 容器以非 root 用户 `vault` 运行，没有 systemd。登录配置 `LOGIN_FILE` 默认在 `/etc/vault-edit/` 下，**容器里该目录不可写**：服务不会崩，但 `loadLogin()` 会退回「内存默认口令 + 随机会话密钥」——表现为**每次容器重启后所有已登录浏览器全部掉线、口令恒为默认值**（日志里有「登录配置不存在且写入失败」警告）。所以容器部署时在 `.env` 里把 `LOGIN_FILE`、`DB_FILE`、`ROUTERS_FILE` 都指到 `/var/lib/vault-edit/` 下（那是挂载卷）。
+- 环境变量全集与默认值见 §2 的表格；`.env.example` 只列了常用项，其余沿用镜像默认值。
+- 健康检查：`HEALTHCHECK` 每 30s 请求 `/health`（该路径免登录）。
+- 版本管理（下载/部署 sing-box）在容器里同样可用：缓存落在卷内的 `SINGBOX_CACHE`，部署走 SSH 到各路由，不依赖宿主机。
 
 ## 构建预算
 

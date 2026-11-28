@@ -57,9 +57,9 @@ func loadLogin() {
 	if err != nil {
 		c := loginCfg{Password: loginDefaultPW, SessionSecret: randomToken(32), SessionDays: loginDefaultDay}
 		if werr := writeLoginFile(path, c); werr != nil {
-			log.Printf("警告：登录配置不存在且写入失败（%s）：%v；本次使用内存默认口令", path, werr)
+			log.Printf("警告：登录配置不存在且写入失败（%s）：%v；本次使用内存默认口令与随机会话密钥（重启后已登录会话会全部失效）", path, werr)
 		} else {
-			log.Printf("登录配置已创建：%s（默认口令 %s%s，请在文件里改）", path, loginDefaultPW, strings.Repeat("*", 0))
+			log.Printf("登录配置已创建：%s（默认口令 %s，请在文件里改）", path, loginDefaultPW)
 		}
 		currentLogin = c
 		return
