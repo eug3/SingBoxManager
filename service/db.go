@@ -41,9 +41,22 @@ func dbFile() string { return env("DB_FILE", "/etc/vault-edit/sbm.db") }
 func db() (*sql.DB, error) {
 	dbOnce.Do(func() {
 		path := dbFile()
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		// 目录 0700：库里是路由 SSH 口令与存储口令的明文，且 SQLite 的 -wal / -shm 边车文件
+		// 建出来时复制的是「当时」的权限（原写法目录 0755 + 只 chmod 主库 → 实测线上
+		// sbm.db-wal 是 0644，任何本机用户都能读到最后写入的口令）。
+		dir := filepath.Dir(path)
+		if err := os.MkdirAll(dir, 0o700); err != nil {
 			dbErr = err
 			return
+		}
+		_ = os.Chmod(dir, 0o700) // 已存在的目录也收紧
+		if _, err := os.Stat(path); err == nil {
+			_ = os.Chmod(path, 0o600)
+		} else {
+			// 主库还不存在：先以 0600 建空文件，SQLite 打开后沿用它，边车也随之 0600
+			if f, cerr := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600); cerr == nil {
+				_ = f.Close()
+			}
 		}
 		conn, err := sql.Open("sqlite", path+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)")
 		if err != nil {
@@ -56,7 +69,10 @@ func db() (*sql.DB, error) {
 			_ = conn.Close()
 			return
 		}
-		_ = os.Chmod(path, 0o600)
+		// 三个文件一并收紧（边车此时可能已被建出来）
+		for _, p := range []string{path, path + "-wal", path + "-shm"} {
+			_ = os.Chmod(p, 0o600)
+		}
 		dbConn = conn
 		if err := migrateFromFiles(conn); err != nil {
 			log.Printf("旧文件迁移失败（忽略，继续用库）：%v", err)

@@ -12,6 +12,10 @@ package main
 // 会话：Cookie sbm_session = v1.<过期Unix>.<HMAC-SHA256(exp|<口令哈希>)>，HttpOnly、SameSite=Lax、
 // 默认 7 天；改口令会让所有旧 Cookie 立即失效（HMAC 里含口令哈希）。
 //
+// 安全口径：口令**从不写进日志**；配置文件存在但坏了（解析失败 / 口令为空 / 读不出）时
+// **fail-closed** —— 用一个随机且不落盘的口令，页面登录必然失败，但服务不退出，
+// /health 与带 X-Vault-Key 的脚本 / 发布链照常可用（详见 loadLogin）。
+//
 // 放行：/login、/health、/favicon.ico；带正确 X-Vault-Key 的请求照旧放行（脚本 / 发布链不受影响）。
 
 import (
@@ -50,28 +54,47 @@ func loginFile() string { return env("LOGIN_FILE", "/etc/vault-edit/login.json")
 
 var currentLogin loginCfg
 
-// loadLogin 启动时读配置；不存在则按默认口令创建。失败只告警（服务仍可用，见 loginDisabled）。
+// loadLogin 启动时读配置。
+//
+// 口径（与需求一致，但不再把口令写进日志、配置坏了不再静默回落默认值）：
+//
+//	· 文件不存在（首次启动）→ 按默认口令创建，日志只说「用的是默认口令」，不打印口令本身；
+//	· 文件存在但解析失败 / password 为空 → **fail-closed**：用一个随机且不落盘、不打印的口令，
+//	  页面登录必然失败（操作员能立刻从日志看出并去修文件），但服务不退出——
+//	  /health 与带 X-Vault-Key 的脚本 / 发布链不受影响，仍可正常工作；
+//	  （原来的做法是悄悄回落到默认口令，等于登录门的强度就是一个公开值）
+//	· 其它字段缺失（sessionSecret / sessionDays）→ 补默认值，这些不影响安全性。
+//
+// 任何路径都**不把口令写进日志**：原写法每次启动都打印 loginDefaultPW，
+// 即使配置里早已改成别的口令（既泄密又误导）。
 func loadLogin() {
 	path := loginFile()
 	b, err := os.ReadFile(path)
 	if err != nil {
+		if !os.IsNotExist(err) {
+			log.Printf("警告：登录配置读不出（%s）：%v；已 fail-closed（页面登录将被拒绝，脚本通道不受影响），请检查文件权限", path, err)
+			currentLogin = loginCfg{Password: randomToken(32), SessionSecret: randomToken(32), SessionDays: loginDefaultDay}
+			return
+		}
 		c := loginCfg{Password: loginDefaultPW, SessionSecret: randomToken(32), SessionDays: loginDefaultDay}
 		if werr := writeLoginFile(path, c); werr != nil {
 			log.Printf("警告：登录配置不存在且写入失败（%s）：%v；本次使用内存默认口令与随机会话密钥（重启后已登录会话会全部失效）", path, werr)
 		} else {
-			log.Printf("登录配置已创建：%s（默认口令 %s，请在文件里改）", path, loginDefaultPW)
+			log.Printf("登录配置已创建：%s（当前为默认口令，建议改掉后重启服务）", path)
 		}
 		currentLogin = c
 		return
 	}
 	var c loginCfg
 	if jerr := json.Unmarshal(b, &c); jerr != nil {
-		log.Printf("警告：登录配置解析失败（%s）：%v；使用默认口令", path, jerr)
-		c = loginCfg{Password: loginDefaultPW, SessionSecret: randomToken(32), SessionDays: loginDefaultDay}
+		log.Printf("警告：登录配置解析失败（%s）：%v；已 fail-closed（页面登录将被拒绝，脚本通道不受影响），请修正该文件后重启", path, jerr)
+		currentLogin = loginCfg{Password: randomToken(32), SessionSecret: randomToken(32), SessionDays: loginDefaultDay}
+		return
 	}
 	if strings.TrimSpace(c.Password) == "" {
-		log.Printf("警告：登录配置里 password 为空，回落到默认口令")
-		c.Password = loginDefaultPW
+		log.Printf("警告：登录配置里 password 为空（%s）；已 fail-closed（页面登录将被拒绝，脚本通道不受影响），请填入口令后重启", path)
+		currentLogin = loginCfg{Password: randomToken(32), SessionSecret: randomToken(32), SessionDays: loginDefaultDay}
+		return
 	}
 	if c.SessionSecret == "" {
 		c.SessionSecret = randomToken(32)
@@ -83,7 +106,12 @@ func loadLogin() {
 		c.SessionDays = loginDefaultDay
 	}
 	currentLogin = c
-	log.Printf("登录已启用：配置 %s · 会话 %d 天（默认口令 %s）", path, c.SessionDays, loginDefaultPW)
+	// 只报「是不是默认口令」，绝不打印口令本身
+	source := "自定义口令"
+	if c.Password == loginDefaultPW {
+		source = "默认口令（建议改掉后重启服务）"
+	}
+	log.Printf("登录已启用：配置 %s · 会话 %d 天 · %s", path, c.SessionDays, source)
 }
 
 // writeLoginFile 写配置文件（0600，目录 0700）
