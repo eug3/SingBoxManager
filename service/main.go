@@ -32,6 +32,9 @@ package main
 //   POST /router/apply               备份→替换→重启→健康→回滚  router_http.go
 //   POST /router/restart             仅重启 sing-box           router_http.go
 //   GET|POST|DELETE /router/credentials  路由 SSH 凭据管理     router_store.go
+//   GET  /vps/list                   远程 VPS 台账 + 99 可用包   vps_http.go
+//   POST /vps/save|preview|probe|deploy  VPS 台账 / dry-run / 探测 / 部署 masque  vps_http.go
+//   DELETE /vps?host=                删台账（不卸载远端）        vps_http.go
 //
 // 另有独立只读文件端口（默认 :9098，见 files_server.go）：只挂 /rule-set/ 与 /health。
 //
@@ -163,6 +166,14 @@ func main() {
 	mux.HandleFunc("GET /router/credentials", handleRouterCredentialsList)
 	mux.HandleFunc("POST /router/credentials", handleRouterCredentialsSet)
 	mux.HandleFunc("DELETE /router/credentials", handleRouterCredentialsDelete)
+
+	// 远程 VPS：台账 + masque server 一键部署（见 vps.go / vps_http.go）
+	mux.HandleFunc("GET /vps/list", handleVpsList)
+	mux.HandleFunc("POST /vps/save", handleVpsSave)
+	mux.HandleFunc("DELETE /vps", handleVpsDelete)
+	mux.HandleFunc("POST /vps/preview", handleVpsPreview)
+	mux.HandleFunc("POST /vps/probe", handleVpsProbe)
+	mux.HandleFunc("POST /vps/deploy", handleVpsDeploy)
 
 	// 兜底 404（也处理跨域预检）
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {

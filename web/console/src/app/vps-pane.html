@@ -1,0 +1,163 @@
+<div class="vp">
+  <div class="vp-hd">
+    <b>🛰 远程 VPS</b>
+    <span class="dim small">
+      SSH 到 VPS 自动部署 sing-box <strong>masque server</strong>；成功后把对应的
+      <strong>masque-client</strong> 节点自动加入共享节点池
+    </span>
+    <span class="vp-grow"></span>
+    <button type="button" (click)="load()" [disabled]="loading() || busy()">刷新</button>
+    <button type="button" (click)="newVps()" [disabled]="busy()">＋ 新增 VPS</button>
+  </div>
+
+  @if (err()) { <div class="vp-msg bad">{{ err() }}</div> }
+  @if (note()) { <div class="vp-msg ok">{{ note() }}</div> }
+
+  <div class="vp-cols">
+    <!-- 左：台账 -->
+    <div class="vp-list">
+      <div class="vp-listhd">
+        台账 {{ items().length }} 台 · 已部署 {{ deployedCount() }}
+        <span class="dim small">（密码只写不读）</span>
+      </div>
+      @if (!items().length) {
+        <div class="vp-empty">还没有记录。右边填主机与凭据 → 保存台账 → 探测 → 预览 → 部署。</div>
+      }
+      @for (v of items(); track v.host) {
+        <div class="vp-row" [class.on]="selectedHost() === v.host" (click)="pick(v)">
+          <div class="vp-rowhd">
+            <b>{{ v.name || v.host }}</b>
+            <span class="vp-state" [class.ok]="v.state === 'deployed'" [class.bad]="v.state === 'failed'">
+              {{ stateLabel(v.state) }}
+            </span>
+            <button class="vp-del" type="button" (click)="remove(v); $event.stopPropagation()" [disabled]="busy()"
+                    title="只删台账记录，不卸载远端服务">删除</button>
+          </div>
+          <div class="dim small">{{ v.host }}:{{ v.port }} · UDP {{ v.listenPort }} · {{ v.addrPool }}</div>
+          @if (v.version) { <div class="dim small">sing-box {{ v.version }}</div> }
+          @if (v.lastDeployAt) { <div class="dim small">上次部署 {{ v.lastDeployAt }}</div> }
+          @if (v.lastError) { <div class="vp-rowerr">{{ v.lastError }}</div> }
+        </div>
+      }
+    </div>
+
+    <!-- 右：表单与操作 -->
+    <div class="vp-form">
+      <div class="vp-fieldset">
+        <div class="vp-t">连接</div>
+        <div class="vp-grid">
+          <label>主机 <input type="text" [value]="form().host" (input)="patch({ host: $any($event.target).value })"
+                    placeholder="1.2.3.4 或 vps.example.com" /></label>
+          <label>SSH 端口 <input type="number" [value]="form().port" (input)="patch({ port: num($any($event.target).value, 22) })" /></label>
+          <label>用户 <input type="text" [value]="form().user" (input)="patch({ user: $any($event.target).value })" placeholder="root" /></label>
+          <label>密码
+            <input type="password" [value]="form().password" (input)="patch({ password: $any($event.target).value })"
+                   [placeholder]="selectedHost() ? '留空 = 沿用已保存的' : '首次添加必填'" />
+          </label>
+          <label>显示名 <input type="text" [value]="form().name" (input)="patch({ name: $any($event.target).value })"
+                    placeholder="不填则用主机名；也是节点 tag 的来源" /></label>
+          <label>证书 SNI <input type="text" [value]="form().sni" (input)="patch({ sni: $any($event.target).value })"
+                    placeholder="不填则用主机名" /></label>
+        </div>
+      </div>
+
+      <div class="vp-fieldset">
+        <div class="vp-t">masque 服务</div>
+        <div class="vp-grid">
+          <label>UDP 端口 <input type="number" [value]="form().listenPort"
+                    (input)="patch({ listenPort: num($any($event.target).value, 443) })" /></label>
+          <label>地址池 <input type="text" [value]="form().addrPool"
+                    (input)="patch({ addrPool: $any($event.target).value })" placeholder="172.20.N.1/24" /></label>
+          <label>证书方式
+            <select [value]="form().certMode" (change)="patch({ certMode: $any($event.target).value })">
+              <option value="self">自签（推荐，自动生成）</option>
+              <option value="existing">复用服务器上已有的</option>
+            </select>
+          </label>
+          <label>sing-box 版本
+            <select [value]="form().version" (change)="patch({ version: $any($event.target).value })">
+              <option value="">自动（99 缓存里最新的匹配包）</option>
+              @for (c of cache(); track c.version + c.arch + c.variant) {
+                <option [value]="c.version">{{ c.version }}{{ c.variant ? '/' + c.variant : '' }}/{{ c.arch }}</option>
+              }
+            </select>
+          </label>
+        </div>
+        @if (form().certMode === 'existing') {
+          <div class="vp-grid">
+            <label>证书路径 <input type="text" [value]="form().certPath" (input)="patch({ certPath: $any($event.target).value })"
+                      placeholder="/etc/ssl/fullchain.pem" /></label>
+            <label>私钥路径 <input type="text" [value]="form().keyPath" (input)="patch({ keyPath: $any($event.target).value })"
+                      placeholder="/etc/ssl/privkey.pem" /></label>
+          </div>
+        }
+        <div class="dim small" style="margin-top:6px">{{ cacheHint() }}</div>
+      </div>
+
+      <div class="vp-act">
+        <button type="button" (click)="save()" [disabled]="busy()">保存台账</button>
+        <button type="button" (click)="probe()" [disabled]="busy()">探测（只读）</button>
+        <button type="button" (click)="preview()" [disabled]="busy()">预览脚本（dry-run）</button>
+        <button class="acc" type="button" (click)="deploy()" [disabled]="!canDeploy()"
+                [title]="canDeploy() ? '在远端安装并启动 masque server' : '请先「预览脚本」；改任何参数都要重新预览'">
+          部署 masque server
+        </button>
+        @if (busy()) { <span class="dim small">执行中…</span> }
+      </div>
+
+      <!-- 探测结果 -->
+      @if (probeRes(); as p) {
+        <div class="vp-box">
+          <div class="vp-t">探测结果</div>
+          <div class="vp-kv">
+            <span>架构 <b>{{ p.arch }}</b></span>
+            <span>libc <b>{{ p.libc }}</b></span>
+            <span>系统 <b>{{ p.os }}</b></span>
+            <span>root <b [class.bad]="!p.root">{{ p.root ? '是' : '否' }}</b></span>
+            <span>systemd <b [class.bad]="!p.hasSystemd">{{ p.hasSystemd ? '有' : '无' }}</b></span>
+            <span>端口占用 <b [class.bad]="p.portInUse">{{ p.portInUse ? '是' : '否' }}</b></span>
+            <span>已装 <b>{{ p.existingVer }}</b></span>
+          </div>
+        </div>
+      }
+
+      <!-- 预览 -->
+      @if (previewOpen() && previewRes(); as pv) {
+        <div class="vp-box">
+          <div class="vp-rowhd">
+            <div class="vp-t">部署方案（dry-run，未连远端）· 节点 tag <b>{{ pv.tag }}</b></div>
+            <span class="vp-grow"></span>
+            <button type="button" (click)="previewOpen.set(false)">收起</button>
+          </div>
+          <div class="vp-t">远端 /etc/sing-box-masque/config.json</div>
+          <pre class="vp-pre">{{ pv.config }}</pre>
+          <div class="vp-t">将执行的脚本</div>
+          <pre class="vp-pre tall">{{ pv.script }}</pre>
+        </div>
+      }
+
+      <!-- 部署结果 -->
+      @if (deployRes(); as d) {
+        <div class="vp-box" [class.badbox]="!d.ok">
+          <div class="vp-rowhd">
+            <b>{{ d.ok ? '部署成功' : '部署失败' }}</b>
+            @if (d.version) { <span class="dim small">sing-box {{ d.version }}</span> }
+            @if (d.secs) { <span class="dim small">{{ d.secs }}s</span> }
+            <span class="vp-grow"></span>
+            <button type="button" (click)="showLog.set(!showLog())">{{ showLog() ? '收起日志' : '看日志' }}</button>
+          </div>
+          @if (d.error) { <div class="vp-msg bad">{{ d.error }}</div> }
+          @if (poolMsg()) { <div class="vp-msg ok">{{ poolMsg() }}</div> }
+          @if (d.ok && d.node) {
+            <div class="vp-t">已生成的节点（已按此写入共享节点池）</div>
+            <pre class="vp-pre">{{ d.node | json }}</pre>
+          }
+          @if (showLog() && d.log) {
+            <div class="vp-t">远端输出</div>
+            <pre class="vp-pre tall">{{ d.log }}</pre>
+          }
+        </div>
+      }
+    </div>
+  </div>
+</div>

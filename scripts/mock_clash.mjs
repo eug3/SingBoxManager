@@ -195,6 +195,16 @@ const ROUTES = {
   ],
 };
 
+const MOCK_VPS_ITEMS = [
+  {
+    host: '203.0.113.10', name: 'tokyo-test', user: 'root', password: '••••••', port: 22,
+    sni: 'tokyo.example.com', listenPort: 443, addrPool: '172.20.0.1/24',
+    certMode: 'self', certPath: '', keyPath: '', version: '1.15.0-alpha.15',
+    state: 'deployed', lastDeployAt: '2026-11-29T00:40:00Z', lastError: '', lastLog: '',
+    nodeJson: '', updatedAt: '2026-11-29T00:40:00Z',
+  },
+];
+
 const CONFIGS = { mode: 'rule', 'mode-list': ['rule', 'global', 'direct'], 'log-level': 'info' };
 
 /* ── HTTP ── */
@@ -422,6 +432,79 @@ const server = createServer(async (req, res) => {
     res.statusCode = 404;
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     return res.end('mock 不提供 /static/*（Monaco 在 99 上）');
+  }
+  // ---- 远程 VPS（/vps/*）：供「🛰 远程 VPS」tab 的浏览器回归 ----
+  if (path === '/vps/list') {
+    return json(res, {
+      ok: true,
+      items: MOCK_VPS_ITEMS,
+      cache: [
+        { version: '1.15.0-alpha.15', arch: 'amd64', variant: 'musl', size: 31_000_000 },
+        { version: '1.15.0-alpha.15', arch: 'amd64', variant: 'glibc', size: 32_000_000 },
+        { version: '1.15.0-alpha.15', arch: 'arm64', variant: 'musl', size: 29_000_000 },
+      ],
+      nextAddrPool: '172.20.1.1/24',
+    });
+  }
+  if (path === '/vps/probe') {
+    return json(res, {
+      ok: true,
+      probe: {
+        arch: 'x86_64', libc: 'glibc', root: true, hasSystemd: true,
+        portInUse: false, os: 'Debian GNU/Linux 12 (bookworm)',
+        existing: false, existingVer: 'none',
+      },
+    });
+  }
+  if (path === '/vps/preview') {
+    let b = {};
+    try { b = JSON.parse((await readBody(req)) || '{}'); } catch { /* 忽略 */ }
+    const host = b?.host || '1.2.3.4';
+    return json(res, {
+      ok: true, host, tag: 'vps-mock',
+      config: JSON.stringify({
+        log: { level: 'warn', timestamp: true },
+        endpoints: [{
+          type: 'masque-server', tag: 'masque-server', listen: '::', listen_port: 443,
+          version: [3], users: [{ username: 'masque', password: '******' }],
+          address: ['172.20.0.1/24'], advertise_routes: ['0.0.0.0/0', '::/0'], mtu: 1280,
+          tls: { enabled: true, certificate_path: '/etc/sing-box-masque/cert.pem', key_path: '/etc/sing-box-masque/key.pem', server_name: host },
+        }],
+      }, null, 2),
+      script: 'set -u\nBIN=/opt/sing-box-masque/sing-box\n... (mock 预览)\necho OK_DEPLOYED',
+      probe: 'echo "ARCH=$(uname -m)"',
+      note: '预览不连远端；确认无误后再点「部署」',
+    });
+  }
+  if (path === '/vps/deploy') {
+    let b = {};
+    try { b = JSON.parse((await readBody(req)) || '{}'); } catch { /* 忽略 */ }
+    if (process.env.MOCK_VPS_FAIL === '1') {
+      return json(res, {
+        ok: false, host: b.host || '1.2.3.4', tag: 'vps-mock',
+        error: 'sing-box check 未通过（配置被拒，远端保持原样）',
+        log: 'CHECK_FAILED\nFATAL decode config at endpoints[0]: unknown field "listne_port"',
+        secs: 0.4,
+      }, 502);
+    }
+    return json(res, {
+      ok: true, host: b.host || '1.2.3.4', tag: 'vps-mock', version: '1.15.0-alpha.15',
+      secs: 6.2,
+      binary: { version: '1.15.0-alpha.15', arch: 'amd64', variant: 'glibc', sizeMB: 31 },
+      log: 'BIN_VERSION=sing-box version 1.15.0-alpha.15\nCERT=self\nCHECK_OK\nLISTEN_OK=443/udp\nOK_DEPLOYED',
+      node: {
+        type: 'masque-client', tag: 'vps-mock', server: b.sni || b.host || '1.2.3.4',
+        server_port: b.listenPort || 443, username: 'masque',
+        password: 'mock-masque-pw', version: 3,
+        tls: { enabled: true, server_name: b.sni || b.host || '1.2.3.4', insecure: true },
+        mtu: 1280,
+      },
+    });
+  }
+  if (path === '/vps/save') {
+    let b = {};
+    try { b = JSON.parse((await readBody(req)) || '{}'); } catch { /* 忽略 */ }
+    return json(res, { ok: true, item: { ...b, password: '••••••', state: 'new', port: b.port || 22, listenPort: b.listenPort || 443 } });
   }
   if (path === '/configs') return json(res, CONFIGS);
   if (path === '/connections' && req.method === 'GET') {

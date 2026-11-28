@@ -37,6 +37,8 @@
     <button class="tab right" [class.on]="active() === 'edit'" (click)="active.set('edit')">🧩 规则编辑</button>
     <button class="tab" [class.on]="active() === 'ver'" (click)="active.set('ver')" title="sing-box 版本管理：在 99 下载版本包，再部署到受管路由">⤓ 版本管理</button>
     <button class="tab" [class.on]="active() === 'pool'" (click)="active.set('pool')" title="跨路由共享池：把节点共享给其它路由用">⇄ 共享编辑</button>
+    <button class="tab" [class.on]="active() === 'vps'" (click)="active.set('vps')"
+            title="远程 VPS：SSH 过去一键部署 sing-box masque server，成功后自动把节点加入共享节点池">🛰 远程 VPS</button>
   </nav>
 
   <!-- 内容区：按当前 tab 只渲染对应后端面板或规则编辑器 -->
@@ -53,6 +55,10 @@
           (removed)="onRemoved()"
         />
       }
+    }
+
+    @if (active() === 'vps') {
+      <app-vps-pane />
     }
 
     @if (active() === 'edit') {

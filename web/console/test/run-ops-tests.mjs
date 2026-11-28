@@ -13,6 +13,7 @@ mkdirSync(out, { recursive: true });
 for (const [entry, name] of [
   ['src/app/config-ops.ts', 'config-ops'],
   ['src/app/shared-pool.service.ts', 'shared-pool'],
+  ['src/app/vps-model.ts', 'vps-model'],
 ]) {
   await build({
     entryPoints: [join(here, '..', entry)],
@@ -26,7 +27,7 @@ for (const [entry, name] of [
 // 需要真机夹具的用例：没夹具就跳过（夹具里有节点密钥，不入库，见 test/ops/fixtures/README.md）
 const fixturesOk = existsSync(join(here, 'ops', 'fixtures', 'router-32.json'));
 const needsFixture = new Set(['cond-merge', 'string-rule-set']);
-const files = ['fingerprint', 'pool-nodes', 'pool-rules', 'pool-override', 'rule-applied', 'group-apply', 'detach', 'format-casing', 'cond-merge', 'string-rule-set', 'tun-exclude'];
+const files = ['fingerprint', 'pool-nodes', 'pool-rules', 'pool-override', 'rule-applied', 'group-apply', 'detach', 'format-casing', 'cond-merge', 'string-rule-set', 'tun-exclude', 'vps-model'];
 
 // 用例里的相对路径（./fixtures/...）按 test/ops 解析
 process.chdir(join(here, 'ops'));
