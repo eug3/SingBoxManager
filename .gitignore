@@ -18,3 +18,6 @@ web/console/.angular/
 # 容器运行时数据 / 本地环境（.env.example 保留作模板）
 .env
 data/
+
+# Go 构建产物（cd service && go build ./... 会生成同名二进制）
+/service/vault-edit
