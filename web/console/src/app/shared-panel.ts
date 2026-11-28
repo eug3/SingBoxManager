@@ -129,7 +129,15 @@ export class SharedPanel implements OnInit {
   /** 规则池列表（不区分来源；未应用排在前面） */
   readonly rulesList = computed(() => this.pool.rulesList());
   readonly rulesTotal = computed(() => this.pool.rules().length);
-  readonly rulesStats = computed(() => this.pool.rulesStats());
+  /** 页签徽标 / 头部统计：以「实时判定」为准（读不到路由时退回手动标记） */
+  readonly rulesStats = computed(() => {
+    const st = this.ruleStatus();
+    const all = this.pool.rules();
+    const known = all.filter((r) => st[r.id] !== undefined);
+    if (!known.length) return this.pool.rulesStats();
+    const applied = known.filter((r) => st[r.id].applied).length;
+    return { applied, pending: known.length - applied };
+  });
 
   readonly note = signal('');
   /** 池里正在编辑的条目 id（null = 没在编辑） */
