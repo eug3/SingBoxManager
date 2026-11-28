@@ -2166,3 +2166,34 @@ app-config-pane .cfggate { flex: 1 1 auto; min-height: 0; overflow: auto; }
 .shp-mini.danger { color: #b42318; border-color: #f0b4ae; }
 .shp-mini.danger:hover { background: #fdf5f4; }
 .shp-unknown { flex: 0 0 auto; margin-bottom: 6px; padding: 4px 8px; border: 1px dashed #d9e2ec; border-radius: 4px; }
+
+/* 共享规则：后端规则集选择器（NAS 桶清单，点选用）+ 新建规则面板 */
+.shp-picker {
+  border: 1px solid #e3eaf3; border-radius: 4px; background: #fbfdff; padding: 6px 8px; margin-bottom: 6px;
+}
+.shp-picker-hd { display: flex; align-items: center; gap: 8px; padding-bottom: 6px; font-size: 12px; }
+.shp-picker-hd .spacer { flex: 1 1 auto; }
+.shp-picker-q {
+  width: 180px; font-size: 11px; padding: 2px 8px; border: 1px solid var(--line); border-radius: 3px; background: #fff;
+}
+.shp-picker-list {
+  display: flex; flex-wrap: wrap; gap: 5px; max-height: 150px; overflow: auto;
+  padding-top: 4px; border-top: 1px dashed #eef2f8;
+}
+.shp-bucket {
+  font-size: 10px; font-family: var(--mono); padding: 2px 8px; cursor: pointer;
+  border: 1px solid #e3eaf3; background: #fff; color: #4a5b6e; border-radius: 3px;
+}
+.shp-bucket:hover { border-color: var(--acc); color: #0f6b4f; }
+.shp-bucket.on { background: #e6f6ee; border-color: #8fd3ae; color: #0f6b4f; font-weight: 600; }
+.shp-picker-tip { padding-top: 5px; }
+.shp-picker-err { padding: 4px 0; }
+.shp-newrule { margin-bottom: 8px; }
+.shp-newrule-hd { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
+.shp-newrule-hd label { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--dim); }
+.shp-newrule-hd input {
+  width: 240px; font-size: 13px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 3px; background: #fff;
+}
+.shp-newrule-hd .spacer { flex: 1 1 auto; }
+.shp-newrule-btn { white-space: nowrap; flex: 0 0 auto; }
+.shp-statline { flex: 0 0 auto; padding: 2px 0 4px; }

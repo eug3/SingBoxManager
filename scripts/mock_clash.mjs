@@ -256,6 +256,15 @@ const server = createServer(async (req, res) => {
   if (path === '/rules') return json(res, ROUTES);
   // 3/4 弹窗（规则集 / 分组）需要 /router/config：给一份带多分组、多节点、多 rule_set 的假配置
   // sing-box check 的 mock：MOCK_CHECK_FAIL=1 时模拟校验不过（用于批量应用的失败分支）
+  // 规则桶清单（NAS 目录的 mock）：与 mock 配置里的 rule_set 部分同名，供「从后端规则集选」测试
+  if (path === '/rule-set/index') {
+    const names = ['rs-tg', 'rs-github', 'rs-msft', 'rs-apple', 'cn_ip', 'bard-domains', 'rs-netflix', 'rs-youtube', 'rs-openai', 'rs-telegram'];
+    return json(res, {
+      ok: true,
+      dir: 'mock://rule-set',
+      buckets: names.map((name) => ({ name, jsonSize: 1024, jsonTime: '2026-11-01T00:00:00Z', srsSize: 512, srsTime: '2026-11-01T00:00:00Z' })),
+    });
+  }
   if (path === '/router/check') {
     let host = 'mock';
     try { host = JSON.parse((await readBody(req)) || '{}').host || 'mock'; } catch { /* 忽略 */ }

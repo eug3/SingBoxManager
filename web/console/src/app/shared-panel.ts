@@ -18,6 +18,7 @@ import { ConfigDraftService } from './config-draft.service';
 import { RouterService } from './router.service';
 import { RuleApplyBatchDialog } from './rule-apply-batch-dialog';
 import { RuleApplyBatchService } from './rule-apply-batch.service';
+import { BucketInfo, VaultService } from './vault.service';
 import {
   GroupStatusPerRouter,
   PoolNode,
@@ -71,6 +72,8 @@ export class SharedPanel implements OnInit {
   readonly draftSvc = inject(ConfigDraftService);
   /** 批量编排（预演/逐台执行/汇总） */
   private readonly batch = inject(RuleApplyBatchService);
+  /** 后端规则桶清单（NAS 目录实时列，/rule-set/index） */
+  private readonly vault = inject(VaultService);
   readonly pool = inject(SharedPoolService);
 
   readonly backends = this.bsvc.backends;
@@ -240,6 +243,90 @@ export class SharedPanel implements OnInit {
   /** 批量弹窗：对哪条规则开着（null = 关）；mode 决定是「应用到全部」还是「解除应用」 */
   readonly batchFor = signal<PoolRules | null>(null);
   readonly batchMode = signal<'apply' | 'detach'>('apply');
+  /** 后端规则桶清单（供「从规则集选」；空 = 还没拉或拉失败） */
+  readonly buckets = signal<BucketInfo[]>([]);
+  readonly bucketsErr = signal('');
+  readonly bucketQuery = signal('');
+  /** 新建共享规则：组名输入 + 正在挑的 refs */
+  readonly newRuleOpen = signal(false);
+  readonly newRuleGroup = signal('');
+  readonly newRuleRefs = signal<string[]>([]);
+  readonly newRuleErr = signal('');
+
+  /** 按关键字过滤后的桶清单（不区分大小写） */
+  readonly bucketsFiltered = computed(() => {
+    const q = this.bucketQuery().trim().toLowerCase();
+    const all = this.buckets();
+    return q ? all.filter((b) => b.name.toLowerCase().includes(q)) : all;
+  });
+
+  /** 拉一次后端规则桶清单（进规则子页时拉；失败不致命，仍可手填） */
+  async loadBuckets(): Promise<void> {
+    this.bucketsErr.set('');
+    try {
+      this.buckets.set(await this.vault.listBuckets());
+    } catch (e) {
+      this.bucketsErr.set(errMsg(e));
+    }
+  }
+
+  /** 规则条目编辑器正在用的 refs（以 textarea 文本为准，点选桶时同步写回文本） */
+  private editRefsFromText(): string[] {
+    return this.editRuleText()
+      .split(/[\n,，]+/)
+      .map((x) => x.trim())
+      .filter(Boolean);
+  }
+
+  /** 编辑器里点一个桶：没在用就加，已在用就移除 */
+  toggleBucketInEdit(name: string): void {
+    const cur = this.editRefsFromText();
+    const next = cur.includes(name) ? cur.filter((x) => x !== name) : [...cur, name];
+    this.editRuleText.set(next.join('\n'));
+  }
+
+  bucketInEdit(name: string): boolean {
+    return this.editRefsFromText().includes(name);
+  }
+
+  /** 新建共享规则时某桶是否已选 */
+  bucketInNew(name: string): boolean {
+    return this.newRuleRefs().includes(name);
+  }
+
+  /** 新建共享规则时点一个桶 */
+  toggleBucketInNew(name: string): void {
+    this.newRuleRefs.update((cur) => (cur.includes(name) ? cur.filter((x) => x !== name) : [...cur, name]));
+  }
+
+  /** 打开「新建共享规则」 */
+  openNewRule(): void {
+    this.newRuleOpen.set(true);
+    this.newRuleGroup.set('');
+    this.newRuleRefs.set([]);
+    this.newRuleErr.set('');
+    if (!this.buckets().length) void this.loadBuckets();
+  }
+
+  /** 保存新建的共享规则（组名必填；refs 可以全靠点选，不用手打） */
+  saveNewRule(): void {
+    const group = this.newRuleGroup().trim();
+    if (!group) {
+      this.newRuleErr.set('请填组名（= 路由上的出口 tag，如 🚀 节点选择）');
+      return;
+    }
+    const res = this.pool.addRuleGroup(group, this.newRuleRefs());
+    if (!res.ok) {
+      this.newRuleErr.set(res.reason ?? '保存失败');
+      return;
+    }
+    this.newRuleOpen.set(false);
+    this.rulesNote.set(
+      `已新建共享规则「${group}」（${this.newRuleRefs().length} 个规则集）。它是「未应用」状态——点「应用到全部」让各路由同步。`,
+    );
+    void this.refreshAllDocs(true);
+  }
+
   /** 规则条目编辑：哪条在编、编辑中的 refs 文本（每行一个） */
   readonly editRuleId = signal<string | null>(null);
   readonly editRuleText = signal('');
@@ -274,6 +361,7 @@ export class SharedPanel implements OnInit {
     this.editRuleId.set(r.id);
     this.editRuleErr.set('');
     this.editRuleText.set(r.refs.join('\n'));
+    if (!this.buckets().length) void this.loadBuckets();
   }
 
   cancelEditRule(): void {
@@ -296,7 +384,7 @@ export class SharedPanel implements OnInit {
     this.editRuleId.set(null);
     if (changed) {
       this.rulesNote.set(
-        `已修改「${r.group}」的规则集（${refs.length} 个）。它已回到「未应用」——点「应用到所有路由」让各路由同步；未同步前各路由保持原样、不受影响。`,
+        `已修改「${r.group}」的规则集（${refs.length} 个）。它已回到「未应用」——点「应用到全部」让各路由同步；未同步前各路由保持原样、不受影响。`,
       );
     } else {
       this.rulesNote.set(`「${r.group}」没有变化`);
@@ -348,6 +436,12 @@ export class SharedPanel implements OnInit {
     this.ruleBackend.set(b);
     this.rulesNote.set('');
     void this.loadRules();
+  }
+
+  /** 切到规则子页时拉一次后端规则桶（选择器要用） */
+  onSectionChange(sec: 'nodes' | 'rules'): void {
+    this.section.set(sec);
+    if (sec === 'rules' && !this.buckets().length) void this.loadBuckets();
   }
 
   /* ── 拉配置（带缓存 / 超时 / 防串台） ── */

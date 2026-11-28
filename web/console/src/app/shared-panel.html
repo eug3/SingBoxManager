@@ -1,5 +1,6 @@
 <!-- 共享编辑（整页）：两个子页签「共享节点 / 共享规则」，各有自己的路由 tab；池子是全局的 -->
 <div class="shp-page">
+
   <div class="shp-top">
     <div class="shp-title">
       <b>共享编辑</b>
@@ -13,7 +14,7 @@
       ① 共享节点池
       <span class="shp-cnt">{{ total() }}</span>
     </button>
-    <button class="shp-sec" [class.on]="section() === 'rules'" (click)="section.set('rules')">
+    <button class="shp-sec" [class.on]="section() === 'rules'" (click)="onSectionChange('rules')">
       ② 共享规则池
       <span class="shp-cnt">{{ rulesTotal() }}</span>
       @if (rulesStats().pending) {
@@ -268,16 +269,80 @@
       >
         <div class="shp-hd">
           <b>共享规则池</b>
-          <span class="dim small">{{ rulesTotal() }} 个组名 · 拖到这里即可加入</span>
+          <span class="dim small">{{ rulesTotal() }} 个组名 · 拖组名进来，或从后端规则集点选</span>
           <span class="spacer"></span>
-          <span class="dim small shp-statline">
-            规则：已应用 <b class="ok">{{ rulesStats().applied }}</b> / 未应用 <b class="warn">{{ rulesStats().pending }}</b>
-            <span class="sep">·</span>
-            路由器：共 <b>{{ rulesStats().routers }}</b> 台，全部一致 <b class="ok">{{ rulesStats().routersOk }}</b> 台
-            @if (rulesStats().routersUnknown) { <span class="warn">，{{ rulesStats().routersUnknown }} 台没核对到</span> }
-            @if (!auditDone()) { <span class="dim">（核对中…）</span> }
-          </span>
+          <button class="acc mini shp-newrule-btn" (click)="openNewRule()" title="从后端规则集里点选 rule_set，组成一条新的共享规则">＋ 新建规则</button>
         </div>
+        <div class="dim small shp-statline">
+          规则：已应用 <b class="ok">{{ rulesStats().applied }}</b> / 未应用 <b class="warn">{{ rulesStats().pending }}</b>
+          <span class="sep">·</span>
+          路由器：共 <b>{{ rulesStats().routers }}</b> 台，全部一致 <b class="ok">{{ rulesStats().routersOk }}</b> 台
+          @if (rulesStats().routersUnknown) { <span class="warn">，{{ rulesStats().routersUnknown }} 台没核对到</span> }
+          @if (!auditDone()) { <span class="dim">（核对中…）</span> }
+        </div>
+        @if (newRuleOpen()) {
+          <div class="shp-edit shp-newrule">
+            <div class="shp-newrule-hd">
+              <label>
+                <span>组名（= 路由上的出口 tag）</span>
+                <input
+                  [value]="newRuleGroup()"
+                  (input)="newRuleGroup.set($any($event.target).value)"
+                  placeholder="如 🚀 节点选择"
+                />
+              </label>
+              <span class="dim small">已选 {{ newRuleRefs().length }} 个规则集</span>
+              <span class="spacer"></span>
+              <button class="acc" (click)="saveNewRule()" [disabled]="!newRuleGroup().trim()">保存到共享池</button>
+              <button (click)="newRuleOpen.set(false)">取消</button>
+            </div>
+                  <div class="shp-picker">
+              <div class="shp-picker-hd">
+                <b>从后端规则集选</b>
+                <span class="dim small">{{ buckets().length }} 个桶</span>
+                <span class="spacer"></span>
+                <input
+                  class="shp-picker-q"
+                  type="search"
+                  [value]="bucketQuery()"
+                  (input)="bucketQuery.set($any($event.target).value)"
+                  placeholder="搜索规则集…"
+                />
+                <button class="mini" type="button" (click)="loadBuckets()" title="重新拉取 NAS 规则桶清单">刷新</button>
+              </div>
+              @if (bucketsErr()) {
+                <div class="dim small shp-picker-err">没拉到后端规则集（{{ bucketsErr() }}）—— 可以直接在下面手动填 tag。</div>
+              } @else if (!buckets().length) {
+                <div class="dim small">正在读取后端规则集…</div>
+              } @else {
+                <div class="shp-picker-list">
+                  @for (b of bucketsFiltered(); track b.name) {
+                    <button
+                      type="button"
+                      class="shp-bucket"
+                      [class.on]="bucketInNew(b.name)"
+                      (click)="toggleBucketInNew(b.name)"
+                      [title]="b.name + (b.srsSize ? '（已编译 .srs）' : '（只有 .json，未编译）')"
+                    >{{ b.name }}</button>
+                  } @empty {
+                    <span class="dim small">没有匹配「{{ bucketQuery() }}」的规则集</span>
+                  }
+                </div>
+                <div class="dim small shp-picker-tip">点一下加入，再点移除；绿色 = 已选。也可以在下面手动填。</div>
+              }
+            </div>
+            @if (newRuleErr()) {
+              <div class="shp-edit-err">✗ {{ newRuleErr() }}</div>
+            }
+            @if (newRuleRefs().length) {
+              <div class="shp-refs">
+                @for (x of newRuleRefs(); track x) {
+                  <span class="shp-ref" [title]="x">{{ x }}</span>
+                }
+              </div>
+            }
+          </div>
+        }
         @if (unknownRouters().length && auditDone()) {
           <div class="shp-unknown dim small">
             ⚠ 没核对到 {{ unknownRouters().length }} 台路由的配置（{{ unknownRouters().join('、') }}）：
@@ -332,11 +397,46 @@
               </div>
               @if (editRuleId() === r.id) {
                 <div class="shp-edit shp-rule-edit">
+                  <div class="shp-picker">
+                    <div class="shp-picker-hd">
+                      <b>从后端规则集选</b>
+                      <span class="dim small">{{ buckets().length }} 个桶</span>
+                      <span class="spacer"></span>
+                      <input
+                        class="shp-picker-q"
+                        type="search"
+                        [value]="bucketQuery()"
+                        (input)="bucketQuery.set($any($event.target).value)"
+                        placeholder="搜索规则集…"
+                      />
+                      <button class="mini" type="button" (click)="loadBuckets()" title="重新拉取 NAS 规则桶清单">刷新</button>
+                    </div>
+                    @if (bucketsErr()) {
+                      <div class="dim small shp-picker-err">没拉到后端规则集（{{ bucketsErr() }}）—— 可以直接在下面手动填 tag。</div>
+                    } @else if (!buckets().length) {
+                      <div class="dim small">正在读取后端规则集…</div>
+                    } @else {
+                      <div class="shp-picker-list">
+                        @for (b of bucketsFiltered(); track b.name) {
+                          <button
+                            type="button"
+                            class="shp-bucket"
+                            [class.on]="bucketInEdit(b.name)"
+                            (click)="toggleBucketInEdit(b.name)"
+                            [title]="b.name + (b.srsSize ? '（已编译 .srs）' : '（只有 .json，未编译）')"
+                          >{{ b.name }}</button>
+                        } @empty {
+                          <span class="dim small">没有匹配「{{ bucketQuery() }}」的规则集</span>
+                        }
+                      </div>
+                      <div class="dim small shp-picker-tip">点一下加入，再点移除；绿色 = 已选。也可以在下面手动填。</div>
+                    }
+                  </div>
                   <textarea
                     [value]="editRuleText()"
                     (input)="editRuleText.set($any($event.target).value)"
                     spellcheck="false"
-                    placeholder="每行一个规则集 tag，如 rs-github"
+                    placeholder="或手动填：每行一个规则集 tag（含后端没有的本地 .srs），如 rs-github"
                   ></textarea>
                   @if (editRuleErr()) {
                     <div class="shp-edit-err">✗ {{ editRuleErr() }}</div>
@@ -344,7 +444,7 @@
                   <div class="shp-io-actions">
                     <button class="acc" (click)="saveEditRule(r)">保存</button>
                     <button (click)="cancelEditRule()">取消</button>
-                    <span class="dim small">改了规则集会回到「未应用」；点「应用到所有路由」同步前，各路由保持原样</span>
+                    <span class="dim small">改了规则集会回到「未应用」；点「应用到全部」同步前，各路由保持原样</span>
                   </div>
                 </div>
               }
