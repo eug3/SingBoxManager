@@ -1998,7 +1998,18 @@ app-config-pane .cfggate { flex: 1 1 auto; min-height: 0; overflow: auto; }
 .shp-kind { font-size: 9px; color: #8a5a12; background: #fdf3e2; border: 1px solid #f0dcc0; border-radius: 3px; padding: 0 4px; }
 
 /* 共享规则池：组名行 / 规则集 chips */
-.shp-grow { align-items: center; }
+/* 左栏组名行用网格：组名固定左列、chips 中间自动换行、计数与「＋」右对齐（窄窗口也整齐） */
+.shp-grow {
+  display: grid;
+  grid-template-columns: minmax(92px, 132px) minmax(0, 1fr) auto auto;
+  gap: 6px 10px;
+  align-items: start;
+  padding: 6px 8px;
+}
+.shp-grow .shp-gtag { justify-self: start; }
+.shp-grow .shp-refs { align-content: start; }
+.shp-grow .shp-count { padding-top: 1px; }
+.shp-grow .shp-add { margin-left: 0; align-self: start; }
 .shp-rrule { align-items: stretch; }
 .shp-gtag {
   font-family: var(--mono); color: #14507a; background: #eaf3fb; border: 1px solid #cfe2f3;

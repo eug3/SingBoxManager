@@ -443,5 +443,10 @@ mock 端到端：池内把端口改成 9999 → 拖到「日本 02」被拒 → 
 - 修 CSS 冲突：旧的 `.shp-grow, .shp-rrule { align-items: center }` 把卡片内容居中了，
   改成分开定义（组名行 center、规则卡片 stretch），并去掉按钮上多余的 `margin-left:auto`。
 
-实测（99 线上、甲 32 真配置、1500×1000）：3 张卡片头行左缘与卡片左缘一致（773 vs 762+11 内边距），
-21 个 chip 中 3 个超长（rs-entertainment / rs-ip-facebook / rs-ip-softlayer）显示省略号且 `title` 为全名。
+左栏组名行再进一步改成**网格**（`grid-template-columns: minmax(92px,132px) minmax(0,1fr) auto auto`）：
+组名固定左列、chips 中间自动换行、计数与「＋」右对齐，窄窗口也不会把组名挤到中间。
+
+实测（99 线上、甲 32 真配置）：
+- 1500×1000 / 1600×1000：18 行组名的 tag 左缘全部对齐（唯一 x=39、距行顶 6px），行高一致；
+- 1024×800：21 个 chip 中 3 个超长（rs-entertainment / rs-ip-facebook / rs-ip-softlayer）显示省略号、
+  `title` 为全名；无横向溢出（`scrollWidth == innerWidth`）。
