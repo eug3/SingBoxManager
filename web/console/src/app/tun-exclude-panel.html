@@ -1,0 +1,79 @@
+<div class="tune">
+  <div class="tune-hd">
+    <b>TUN 私网排除</b>
+    <span class="dim small">
+      <code>inbounds[type=tun].route_exclude_address</code> — 命中的目标<strong>不进 TUN</strong>，交给系统路由表直连；
+      每台路由各自一份
+    </span>
+  </div>
+
+  @if (tunCount() === 0) {
+    <div class="tune-note bad">这份配置里没有 TUN 入站（<code>type=tun</code>），无法设置排除地址。</div>
+  } @else {
+    <div class="tune-sec">
+      <div class="tune-t">常用私网段（点击勾选/取消）</div>
+      <div class="tune-grid">
+        @for (p of presets; track p.cidr) {
+          <button
+            type="button"
+            class="tune-item"
+            [class.on]="isOn(p.cidr)"
+            (click)="toggle(p.cidr)"
+            [title]="p.cidr + ' — ' + p.hint"
+          >
+            <span class="tune-box">{{ isOn(p.cidr) ? '✓' : '' }}</span>
+            <span class="tune-lb">{{ p.label }}</span>
+            <span class="tune-hint">{{ p.hint }}</span>
+          </button>
+        }
+      </div>
+    </div>
+
+    <div class="tune-sec">
+      <div class="tune-t">自定义（IP 或 CIDR，可一次粘多条，空格/逗号分隔）</div>
+      <div class="tune-add">
+        <input
+          type="text"
+          [value]="customInput()"
+          (input)="customInput.set($any($event.target).value)"
+          (keydown.enter)="addCustom()"
+          placeholder="例：192.168.31.97/32  或  2603:c024::1/128"
+        />
+        <button type="button" (click)="addCustom()" [disabled]="!customInput().trim()">加入</button>
+      </div>
+      @if (custom().length) {
+        <div class="tune-chips">
+          @for (c of custom(); track c) {
+            <span class="tune-chip">{{ c }}<button type="button" (click)="remove(c)" title="移除这条">×</button></span>
+          }
+        </div>
+      } @else {
+        <div class="dim small">暂无自定义条目</div>
+      }
+    </div>
+
+    @if (willBeEmpty()) {
+      <div class="tune-note bad">
+        <strong>不排除任何地址</strong>：应用后所有流量都会进 TUN 走 sing-box 用户态，连内网 / LAN 访问也会被接管。
+      </div>
+    }
+
+    <div class="tune-sum">
+      <span>文档当前 <b>{{ current().length }}</b> 条</span>
+      <span class="dim">→</span>
+      <span [class.tune-dirty]="dirty()">待应用 <b>{{ selected().length }}</b> 条</span>
+      <span class="dim">· 作用于 {{ tunCount() }} 个 TUN 入站</span>
+    </div>
+
+    <div class="tune-act">
+      <button class="acc" type="button" (click)="applyToDraft()" [disabled]="!dirty()">应用到暂存</button>
+      <button type="button" (click)="resetPick()" [disabled]="!dirty()">还原选择</button>
+      <span class="dim">|</span>
+      <button type="button" (click)="fillRecommended()">补齐常用私网段</button>
+      <button type="button" (click)="clearAll()" [disabled]="!selected().length">清空</button>
+      @if (msg(); as m) {
+        <span class="tune-msg" [class.bad]="m.kind === 'err'">{{ m.text }}</span>
+      }
+    </div>
+  }
+</div>

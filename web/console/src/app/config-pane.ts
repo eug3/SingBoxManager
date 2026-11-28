@@ -14,6 +14,7 @@ import { BackendsService } from './backends.service';
 import { MonacoEditorComponent } from './monaco-editor';
 import { RuleSelector } from './rule-selector';
 import { GroupBoard } from './group-board';
+import { TunExcludePanel } from './tun-exclude-panel';
 import { NodeCreateDialog } from './node-create-dialog';
 import {
   ConfigDoc,
@@ -52,7 +53,7 @@ import { ConfirmService } from './confirm.service';
 @Component({
   selector: 'app-config-pane',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [MonacoEditorComponent, RuleSelector, GroupBoard, NodeCreateDialog],
+  imports: [MonacoEditorComponent, RuleSelector, GroupBoard, TunExcludePanel, NodeCreateDialog],
   templateUrl: './config-pane.html',
 })
 export class ConfigPane {
@@ -91,6 +92,7 @@ export class ConfigPane {
 
   // —— 分组看板（拖拽改分组成员=改 config 结构，同样走暂存复核）——
   readonly boardOpen = signal(false); // 分组看板面板开关
+  readonly tunOpen = signal(false); // TUN 私网排除面板开关
 
   // —— 连接门禁（连不上时像登录页一样要求填凭据）——
   readonly gate = signal(false);      // true=显示连接页，遮住整个子页
@@ -565,6 +567,13 @@ export class ConfigPane {
 
   /** 看板拖拽产出新文档 → 同样进暂存复核（改分组成员 = 改 config 结构） */
   onBoardDoc(d: ConfigDoc): void {
+    this.enterReview(d);
+  }
+
+  // ---------- TUN 私网排除面板（inbounds[type=tun].route_exclude_address）----------
+
+  /** 面板产出新文档 → 同样进暂存复核（改 TUN 入站参数 = 改 config 结构，需应用并重启） */
+  onTunDoc(d: ConfigDoc): void {
     this.enterReview(d);
   }
 

@@ -100,6 +100,9 @@
         <button (click)="boardOpen.update((v) => !v); moreOpen.set(false)" [disabled]="busy() || !loaded()">
           {{ boardOpen() ? '收起分组看板' : '分组看板' }}
         </button>
+        <button (click)="tunOpen.update((v) => !v); moreOpen.set(false)" [disabled]="busy() || !loaded()">
+          {{ tunOpen() ? '收起 TUN 私网排除' : 'TUN 私网排除' }}
+        </button>
         <button (click)="toggleCreds(); moreOpen.set(false)" [disabled]="busy()">路由凭据</button>
       </div>
     }
@@ -227,6 +230,10 @@
   <!-- 分组看板（拖拽改分组成员；基准=当前文档） -->
   @if (boardOpen()) {
     <app-group-board [base]="workDoc()" (docChange)="onBoardDoc($event)" />
+  }
+  <!-- TUN 私网排除（inbounds[type=tun].route_exclude_address；不是规则桶） -->
+  @if (tunOpen()) {
+    <app-tun-exclude-panel [base]="workDoc()" (docChange)="onTunDoc($event)" />
   }
 
   <!-- 节点表：检索 + 新增（新增/编辑走与流向 ⑤ 同一套弹窗） -->

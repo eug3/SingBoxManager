@@ -297,7 +297,15 @@ const server = createServer(async (req, res) => {
     const tgRef = host === 'router-b' ? 'rs-telegram-b' : (process.env.MOCK_TG_REF || 'rs-tg');
     const cfg = {
       log: { level: 'info' },
-      inbounds: [{ type: 'tun', tag: 'tun-in' }],
+      // 带真实的 route_exclude_address，供「配置 → TUN 私网排除」面板回归
+      inbounds: [{
+        type: 'tun', tag: 'tun-in', auto_route: true, strict_route: true,
+        route_exclude_address: [
+          '10.0.0.0/8', '100.64.0.0/10', '127.0.0.0/8', '169.254.0.0/16',
+          '172.16.0.0/12', '192.168.0.0/16',
+          '2603:c024:c003:5866:0:8dce:6c18:1226/128',
+        ],
+      }],
       outbounds: [
         { type: 'selector', tag: '🚀 节点选择', outbounds: ['🇭🇰 香港 01', '🇯🇵 日本 02', '🇺🇸 美国 03', 'DIRECT'] },
         { type: 'selector', tag: '📲 电报信息', outbounds: ['🚀 节点选择', 'DIRECT'] },
@@ -406,6 +414,14 @@ const server = createServer(async (req, res) => {
     return json(res, { ok: true, host: '127.0.0.1', version: '1.15.0-alpha.15', arch: 'amd64',
       before: '1.15.0-alpha.15', after: '1.15.0-alpha.15', sizeMB: 85, uploadSecs: 11.8,
       secs: 50.9, backup: true, freeMB: 115, log: 'DEPLOYED\ndowntime_s=2' });
+  }
+  // Monaco 等静态资源由 99 提供，mock 不实现。这里显式 404：
+  // 否则会回退成 index.html，浏览器把 HTML 当 JS 解析 → 报 "Unexpected token '<'"，
+  // 看起来像前端 bug（进 JSON 编辑视图时必现）。
+  if (path.startsWith('/static/')) {
+    res.statusCode = 404;
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    return res.end('mock 不提供 /static/*（Monaco 在 99 上）');
   }
   if (path === '/configs') return json(res, CONFIGS);
   if (path === '/connections' && req.method === 'GET') {

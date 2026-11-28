@@ -1256,3 +1256,138 @@ export function detachGroupRefs(doc: ConfigDoc, group: string, refs: string[]): 
   }
   return { removed };
 }
+
+// ---------- TUN 入站的 route_exclude_address ----------
+//
+// route_exclude_address 不是「规则」：它在 inbounds[type=tun] 里，决定「哪些目标不进 TUN」，
+// 每台路由一份、不随规则桶共享。规则编辑页（桶）与分流规则面板（route.rules）都碰不到它，
+// 所以这里给它一组纯函数，供「配置」页的 TUN 排除面板使用。
+
+/** 所有 TUN 入站（type=tun）。一个配置里通常只有 1 个，但允许多个。 */
+export function tunInbounds(doc: ConfigDoc): AnyObj[] {
+  const ins = doc.root['inbounds'];
+  if (!Array.isArray(ins)) return [];
+  return (ins as AnyObj[]).filter((b) => String((b as AnyObj)?.['type'] ?? '') === 'tun');
+}
+
+/** 当前生效的排除列表（多个 tun 时取第一个有值的；都为空则空数组） */
+export function tunExcludeAddresses(doc: ConfigDoc): string[] {
+  for (const b of tunInbounds(doc)) {
+    const v = b['route_exclude_address'];
+    if (Array.isArray(v) && v.length) return v.map((x) => String(x));
+  }
+  return [];
+}
+
+/** v6 展开成可比字符串：:: 补零 → 每组 4 位 → 直接字典序即数值序 */
+function v6Key(s: string): string | null {
+  const parts = s.split('::');
+  if (parts.length > 2) return null;
+  const head = parts[0] ? parts[0].split(':') : [];
+  const tail = parts.length === 2 && parts[1] ? parts[1].split(':') : [];
+  if (parts.length === 1) {
+    if (head.length !== 8) return null;
+  }
+  const fill = 8 - head.length - tail.length;
+  if (fill < 0) return null;
+  const groups = [...head, ...Array(parts.length === 2 ? fill : 0).fill('0'), ...tail];
+  if (groups.length !== 8) return null;
+  const out: string[] = [];
+  for (const g of groups) {
+    if (!/^[0-9a-fA-F]{1,4}$/.test(g)) return null;
+    out.push(g.toLowerCase().padStart(4, '0'));
+  }
+  return out.join('');
+}
+
+/** 排序/校验用的解析：返回 { family, key, bits }，非法返回 null */
+function parsePrefix(raw: string): { family: 4 | 6; key: string; bits: number } | null {
+  const s = raw.trim();
+  const [addr, lenStr, extra] = s.split('/');
+  if (extra !== undefined) return null;
+  if (addr.includes(':')) {
+    const key = v6Key(addr);
+    if (!key) return null;
+    const bits = lenStr === undefined ? 128 : Number(lenStr);
+    if (!Number.isInteger(bits) || bits < 0 || bits > 128) return null;
+    return { family: 6, key, bits };
+  }
+  const oct = addr.split('.');
+  if (oct.length !== 4) return null;
+  const nums: number[] = [];
+  for (const o of oct) {
+    if (!/^\d{1,3}$/.test(o)) return null;
+    const n = Number(o);
+    if (n > 255) return null;
+    nums.push(n);
+  }
+  const bits = lenStr === undefined ? 32 : Number(lenStr);
+  if (!Number.isInteger(bits) || bits < 0 || bits > 32) return null;
+  return { family: 4, key: nums.map((n) => String(n).padStart(3, '0')).join('.'), bits };
+}
+
+/** 单条 IP / CIDR 是否合法（v4 或 v6，可省略前缀长度） */
+export function isValidAddressPrefix(s: string): boolean {
+  return parsePrefix(s) !== null;
+}
+
+/**
+ * 规范化一组 IP/CIDR：去空白、v6 转小写、去重、排序（v4 在前按数值 + 前缀长度，v6 在后）。
+ * 保留非法条目（由调用方报告），以便把用户输入原样回显。
+ */
+export function normalizeAddressPrefixes(list: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of list) {
+    const s = raw.trim().toLowerCase();
+    if (!s) continue;
+    if (seen.has(s)) continue;
+    seen.add(s);
+    out.push(s);
+  }
+  const keyed = out.map((s, i) => ({ s, i, p: parsePrefix(s) }));
+  keyed.sort((a, b) => {
+    // 非法条目排最后（保持输入顺序），其余 v4 → v6
+    if (!a.p && !b.p) return a.i - b.i;
+    if (!a.p) return 1;
+    if (!b.p) return -1;
+    if (a.p.family !== b.p.family) return a.p.family - b.p.family;
+    if (a.p.key !== b.p.key) return a.p.key < b.p.key ? -1 : 1;
+    return a.p.bits - b.p.bits;
+  });
+  return keyed.map((k) => k.s);
+}
+
+/**
+ * 把排除列表写进**所有** TUN 入站（就地改 doc，调用方负责先 structuredClone）。
+ * 空列表表示「不排除任何地址」——那会让所有流量都进 TUN，面板需要提示这一点。
+ */
+export function applyTunExcludes(
+  doc: ConfigDoc,
+  list: readonly string[],
+): { ok: boolean; reason?: string; invalid?: string[]; tun: number; before: string[]; after: string[] } {
+  const after = normalizeAddressPrefixes(list);
+  const invalid = after.filter((s) => !isValidAddressPrefix(s));
+  if (invalid.length) return { ok: false, reason: 'invalid', invalid, tun: 0, before: [], after };
+  const targets = tunInbounds(doc);
+  if (!targets.length) return { ok: false, reason: 'no-tun', tun: 0, before: [], after };
+  const before = tunExcludeAddresses(doc);
+  for (const b of targets) {
+    if (after.length) b['route_exclude_address'] = [...after];
+    else delete b['route_exclude_address'];
+  }
+  return { ok: true, tun: targets.length, before, after };
+}
+
+/** 常用预设：RFC1918 / 链路本地 / 回环 / CGNAT / IPv6 ULA 与链路本地 */
+export const TUN_EXCLUDE_PRESETS: readonly { cidr: string; label: string; hint: string }[] = [
+  { cidr: '192.168.0.0/16', label: '192.168/16', hint: '常见家用/办公局域网' },
+  { cidr: '10.0.0.0/8', label: '10/8', hint: '私有 A 类；EasyTier / 内网常用' },
+  { cidr: '172.16.0.0/12', label: '172.16/12', hint: '私有 B 类；GL.iNet 侧常用 172.16.8.0/24' },
+  { cidr: '100.64.0.0/10', label: '100.64/10', hint: 'CGNAT / Tailscale 风格网段' },
+  { cidr: '169.254.0.0/16', label: '169.254/16', hint: '链路本地（自动分配失败时）' },
+  { cidr: '127.0.0.0/8', label: '127/8', hint: '回环' },
+  { cidr: 'fc00::/7', label: 'fc00::/7', hint: 'IPv6 唯一本地地址（ULA）' },
+  { cidr: 'fe80::/10', label: 'fe80::/10', hint: 'IPv6 链路本地' },
+  { cidr: '::1/128', label: '::1/128', hint: 'IPv6 回环' },
+];
