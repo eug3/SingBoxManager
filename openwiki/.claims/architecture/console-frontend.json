@@ -1,0 +1,378 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:b9dd9d311dbec7ce02284616ac8511a5c9f4de3e3209411d9bd30b0a88ef5bc2",
+  "claims": [
+    {
+      "id": "claim_8503740889e64720b81b1dc77f4c9bc9",
+      "statement": "The console (web/console) is an Angular 22 application built with standalone components, signals and zoneless change detection, and it wires no Angular Router: main tabs and per-backend sub-tabs are switched by plain signals (appConfig provides only error listeners and fetch-backed HttpClient; bootstrapApplication starts the standalone App).",
+      "evidence": [
+        {
+          "resource": "repo://docs/architecture.md#L132-L132",
+          "version": "repo-lines-v1:sha256:321cb76c81f1e3851dd5d19e900c308a07113e768de6f20e67028dd07c95362d:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMzIxY2I3NmM4MWYxZTM4NTFkZDVkMTllOTAwYzMwOGEwNzExM2U3NjhkZTZmMjBlNjcwMjhkZDA3Yzk1MzYyZCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMzIxY2I3NmM4MWYxZTM4NTFkZDVkMTllOTAwYzMwOGEwNzExM2U3NjhkZTZmMjBlNjcwMjhkZDA3Yzk1MzYyZCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMTQzNmYwMjlhMDBlZWQ2Nzc2NTFlYTQ3YWM1OWIyOWY1ZDBiZWEwMmY5ZDY3NGMwMjEyMzU0ZWQ5MWE4Mjk4ZSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMjJkZjU0ZTE3N2E2YTgwZTUxYTY3MDc5MzU4ZWI2YTNjZmZiZjZhYTEzMjg3M2E0NTg4NWZhMjYyZmYxNTUyMiJ9"
+        },
+        {
+          "resource": "repo://web/console/package.json#L2-L10",
+          "version": "repo-lines-v1:sha256:73e03a8d65c8d6dab156c781d50a4eb762d3465d1eaf6bc98c6e85216f7dd8f4:eyJzZWxlY3RlZExpbmVDb3VudCI6OSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiOTYwYTgxZDg0ZTA3YWQ2OGM5YzI4N2UxY2MyM2NkMDA1Y2I4MGQ5YWVhYWM4ODYzMTAyOWMzZTQzZTY0NDNlNyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYjdjYjc1NmM4MjJhYTY1YWZhZjc0YjhjMTRlZDI0MmIzYWE4YzlmZjA0NzM2YmIyMGEzODBkMmZiYjVmNzBkMyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjEsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYTZmYjA4ZmRhMWFjYjk1N2I2MTE2YmQzNzgxMWExZmU0MWEwMTYxMWMwNjMxZWRiZjc4NmQ2ODg5YTI3YTU1YyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYjRjN2NjMTJlMzlmOGZiMTYxYzYyOWIxM2U2ODJkOTMyYjQyZmUzZWQ3MzllYmEzMjJjNWE5MDYzOWYwMGE2MSJ9"
+        },
+        {
+          "resource": "repo://web/console/src/app/app.config.ts#L1-L11",
+          "version": "repo-lines-v1:sha256:7dd662b3b274cc69c665acf04883293bcf07dc2a4743aea4fd566ce3f2539455:eyJzZWxlY3RlZExpbmVDb3VudCI6MTEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImViMzExMTU2NjU3MDZhYzZlZDRmZTY2ZDE4YWQ1MzYxMjJiNjJjOTdhZWY0ZTAwNTg1ODI0ODM0OTliMThlMGEiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImFhMWQxYTYzMzkwMjI5Yzc5ODM0N2U4M2EwNDA1NDQxYzk0MDAwMzUyODRhZDE2OGMxYmY2Y2RmMWQ3MGEzNzAiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjowLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUifQ"
+        },
+        {
+          "resource": "repo://web/console/src/main.ts#L1-L11",
+          "version": "repo-lines-v1:sha256:136e52519dffb3c563ab4136dbf81973d897fc952ad8ff4ea4034cb016f0a1aa:eyJzZWxlY3RlZExpbmVDb3VudCI6MTEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImVhZjIyY2YwNzMyNTkyYzI0NzE0MWNiZTYxZWZhMTEwMTI2MTJmNWEzMTIyYjlhZjliYmFmNTJmNTcyNGQxOTQiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjE4ZGM2MzJlYmJmM2Q5OTFjN2MxYTYwZTQ0ZjI5MmVhYzFiOGEwM2UzNDBmOGJhODFmMmU0OGQ1ZGI4NzI3YzYiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjowLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_bf1211baf3324396a146fd924f0b4cc1",
+      "statement": "The console is organised into four strict layers: root shell (app.ts), per-router panel (backend-pane.ts plus child components), a root-provided Injectable service layer owning all HTTP boundaries and shared state, and Angular-free pure-function modules (config-ops, connections-model, flow-model, node-form, share-link, line-diff, group-board-model, rule-model, util) that carry all structured logic.",
+      "evidence": [
+        {
+          "resource": "repo://docs/architecture.md#L132-L186",
+          "version": "repo-lines-v1:sha256:ef58ef90a220a41049d076770cf0826ebb8ced76b05950397ee0b0148adbacf5:eyJzZWxlY3RlZExpbmVDb3VudCI6NTUsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjMyMWNiNzZjODFmMWUzODUxZGQ1ZDE5ZTkwMGMzMDhhMDcxMTNlNzY4ZGU2ZjIwZTY3MDI4ZGQwN2M5NTM2MmQiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjQ3YzA2YzU2MWQ1YzMyNzM0MzY4NTI2OGE0NmIzMzkxZjM5OThlZWU4OTBkMmJlNTFmMGQyMWNjNGE1M2FlNmQiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjE0MzZmMDI5YTAwZWVkNjc3NjUxZWE0N2FjNTliMjlmNWQwYmVhMDJmOWQ2NzRjMDIxMjM1NGVkOTFhODI5OGUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjA1OGE4YzkxYmU2MDQ3ZjAzODhjOGY3YjZmMDI0NjVhNDA4YzcyNjZkNjQyYjQ5NzlhNDUwZGY4MTViNWFiMmUifQ"
+        },
+        {
+          "resource": "repo://web/console/src/app/config-ops.ts#L1-L8",
+          "version": "repo-lines-v1:sha256:9bb8098c74439d78582b108f01084dffd4faefc51db8e55e8dbe78aeee6f72d0:eyJzZWxlY3RlZExpbmVDb3VudCI6OCwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZWFmMjJjZjA3MzI1OTJjMjQ3MTQxY2JlNjFlZmExMTAxMjYxMmY1YTMxMjJiOWFmOWJiYWY1MmY1NzI0ZDE5NCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMDFiYTQ3MTljODBiNmZlOTExYjA5MWE3YzA1MTI0YjY0ZWVlY2U5NjRlMDljMDU4ZWY4Zjk4MDVkYWNhNTQ2YiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjAsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZTNiMGM0NDI5OGZjMWMxNDlhZmJmNGM4OTk2ZmI5MjQyN2FlNDFlNDY0OWI5MzRjYTQ5NTk5MWI3ODUyYjg1NSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNzBiOWU3MGI5NmI3MzA5Zjg3NDMxYWFmOWRjODBkMTRiNGU5OTY0YWIxZmNmMzE0N2I1ZmY1YTRiNmY0Y2ZhMyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_40d2b8e8e3cb41ab8b8e6724c888f7b3",
+      "statement": "The App root shell owns: the `active` signal for main tabs ('b<n>' backend panels, 'edit' rule editor, 'pool' shared panel) with an activeIndex computed that clamps to the backend list; per-backend sub-tab memory (panes signal, restored via initialTab input and tabChange output, reset on reload); the storage status dot driven by ShareHealthService.start() probing /share/health every 30s; the origin trust banner comparing location.origin to PAGE_ORIGINS; and the footer showing CONSOLE_VERSION plus a sing-box version probed via ClashService.",
+      "evidence": [
+        {
+          "resource": "repo://web/console/src/app/app.ts#L128-L156",
+          "version": "repo-lines-v1:sha256:fc646f5797bce32c7e5a97f4b89553d52e259edbfc3c5a31a4de228b01668da7:eyJzZWxlY3RlZExpbmVDb3VudCI6MjksImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImFmMTI0Y2Q1MjMxZjBhYzYyYTc0OWM1NTFlNDAyZDA4MWE1ZGY0ZDRiNGU0Y2Y5MDY3YjdjZmRkZjMxNmJiYmYiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImU3N2ZjOGEzMzNhMTM1NmE1YjQ2OTdkNWMxNjIxODdmNGY2M2IwYTk5ZDE3Y2M5YWY0MDhiMzQ0MjQzMzdhYjIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImMzMmY2YzZkYTNmMmRlOGM3MDAxM2E1ZTU4ZTU5YmI2YmFiMGU3YWQ3MzhiYTE5MDYwMWU1MWMwMGIwZTg2MDMiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjEyNTQxMmFhMmZjOGU1YjhmZTgyZTBmZjgyYmI4MTllNTYzMWRlZGI4YTE2ZjY4NTU4ZDBiNDczZmFlMDgwOTgifQ"
+        },
+        {
+          "resource": "repo://web/console/src/app/app.ts#L44-L76",
+          "version": "repo-lines-v1:sha256:12ed5f1711cda344862eb0e4ab695c2b8e02b53af71e68b96e44088bc4d892f2:eyJzZWxlY3RlZExpbmVDb3VudCI6MzMsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjM1MTQzZTZiYmEwMDAxNWFkNjBlYTM5Njg2MWE1ZjA2NzUwN2QzYWMwNzI5ZDhlMDIwYzllYjUwYzExODRiMjciLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6Ijg0NjliODQxMWU1NmM1Yjc3ZWMxNjY0MzFhOTMzN2JmYzgwYTAyMzE1ODYyNjNhYjE0ZTMyNTY0MzU4NTYwZDIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6Ijk5M2U3YWJlOTFlZTI0NGZkOGJiMDI5OTk5NTk3ZGUwYzkwN2JmMTk1ZWNmNDFhNjVjYjg2NjFkZTA2NzY2N2EiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjBkYjI4Y2MwZTZlMGJlZDg3MTNiNzE5MjYxZjZiZWE0MmU4ZWFmYzMwMTEwNTZiMjI5YWUwMzRhZDYwNTUyOWMifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_c15bb2a99b324a74a38d5de79643fffe",
+      "statement": "Only the active backend tab is rendered: app.html materialises activeIndex() as a one-element @for array with an explicit `ai !== null` guard (index 0 is falsy), because a nested @if inside the backends loop created the pane twice on every tab switch.",
+      "evidence": [
+        {
+          "resource": "repo://web/console/src/app/app.html#L42-L58",
+          "version": "repo-lines-v1:sha256:dc15ee48fdf7d9cb938c5c636f5d685dead6c12743dbbe4dbbf0e48d520d39e5:eyJzZWxlY3RlZExpbmVDb3VudCI6MTcsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImEyMjFlNTZiZDFiNTk5YjdhOTcyYThjOGM3NzkzYmM2OTZkNzczMDQzZjA1MzU4NzliNDJhZjA5ODgxZDFkZmUiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjQ4OTNmNDBlMzc4MWViODk2YzgyZDA0NmEwODA2N2ExMWUzNWNkZjJmMWRmYWYyNmZlYTkwYjhkYjY2NzY0MTMiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjE4M2FmOWU3Zjg4YmE0NDFjMzdhMjc5NjNlMDMxOTVjMmQ1MDM0NDI4MDdiZjEzNzk3ODExMWUwMjBjYjQyMGYiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImI4MjRjNTE0Y2UyM2E5NGNlYzAyNWIyNGEzNjc2YWZlYWUyZjFiYmIxYjRlNzQ5MGVmY2EzMTY4YjE5MTA5OTgifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_13a06c2e34904b0280f7dcf75652ad97",
+      "statement": "BackendPane hosts the seven sub-tabs (PaneTab: overview/groups/connections/flow/logs/rules/config) and centralises per-tab side effects in enterTab: the log WebSocket is opened only while the logs tab is active (?token= query auth, sing-box accepts nothing else, 300-line buffer, auto-scroll only when pinned to bottom) and is closed on tab leave or destroy; the runtime GET /rules table is lazy-loaded on first entry; overview/connections/flow/config acquire their own data on mount.",
+      "evidence": [
+        {
+          "resource": "repo://web/console/src/app/backend-pane.ts#L313-L318",
+          "version": "repo-lines-v1:sha256:39ef133c80fe57842e0ccca44ce8d4af4be0aa4eae8aab24ec93701a15ebd024:eyJzZWxlY3RlZExpbmVDb3VudCI6NiwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZTkzMjMwY2MyMmUzYmJiMDZlODYxMjNlMDhjMzVkMjUwYzAxMTQzMzA3ZGFkNzM3ZTQxMTlmNDRiZDgxOGNlZCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMDFiYTQ3MTljODBiNmZlOTExYjA5MWE3YzA1MTI0YjY0ZWVlY2U5NjRlMDljMDU4ZWY4Zjk4MDVkYWNhNTQ2YiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMThhYTAwNmJkNTk3ZjExMjc0MjhhN2FmZDExZGU0OTM0OTBmY2RlMzJmNzllNjE4MTIwMTMxZDc1ODE0OWZiOSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiODU5ZjcyODkyOWI1MDk2ZGZkYWZmODgwOWViNTg1ZTMwNzJhZWZlODgwZDI1NTI5NzJhZmZkNjZhZTQ0YWE4NSJ9"
+        },
+        {
+          "resource": "repo://web/console/src/app/backend-pane.ts#L402-L440",
+          "version": "repo-lines-v1:sha256:e729b682722716eb1ad9967f674755e42bf9cb49258af69ae0bca46a4378b365:eyJzZWxlY3RlZExpbmVDb3VudCI6MzksImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImJiNzE0ZGNjYTFlN2Y2YzhiMGEzMmJlZTUyYjI1YzZkMzExNzc2ZGIzZDJmMThhNTBkNzY3NmMzMWEyMDgwYjMiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImVhNDg5MWMzOWYyMGNkYTc0ZmYzZGEwZmU5OWZkYjk1OTYyNmYzOTgwOWFhZGFiMjg2NzgxMmIzZjc4MDdjNmMiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImZhMzJhZjFkYzIwMjg0MzcxY2ZiMmJmN2MzMmNmNzVhZDY0Njc2Zjg3YWM1N2Q0MWQ4MjcwNTQ2YWUzNzA5ZDQiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjlhZDgyY2ViYWYzMWRiOGUwZDA4ZDQ5ZDViOTU3MDZlNTM3YmYxNjk3YTM3YTYxNTk3MmZkYjEwOTY0MzYxNGYifQ"
+        },
+        {
+          "resource": "repo://web/console/src/app/backend-pane.ts#L49-L58",
+          "version": "repo-lines-v1:sha256:f2bca4fe201a9aa55d5e6d060f12b918d851aa9c3bce72f13d36b158ab19ebbb:eyJzZWxlY3RlZExpbmVDb3VudCI6MTAsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjIxYzE4NTJhZWY3YWM1MmY2Yzc1MWE0NGY5MGI2Zjc1YzM2ODNjNzJiMDIxM2NmNjU1YmQ0Nzk4Njc0MGVhNTIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjBmMGU5MTUxNDYxYTYyNTc2MGExZTJmNzFlNzFhMTk5MmI2NWVkY2VlZmM4YWFkZTdmNzIxM2ZhNGVhYjNjYmUiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImMwMGE5MjgxNTkxYzIzY2Y2NGM4OGRhYjQ3NjVjZWI4ODcxZWMyMmI3YWQwNDU4Y2QwZWQ1ODhjZmU4ZDdlYjEiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjIxNzE2YjYxMDk5OGU3YTVhMmM1NTFmMTc0OWRkMTI4ZTI4ZDlmNjVlMWNkMTcxZDg4MTQwYTU2MGI5NDE2YjEifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_cfde21f0e6954512b94af54abff93cbe",
+      "statement": "BackendPane hosts the cross-tab pending-save bar: flow-page dialog edits are staged in ConfigDraftService and survive sub-tab switches until 保存并重启; runSave() drives the SaveProgressDialog with estimated step timing over the single blocking apply call, classifies failures onto the failing step with an actionable hint, and a missing-credential outcome (needCreds) opens SshCredDialog and auto-retries the save after credentials are stored.",
+      "evidence": [
+        {
+          "resource": "repo://web/console/src/app/backend-pane.ts#L515-L620",
+          "version": "repo-lines-v1:sha256:ba8278fe8a1c444009b42bc9af4c42bd07a9a5fbcdf6a78927a44f04af05be3a:eyJzZWxlY3RlZExpbmVDb3VudCI6MTA2LCJmaXJzdFNlbGVjdGVkTGluZUhhc2giOiJmMWFiOTAwY2VkZjRhYjNlMWNkNDNjYjg5ODExZjdmNjdkOThjYTRkOGZlYTBhNzE2ZGYzZjA2MmQ3NGFlOWQ0IiwibGFzdFNlbGVjdGVkTGluZUhhc2giOiJkMzc0MjYxMDg2MDhjNDRlYzM2MGFmNGY4MWI0YzcyY2RlNzI4YzA5NmQ4MzQzMzQ2MmYzNTdhOTJlMWZkMDhkIiwicHJlY2VkaW5nQ29udGV4dExpbmVDb3VudCI6MywicHJlY2VkaW5nQ29udGV4dEhhc2giOiIzOTJkMWQwOGY1NDAyMjI0ODJlMjNlZjIzYjNjZjhmN2E5NzQ2Mzc2MDVjODdiNzFiN2YxNTFiMDMwZDg1N2I0IiwiZm9sbG93aW5nQ29udGV4dExpbmVDb3VudCI6MywiZm9sbG93aW5nQ29udGV4dEhhc2giOiIwNWM2M2UwMmZkNGFlZWI3YzY2ZjdmZDI4ZDI0ZjRiMDEzNmM2ZWFiNDk1ZWQxZGM4ODE3ZDdhZjVkYzk1MzY3In0"
+        },
+        {
+          "resource": "repo://web/console/src/app/save-progress.ts#L1-L22",
+          "version": "repo-lines-v1:sha256:7bf3366f714ae5c6f560337a0b29103160b9b6d56a429703b09d6ed06b1b2572:eyJzZWxlY3RlZExpbmVDb3VudCI6MjIsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjExYzg2OTRkMmI2NTE3YTkwYmRjNmE1NjdmYzUzZWExMmFhMjNkMWNmMmJjZDYyYTJlOGU5MDgzZDk5MWViOTYiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImFmNGNhMTAxM2MwOGM5N2JhNDIwOGMwNTQ3ZTc5ODE1YzgxMmVmNjg5ZDlhYTI0NmU3MTk1ZTg1Nzc0MzJmYjEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImI2YjY0ODczMzkwMzIyZTUwZGQxZDA2NGYxMWZiYTVjZTQ2NzcyMDcxZDRiYmRiMGJiYTg4YWMzMjQ3ZGI4NzcifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_54f9626ab1584e529d9c07a8b1bda880",
+      "statement": "All console services are Injectable with providedIn:'root'. BackendsService persists the backend list and global key in localStorage (clashBackends/vaultKey) with memory-only drafts and keyFor(b) = per-backend key falling back to the global key; ClashService is the direct-browser clash_api client using Authorization: Bearer for REST and ?token= for WebSockets because sing-box only reads the query parameter; VaultService owns /rule-set/* reads and POST /publish with X-Vault-Key plus a front-end validate() pre-check mirroring the server's key whitelist; RouterService is the /router/* client sending X-Vault-Key = keyFor(backend) (server accepts VAULT_KEY or the router's clash secret) with apply(config, expectSha) as the optimistic-lock write; ShareHealthService probes /share/health and exposes /share/config|probe|import and public-rules preview/apply.",
+      "evidence": [
+        {
+          "resource": "repo://web/console/src/app/backends.service.ts#L18-L73",
+          "version": "repo-lines-v1:sha256:7f143b5abea2f20a3ac78a0272a863d933bdad9cd09358b051f597d7e86058ad:eyJzZWxlY3RlZExpbmVDb3VudCI6NTYsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImU2YTMwYTExMmU0OTIwMmQ1YWU3Nzk3YTM2NjBjMWM2ZGFlOWY5YzU2YmJmOTY1ZjY4OWE1N2UzNzkzZGEwYmQiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjI3ZTU3ODhkNWQ5ZDczZDI0YTgxZGJjMGE1YTc0YmZhODJjOWMzYjNhZjk5ZTUyYWY3OTZlOTBiNDY4YThhM2QiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjgzODMyNGE0ZTNjYmFlMGU2YjhiNGUyMWM3M2IzZjU5Y2UyYTBlN2U4ZjMwYmYzYzdiYTFjMWQxYjM3YTViMTIiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjJiM2UyYWM3YTZiMTYwNmYxMTg4OGJmYTVkNGRlODljNGY5NDJmYzgwNjg2ZDc0ZmYxYzcyMDQwMTk3NzRjNjEifQ"
+        },
+        {
+          "resource": "repo://web/console/src/app/clash.service.ts#L6-L25",
+          "version": "repo-lines-v1:sha256:9fe6b5c810140489ee47856e49ecc0ac0febd840df9c0fbf5561dbd5daf5170c:eyJzZWxlY3RlZExpbmVDb3VudCI6MjAsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjAxYmE0NzE5YzgwYjZmZTkxMWIwOTFhN2MwNTEyNGI2NGVlZWNlOTY0ZTA5YzA1OGVmOGY5ODA1ZGFjYTU0NmIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjI3ZTU3ODhkNWQ5ZDczZDI0YTgxZGJjMGE1YTc0YmZhODJjOWMzYjNhZjk5ZTUyYWY3OTZlOTBiNDY4YThhM2QiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjVlODMzNTIyNjc0N2Q1YmQyYmNmZWIyNTE1MTdhMmFlOWEyNjNjNTA5ODY0NzFjNWQxNWZmN2IxZDY1ODEyMzYiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImY3NGJiOWI4Y2I4MWRhZWQ3OGUxMTlkNmMzMWE4M2MyM2QwNTg0N2M4MzU3OWU1OWM0NjljZTVmN2NjYjBiNTAifQ"
+        },
+        {
+          "resource": "repo://web/console/src/app/router.service.ts#L80-L177",
+          "version": "repo-lines-v1:sha256:637da100d28400d8d601ed7f427d6e87b649868fdcc24a913f165c3a8fc797d1:eyJzZWxlY3RlZExpbmVDb3VudCI6OTgsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjAxYmE0NzE5YzgwYjZmZTkxMWIwOTFhN2MwNTEyNGI2NGVlZWNlOTY0ZTA5YzA1OGVmOGY5ODA1ZGFjYTU0NmIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImQxMGIzNmFhNzRhNTliY2Y0YTg4MTg1ODM3ZjY1OGFmYWYzNjQ2ZWZmMmJiMTZjMzkyOGQwZTkzMzVlOTQ1ZDIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjFiNjA3ZDg4ZDcyMTlhNzM2YjQxMGZhOTU3NmRlOTY4NjllZDNjYWExMTFkY2QxYjM5OWZlYjE1NmI1OWIxMjkiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjowLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUifQ"
+        },
+        {
+          "resource": "repo://web/console/src/app/share-health.service.ts#L89-L150",
+          "version": "repo-lines-v1:sha256:6342b494994cb8ea64e447cb11f6ebfe34b10fb8bde0ab82a71a94b6f0b8b79d:eyJzZWxlY3RlZExpbmVDb3VudCI6NjIsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjZkNTUyNDRjMGEzM2E5YzEzODgyMTVjMWE2NDVmN2I5YWQ2YTg0ZGRlOTE2NDc1YzQxYzRmZWEyN2ZiMTc5ZjgiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImZlNTQwYThkYzMzZjc5ZDQyZjBjM2ViZmNjMjE2YjU2ZTVhNGM2Y2YwODNkMDk2MDlkZjcwYjNhZmFiYzZmNDkiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjVhZmQzYjIxNzhkZjhhOWVlZjUwYjBmMzM2ZmE5ODQzOTNjZTZiZmU3MDU1N2QyNGI1ZWU1ZTJkNThlNjMzYzciLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjgyZTk0MjFlZWIxY2Q4N2YwMWQzZGYwYzEzZTljZTQ4YTMwOWFiYmFjZTU3YjNjYmY3ZGZlNDY2YTY3NTYwN2YifQ"
+        },
+        {
+          "resource": "repo://web/console/src/app/vault.service.ts#L44-L131",
+          "version": "repo-lines-v1:sha256:00f707feb79505f607dcb4169caf50bc4a06a7fa7cad80f06ac4e93dbcf6c610:eyJzZWxlY3RlZExpbmVDb3VudCI6ODgsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjZkNTUyNDRjMGEzM2E5YzEzODgyMTVjMWE2NDVmN2I5YWQ2YTg0ZGRlOTE2NDc1YzQxYzRmZWEyN2ZiMTc5ZjgiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImMwN2ZjYzg0M2Q3MWJiYmE4MzY5NjAwOTQ3YTRlMjgwNWU1ZDQzYjk1NWMxOGEzM2Y0YmQ4NWE4NjMyNGM0MzEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjRlNTU4NWM4YjM3NmRlMjU5NGUzMjJiYzY3NTcwNjg4YjEwYzMyMDU0NjA0NmQxYzM0YmNlZmM1NjBhNjc3YzgiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjQ4ODRiY2MzOTNjMzgwODkzNDAyYTg5ZGQ4ODZiYzQzNzk4NWZkMDQ0YTE0MmNlYmM5OTIyZWVkNGE5MGU4YjAifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_25cf12736d714890a0239b3262043c2e",
+      "statement": "LiveStatService is the sole /connections poller: subscribe(backend, ms?) registers consumers, same-backend subscribers share one polling chain whose interval is the minimum across subscribers (header 2s, connections 2s, flow 1.5s); each snapshot carries api and at so consumers filter by backend and de-duplicate by timestamp; the last unsubscribe stops the timer and clears snap; fetches are skipped while document.hidden and a visibilitychange listener catches up on return.",
+      "evidence": [
+        {
+          "resource": "repo://web/console/src/app/flow-anim.ts#L56-L59",
+          "version": "repo-lines-v1:sha256:52fed7792df1778b09aa6d80a09358d82c0c4f244b49385c00afed2d61bf0685:eyJzZWxlY3RlZExpbmVDb3VudCI6NCwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNDhmYWI5Mzg5ZDZlZjg1NjYyMTNkMWIwNjdkMWVkNTFlMjdjM2YyYjRlNjNkZmNjM2MzOGRlYjZkNDg4OTk0NSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNTU1ZjkyMzc5NDhmMGJiYzQ2MTJhNGE2MjNmMWEwODUxYWE1NDM3N2IwMDdjMDcxMDNlOTViMDFmNjRlMjIwOCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMTk3NDJmYjBiOTVmNjllZTFhNDYyNWUwNTUwYmI0MzYwN2JhMmI4MWNkZThjNjVmZGJjOTgyOTk1YWM1MTljNSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYjRhMzI4NDgwYzkwNWRhODIwZDQ2OTVkZTU5YmNjNTY5YTFmZGE5MjY4YTBkM2RiZmZhMmVlNmY3YjQ1NTA3MSJ9"
+        },
+        {
+          "resource": "repo://web/console/src/app/flow-anim.ts#L596-L598",
+          "version": "repo-lines-v1:sha256:d06346206995b0c0a4be080a7dab91e691c723dea6e418d5828d26ae285119cd:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMzk2Y2ZhZDAwMTkzZmQ3MzYzN2U1YzZiZDY0ZDA4NjIzY2Q2MDQyYTQ3YjAxNDZhMWFjYWE4Njk5YzdmYjdlMiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMGFiNjQyMzllMzJjNjg5Yjc4MDI2NWE0MzAyMzEzN2RiYzcyNjUwODkxYzJkZWViYjUwM2M0MTkyNjI5NmUzMSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMjY2NzQ4NjY3ODYyMTY5NmQ2NjBlMDY5N2RiNDMxODkyNzk4YWUyMTJjYTE1YTNlNTExYWYzZjExZWFhZjc4NCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiODhmMjY1MWQxNzgwMDA5ZmFjMWE2ZWI2Yzg0MWU4YmY0Zjk3YzQ5MTY0MDc4MDhkYWQzMTNjNjQ0Yjk4NjQ2MSJ9"
+        },
+        {
+          "resource": "repo://web/console/src/app/live-stat.service.ts#L24-L122",
+          "version": "repo-lines-v1:sha256:2a8000999d937cfc3cab2defe9db145cfb6bb2a4f69d52119c246ba1a52695a7:eyJzZWxlY3RlZExpbmVDb3VudCI6OTksImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImVhZjIyY2YwNzMyNTkyYzI0NzE0MWNiZTYxZWZhMTEwMTI2MTJmNWEzMTIyYjlhZjliYmFmNTJmNTcyNGQxOTQiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImQxMGIzNmFhNzRhNTliY2Y0YTg4MTg1ODM3ZjY1OGFmYWYzNjQ2ZWZmMmJiMTZjMzkyOGQwZTkzMzVlOTQ1ZDIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6Ijc5NzRkY2ZhMzIzYTc1NjZmZWFlMDU3ODk4YzRiNDhhYTE3ZDY0OTFmYWQ1NDRlZGRkYmQ4YzM1MTg0YzI0YjciLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjowLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_39f5946ebc56439589cac6c0b8670cbf",
+      "statement": "The connections page feeds LiveStatService snapshots through connections-model's ConnTracker.apply, which diffs adjacent snapshots into rate/idle/closed rows (rate = byte delta over interval, idle = time since last byte growth, vanished ids become closed rows capped at CLOSED_LIMIT 500) and de-duplicates processing via the snapshot's at timestamp.",
+      "evidence": [
+        {
+          "resource": "repo://web/console/src/app/connections-model.ts#L276-L356",
+          "version": "repo-lines-v1:sha256:dfed39b4e9ed04592da476d7b8975b909c2efae21bd8736cf3ee793dbf624c78:eyJzZWxlY3RlZExpbmVDb3VudCI6ODEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImYyZjVlNjhhZTc0ODU5NTU4NmUzNWQwYTJhMmJjNGMwZTAyMGZhNTBmNDU2ZjU4ZmI2MTc1NzcxOWQzYzYxZjkiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjAxYmE0NzE5YzgwYjZmZTkxMWIwOTFhN2MwNTEyNGI2NGVlZWNlOTY0ZTA5YzA1OGVmOGY5ODA1ZGFjYTU0NmIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjMzMDQ0MjllYmMxY2U1NzgzM2U1ZTgyOTMzOGIxNjUxOTFhYTdmNjJmMjM0N2YxMjAyMTNkYjQ4NzViMGMwOTEiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjdiNWExZGQyYjAxZWYzNzQwMDU1MDMwNjE5MzkwOWI0MGE4NjMxM2FmZTBlOGRhMWEwOTdmN2EwMmI3ZDc4MzAifQ"
+        },
+        {
+          "resource": "repo://web/console/src/app/connections.ts#L258-L289",
+          "version": "repo-lines-v1:sha256:1514aaa789c30bea2ff1161cba18fc40fde22f43c05b0e5bf1a41b71180e1760:eyJzZWxlY3RlZExpbmVDb3VudCI6MzIsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjIyZDExY2FmNDNlOTdlZjM2OWU2YmVlZDFhMjY4YmQwNTgzOGYyOWI5ZGQyNTRiZjY5YmE2NDg4NDE0NzIzNGEiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjViMGJhOWU2NDZiMWMzYTVhMTMxMzIwYzc2NGFmNDY3YTg3MjIzYjZmOTgxNmRmMmRkYmVjOTg0MmYxN2U5MzIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjZkYTMzN2FmZjQ5ZjE4ODYxMmFmZjY0Y2ViZGUwY2JkNzc5ZmExZWI3NGM4MDA4Y2U0NTI4NjE0NjUyOTRlYWYiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImY1NjdiYWEzMTNmMzcyZWQ5YzliMTExZThhZjdmNTM0NzI4NmQzYTllYzE2YmZmMjY1YzBkOTc0OWQzOWE5ZDgifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_731a68fd62ba4d4fb5515f28b201d8b5",
+      "statement": "serializeConfig(doc, like) re-serialises an edited ConfigDoc using the original file's indentation width (probed from line 2), CRLF/LF line endings and trailing-newline style, so structured edits produce minimal diffs instead of reformatting the whole file; it is the single serialization path for both staging chains (ConfigPane.enterReview and ConfigDraftService.save), and residual diff noise is limited to hand-tightened lines being normalised.",
+      "evidence": [
+        {
+          "resource": "repo://docs/architecture.md#L243-L246",
+          "version": "repo-lines-v1:sha256:95cd054486a935c2910da8cb9d858ad02961909e24b3c2cff36b62e55dc3613c:eyJzZWxlY3RlZExpbmVDb3VudCI6NCwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNDhiZmZmODcxNDk1OTQwMDY5MGU3OGEyOGE1MjhhZGNjYzk3NDkzZmY1YTY1YjEwMjc5MmJjZGQ4OWZmMjZiNSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNTNlMjk4ODM0M2U3M2UyN2ZhMDMxYWUyNDljMDAzNGEwMGM1Y2VhN2ZiYzk2NmFhYzJlYTMyMTdmYmYwMGZlOCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMzY2YTJlZDYxZGZlYjJjZmVkZjE5MTNjOGE3ZmQwMDNhZmJhYWI0ZTkzZGRiNTQ1ODBlMjkwNjcxMjVmMGY1YSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNWEzNDBhOGZmMjE5NDlkZWRiZGZhZGIxZWE1NTRjODY1NjdkMWRiNGU5OTNiYjQzNjA0MTU3M2M4MzkzOGNkYSJ9"
+        },
+        {
+          "resource": "repo://web/console/src/app/config-draft.service.ts#L115-L117",
+          "version": "repo-lines-v1:sha256:fdb8f5166bbdc3a7a4c7d3936ad09b3c8005b002111a69b594bbf7149bef95e2:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYTE1MGJiNjJkYzRiM2YzNWNmZDkyMGI1MWQ0ZjdkMzU4MjhmMDBlZjIzODkzNjRmNGEyMjU5Njc5MjVlYmIzNSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYjFiNTFhMTY0OGMzNjQ3MjczZTM3MWRkZGJjNjYwNjQxNzRjMjFjM2E0MzM1OGNhYTA2MjQ1ZjYwNzU2OWI5MiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMmVhNzc4ZGM3MTFmMmM0ODNkNTljNTdjOGI0NTJmNTY4ZTQ3NzI1ZTYyOTJlMTJjZmJjYWIyZDljNDMyZTJmMCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNTM5ZmI0ODlhNWM5NDM3Y2QyYzZlMGMxY2Y2MzJlZWZmYTRjOTMxMGI0NGMxOWYxMmNkMTRmYTI0Y2Q3YTk3OCJ9"
+        },
+        {
+          "resource": "repo://web/console/src/app/config-ops.ts#L39-L55",
+          "version": "repo-lines-v1:sha256:e66a5ab172df5f3c87bef5902d5c6b7b64def8954ad01b19b11a70fc1a978c52:eyJzZWxlY3RlZExpbmVDb3VudCI6MTcsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjAxYmE0NzE5YzgwYjZmZTkxMWIwOTFhN2MwNTEyNGI2NGVlZWNlOTY0ZTA5YzA1OGVmOGY5ODA1ZGFjYTU0NmIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjAxYmE0NzE5YzgwYjZmZTkxMWIwOTFhN2MwNTEyNGI2NGVlZWNlOTY0ZTA5YzA1OGVmOGY5ODA1ZGFjYTU0NmIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjMyNmNlNDhjOGM0OWY3Y2MyYzdmYjFjYmFhNTg2MWJmNTUwMTY2MjgxYjZkMmYwN2YxNTQ4ZDZjY2YyMzI2MWMiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImExYWJhYTgxZDZkMTM1ZjQ4MzQyNTVhNjIwYWU4ZDUzYzIyMjFlNGIzMmZjZmNhNTZjYTQ4NWQ5ZDI2MjI4ZjEifQ"
+        },
+        {
+          "resource": "repo://web/console/src/app/config-pane.ts#L565-L570",
+          "version": "repo-lines-v1:sha256:1b12e44222e7d7a82374fa4bb89bb25f00f3dcd068ee5a259e17c374e12ede75:eyJzZWxlY3RlZExpbmVDb3VudCI6NiwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZjgzNzA2N2Q4Njk3YTBlMjY5MTUyYmNhNmM2OTdmZWFjZTExNzg2NGEzNmNlODFkMmIyMGY0YWUxOWJmYWFmMyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZDEwYjM2YWE3NGE1OWJjZjRhODgxODU4MzdmNjU4YWZhZjM2NDZlZmYyYmIxNmMzOTI4ZDBlOTMzNWU5NDVkMiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMTI2NjU0YmE3MGIyNGI3NWM4MGFjYzc3M2QxOGRmY2VkOTIyOTFmN2JlZWJiNDMyYzg0YWZlYmI3MDJjNWRmOSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjAsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZTNiMGM0NDI5OGZjMWMxNDlhZmJmNGM4OTk2ZmI5MjQyN2FlNDFlNDY0OWI5MzRjYTQ5NTk5MWI3ODUyYjg1NSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_665f241324fa4e45b4e6e75f7df73e90",
+      "statement": "config-ops.ts is the structured-editor library for the whole sing-box config.json: accessors for outbounds/endpoints/route.rules/route.rule_set, node add/update/delete with deleteImpact analysis, addGroup, addRuleSet plus addRuleSetRef(s) with previewRuleSetRef/ruleInsertPoint (domain rules before IP buckets, new refs before the final fallback rule), moveRule, the applyRuleGroups/applyRegroupRows regroup engine, pruneOrphanGroups (keeps at least one group), normalizeOutboundTags (uppercase outbound tags with full reference rewriting, bucket tags untouched), and validateDoc as a front-end pre-check whose authority remains sing-box check on the router.",
+      "evidence": [
+        {
+          "resource": "repo://web/console/src/app/config-ops.ts#L1098-L1160",
+          "version": "repo-lines-v1:sha256:37452f2c34ffb3f61d059c9e523fcd9e10fe4f36a6db88c7533f73107ae3df01:eyJzZWxlY3RlZExpbmVDb3VudCI6NjMsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjU5ODlkNTYwNzEzMGVhMDZhMGNiZjc0OGJkZTIwMTExZmFkNTQ4YzJkZDBhNWYxZDkzZDkyMzI2NDdmYjliZmIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjQxMmNhMzQ1Y2NmNzViZjljMDgwNmJjZTY5NWJlOGRlODA4Yjc5OTg0MjUxYTdhNTRkMjAyY2Y2MTAxZGQ0NTEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjdmOWJiMTJmYTMwYTUzNGNmOGQ2MGNjMDEzMjEyYTg4ZmQxODRkZmEyNmE2MTc2YWU2ZTJhNjIyNTIzMzhjZjEiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjowLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUifQ"
+        },
+        {
+          "resource": "repo://web/console/src/app/config-ops.ts#L28-L31",
+          "version": "repo-lines-v1:sha256:0cd3573a895e6977ddf0d7aa6a1480873c9113525d39cabe53c25344d093c8b0:eyJzZWxlY3RlZExpbmVDb3VudCI6NCwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNjRmYjE5OWJjZDI3MjJiOWY5MGJlZGNlOTUzN2ZjODNiNjBmNjAyMGI4NzJkYTVlNWZlYmQ2ZDZmMDY2YWUzOCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZTMwYmNkNzFjNTYxODJhMGYzZDI3MjMzYmM4ODc5ZDhiNGVkMDYyNWFhM2ZhOTEyZjhiYWI2YTlhNTUxOGM1NiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZWRjNjYzZmYzNWY2ZGVhNjhkN2RjZjQ2OWUwYWFjMDExM2E0ZmE5MTZkZjFkY2M3N2M2NGE2MTg3ZmNkN2MwZiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMzgxZjdlMDQyNzQ4MTg1ZDRjMTc1Mzk5NjU5Mzk2ODViNDMxMWMzZTRiNmZkMmE2ZjkzMzU5YmM2NmQxMDBkZiJ9"
+        },
+        {
+          "resource": "repo://web/console/src/app/config-ops.ts#L292-L510",
+          "version": "repo-lines-v1:sha256:b09045e51bccc7243d8d08829f3dd159ea42d90d43d5a415c5ecde94dd757dfa:eyJzZWxlY3RlZExpbmVDb3VudCI6MjE5LCJmaXJzdFNlbGVjdGVkTGluZUhhc2giOiJiYmQwYjJkNDhlOGJkNjY0MmFkMDdlOTk0MTE0NTI3MWQzOGY5ZWM5YzM3YmNlMjczNTJkMWYzOWViZTY2OGM1IiwibGFzdFNlbGVjdGVkTGluZUhhc2giOiIxMTc2NjBhZDIxYzVlZWE4YzQyYmE3YTI2NWI5ZTkxNTNjZDZjYTcwYTRiYmM1MTIzNTU5YTgwYjFkNGJhNTYxIiwicHJlY2VkaW5nQ29udGV4dExpbmVDb3VudCI6MywicHJlY2VkaW5nQ29udGV4dEhhc2giOiJlZTFmNGQ5NWEzYmRhOGQ5NmE3MjUzODBlZDA1NmI1MWRmYjAyMmVhYWRiMTg2NjBiMWI2MGVkNDI1MzgwOThhIiwiZm9sbG93aW5nQ29udGV4dExpbmVDb3VudCI6MywiZm9sbG93aW5nQ29udGV4dEhhc2giOiJkYjAzYWRmMGEyZWY3Njk4NmVhNzExOTdkOTBhMzM1OGJhNDc4NjliMGYwNWI0MDU2NzMxZTQyMDg4OTJiMzk5In0"
+        },
+        {
+          "resource": "repo://web/console/src/app/config-ops.ts#L553-L585",
+          "version": "repo-lines-v1:sha256:74cb74fa615aa130aea86a6c7ad008b28c96746e7c2ba234b70e9ddd0c9ed398:eyJzZWxlY3RlZExpbmVDb3VudCI6MzMsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImJmMDQxYjYxNTQ1ZTBkMmZiNmI0NWZmZWY5YmNiYmQ5YTkwNTU3YjAzOGU4ZGM3MzUxNDVlMWZiMGZkZjI2MjIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjNhM2U0NmY5NDI3NmI2ZjZmNGVkMWYwMmFmNzhiZWY2YTJlZTFjNDM5ZGQ1NTg0Yjk3Mzk0ODMxMzIxNGQyYjciLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6Ijc3MWU1MjFmZTc5NTVhZDgzZTFkZTI1OWQwYjQ2MTcyN2IyNjViNTA4NzJhNGZjZTYzMWYwNGJjMzBiZTkyOTciLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjdiMjhkODJjMjg3MGI0NzYyNGY5ZDA0OWY2MDc0MDRhNzlmMWMyNjI5YzEzMzc2NGEwZWNlZTE5ZjE4YjM1YjgifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_a4dae744721046dda2c5ed57d4c10031",
+      "statement": "Edit/create dialogs (rule-set ③, group ④, node-create ⑤, rule-set-create, group-create, rule-regroup) never write to the network themselves: they clone the base ConfigDoc, apply pure-function edits and emit a new document via docChange, leaving the staging chain to the host — flow-page hosts call ConfigDraftService.stage (cross-tab pending bar → 保存并重启) while the config page calls ConfigPane.enterReview (serialized text + diff review → 应用并重启). node-create-dialog is shared verbatim by the flow page's ⑤ column and the config page; rule-set-create-dialog writes definition plus reference in one step but intentionally does not create NAS bucket files, checking /rule-set/index and directing the user to create and publish buckets in the rule editor first.",
+      "evidence": [
+        {
+          "resource": "repo://docs/architecture.md#L208-L215",
+          "version": "repo-lines-v1:sha256:f81007ebc647a45c12ebb413382e43cb49782f76d2dde90a0d5b440be8ea6441:eyJzZWxlY3RlZExpbmVDb3VudCI6OCwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYzY0OWFhOTlhNzUzOWRlODMzMTg1NWM3ZTI2ZjcyM2Q0MWFkN2ZkOGIzZTMwMzQ5NmRkYTJiMGEzMmUyNjY2ZSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNzNmZTk5NmZhYmE4MDBhNDNjYzk3ZDYxMWYzMjAwMDY5OGFlNjhjOTg4Mjc1NzYzYjlhZjQ4MWQ0NDU1MzJmYyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMjBkODFiMTMwNzM2NGE1NzljYWQ4Yzg4N2U1MjBlY2JjNTk5ZTE1NmI3MTM4YTIzMmQ5ZjQ1ZDQ1MjE2NTVmYyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYTA3NjYyZDhkYmNiMDQ1ODRlNWNlNjNjNDkzOGJlYzZjZTlhMzVkMThiODlkMGY2NWJhOWU0ZTA0ZWEzOWQxMSJ9"
+        },
+        {
+          "resource": "repo://web/console/src/app/backend-pane.ts#L497-L508",
+          "version": "repo-lines-v1:sha256:007baadee5e3c7ed335773bcfa806a18b8ca61a9ef5de87e0a582967a4ad79eb:eyJzZWxlY3RlZExpbmVDb3VudCI6MTIsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjkwYzE1N2JiZGRlNGIyMWQ1ZjBkMjA2ZTcwZjk4MDU2YWNjMGY1NDI5MTkzYmU3ODJkY2NmYjIzZWY3NGYwMmUiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImVhZjM4ZTIyMjQyYjUyZTcyNjQ3OGMwNWI1M2MwNThmZjRiYjIzMzUwMDk5Mzc3M2FjZDBhYTgyZjY3MzYyNjkiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjMyNzRkMGFjNWQwZjYwNzY0NWE5ZDUyMTk3NTkyNDkxMzU1ZGZhOWI5MGNkMWE4NjU3YTAxZmY4Mjk1MGJiMTciLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImEzMmI4N2VkNjE3MTAxMjQwY2JjNjEzNGEzY2MwZWRlMTc0MTExODhjYzBmN2E2MzNiZThlNDUxZmNjMmY2MWIifQ"
+        },
+        {
+          "resource": "repo://web/console/src/app/node-create-dialog.ts#L20-L33",
+          "version": "repo-lines-v1:sha256:3ca91015fe9b8cb2ce60ff7ba578a03c74a5765e206e2a2de0c6ec49686c2ee5:eyJzZWxlY3RlZExpbmVDb3VudCI6MTQsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImVhZjIyY2YwNzMyNTkyYzI0NzE0MWNiZTYxZWZhMTEwMTI2MTJmNWEzMTIyYjlhZjliYmFmNTJmNTcyNGQxOTQiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjNjN2ZhOThiODlkYjk0NjIzOWVlNjYwMjVmOTY0MTBjOWQ2ODExYzAzYjYzOWZkOWMxYjQ2MTE5MTcxMGVhYjgiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImY5ZDk5ODU0ODliNDAwZjNkM2I0NjM4Yzc4MTM1ZDY3MGQ1ZWRjNDY1ZDI2ZjQwZTY1YjYyMmQ4YmQxYWZlZTgiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjEwYmQ5ZjQyMTkyYWJjOWU4ZDEyYmJiYzNmNTc1YWQxNTI0MjBiMGU3MzJlNTBjMWRlNTNlNDNmNmE2NzNkM2EifQ"
+        },
+        {
+          "resource": "repo://web/console/src/app/rule-set-create-dialog.ts#L268-L281",
+          "version": "repo-lines-v1:sha256:3ce898e912a63e33637571bee3842b6d138a13c3f1f48d2dcbcefb9b69c24655:eyJzZWxlY3RlZExpbmVDb3VudCI6MTQsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImIxNjg1MzY2NTA5MWVhODFlNjcwYWY1MzU0YWU2Mjg2M2RkYmM4OTZhZjAwYTgwYTVhNWMwMWQ2OGFjYzE1OTYiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjM3OWU5MDdhOGNiM2Q4NjdmM2RiNGVhMGJiOGMzMjJjOTliNzhmMzM3NjQxOTRiM2E0ZjcwODc0ODA3Y2UwOWIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjY5YzEzZWNiODQ2MGI1N2VkYTg5MGMxNGNhZDRkNTU0Njg1NGQ5YzAyZWQ5NTVkMTA3ZmU2NjQ5NTVjZGJlNmIiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImY1NTMwYmQyMzU2ZGEwODEyMzhiNDNkNjRkNGU4ZTQ5ZjJjNDUxY2Y1OTdlNmRmOGU2NjY4NjA3ODZmM2ZjMTcifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_65a1836a6fc3404aabc39fa830f0455e",
+      "statement": "ConfirmService.ask({title, body, details, danger}) returns Promise<boolean>, queues concurrent requests and settles each independently; it exists because browsers can block further native dialogs, after which confirm() silently returns false — dangerous for destructive operations. ConfirmDialog renders it on a native <dialog> with showModal() (ESC and backdrop-click cancel, danger prompts focus cancel). ToastService.show/ok/error replaces alert() with a non-blocking bottom-right stack (auto-dismiss; errors stay 6.5s). Both are mounted once in app.html and driven only by their services.",
+      "evidence": [
+        {
+          "resource": "repo://web/console/src/app/app.html#L81-L83",
+          "version": "repo-lines-v1:sha256:0320cf2d1f2643b8195f62a47678628cc56e0be3b1499e5f64c58ef6d298e5e5:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMTc3YWU4MDA0ZDQxNGVlYjQ3NDBjM2YyMTViZjMwNGYyY2ExMzkwOWQ4NDgzM2QxYzBkNGE4NDQ3MmE3YjA1NiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNDMwODcyODM4NDIzMGE4NjBjZDAyZWQ0MzE4OTI3NTA1NDY2NThiMjY4M2Y0OWVmZmZlMDM1YzhkMjgzZDJiNSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNmE3ZGM5ZjE5YmQwMGE3MDczNmRlYjhjMzgwNTY4ZWQ3MWZhNzNmN2Y3NmM0NjA1ZDFhYzA4NGZiYTVkOGJhYSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjAsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZTNiMGM0NDI5OGZjMWMxNDlhZmJmNGM4OTk2ZmI5MjQyN2FlNDFlNDY0OWI5MzRjYTQ5NTk5MWI3ODUyYjg1NSJ9"
+        },
+        {
+          "resource": "repo://web/console/src/app/confirm-dialog.ts#L1-L86",
+          "version": "repo-lines-v1:sha256:305449be8d7bd7a2a6a3d6e12cf01a4e40f8dcf55c6dd49a392f957eb7514b9c:eyJzZWxlY3RlZExpbmVDb3VudCI6ODYsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImRkN2E3ODVmNTQwZjA4ZjdmYWM2ZGYxNTEzNGEyYzU3OTYwYzQxNGY3MDg1NWE4ODNhNDhkOTE1NmZlMzU0MjciLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImQxMGIzNmFhNzRhNTliY2Y0YTg4MTg1ODM3ZjY1OGFmYWYzNjQ2ZWZmMmJiMTZjMzkyOGQwZTkzMzVlOTQ1ZDIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjowLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUifQ"
+        },
+        {
+          "resource": "repo://web/console/src/app/confirm.service.ts#L30-L67",
+          "version": "repo-lines-v1:sha256:958d7a775fe6d02213f56ccc6b11ee47c117c5b9a6be02f0eab532c440dbfc6e:eyJzZWxlY3RlZExpbmVDb3VudCI6MzgsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjBkZTc3MGRiNzI5NjRhNDlhNDdhYWI4ZDFkNjk0YTM1ODc2YmZmNzRmNGYxNWMwNDNmMjg5ZWQyNDIyMTM3NTMiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjUyZTgxN2Q3ZGQwZDA1YjJmNDlhZDAxM2JmZmQ1YTg3NmQxMjhjMmE2ZGNlYjFhODdhNzk4MTEyMGIxODcxMGEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjEyYmVlZGM2NzEzZWQ1NTgwM2M0YWM1YzBjNDkyMjdkYzQ1ZTM4YmNkMjM0MDljNzM0YjQ4YzZkNGY2NzJlM2MiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjoyLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjZiYzVjOTBmNmE0MzQzMGQzYmZlZThhNjJhODU5YzQzNDMxMjM2YTM0M2RjMjhiZDkxYzFhNTA3ZGEwMzNkYmQifQ"
+        },
+        {
+          "resource": "repo://web/console/src/app/toast.service.ts#L20-L43",
+          "version": "repo-lines-v1:sha256:70e9f96572299f1bc1f782287690971d90a675173569989b9526bc841c971faa:eyJzZWxlY3RlZExpbmVDb3VudCI6MjQsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImJiMDVjYjMwYTQ4OTEzNmJhYWZmM2I2NmIwZTUzYjExZTYzZDFmOGI3MjRmZTU3YTA5OTYzOGEwMjlmYWI5OGYiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjY0ZTdkMTc1NDYzZTQ4YTdlY2M2MGExOWNkYzc1MTE4MzVmNWE5ZWU4MDRjMTk2NGY5ZTYxMTA5YWExZmU4MTgiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImMzZWQ0ZDZhNzQ4MDRjNDlmMmRiMWVhMTIxYjhhY2RmZWUxMzZlYjNhOTNmYmVmNzVhNjVlZDNjOTU2ZTFiM2MiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6Ijc1MTUzYmUwMTM4MjYyZWI2NWQzYzI2MmVlNTY2NGIxNzY0ZWMwYTBmNThkYjU3ZTE2NWE1YWY3M2JkMDQ4NDUifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_f1c8af4c1f3d43afb1c14c8e45359a1a",
+      "statement": "The 配置 sub-page is a staged pipeline: a connection gate when no global clash key exists (credentials are submitted to the 99 host then cleared from page memory), reload() records original text + sha256 as the optimistic-lock base, structured edits and Monaco hand edits only touch the staging text, pending = raw !== original drives the yellow banner and lineDiff preview, check() runs /router/check (sing-box check on the router), and apply() blocks on JSON syntax errors, confirms validateDoc issues as a danger confirm, and posts /router/apply with expectSha — a 409/STALE answer means someone else changed the config and the user must re-read; success re-reads the base.",
+      "evidence": [
+        {
+          "resource": "repo://web/console/src/app/config-pane.ts#L215-L262",
+          "version": "repo-lines-v1:sha256:18db82fd7af60ba07e38e360f6d8125af6068e8991b5a543dabcb10e0be1fb98:eyJzZWxlY3RlZExpbmVDb3VudCI6NDgsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImVkYjNmMzY5NzI0ZmY2MjkxZTc2NzdkZjdjOGJlYzdlMDg5MWMzNGE0NTVmNGE2OWQ1Yjk3N2ZkNTY5NjI1NmMiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImNjNzE1YTg0ZmI5NTI3MTdmY2I5NGFkNTkxMGMzMTNiMzIyNzMzNDZkZmJhYWUzYzMwMGU2ZmEwMjM0ZGI1ODYiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjUwMWFmYjA2ZTZhY2Q1NmU3MDlhYzRlZTNkZmZhYjcwYjZjYTcyYzk5MDY1NzAyN2Q0ZTkxZTM1NjU1NjgwYzEiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImY0Y2I0YWMxMjYzYzhkNmE1MGM4MTUyMTgzY2Q5YWU1NjA3MjljMjRjYTJlMzkxODAxNTY0YTRkZTI5NDRjMDkifQ"
+        },
+        {
+          "resource": "repo://web/console/src/app/config-pane.ts#L343-L416",
+          "version": "repo-lines-v1:sha256:88ff4bf2dd68119b805cd6949dcf254a9bcb82a0ee2ae4452e5d5d2db3e1b56b:eyJzZWxlY3RlZExpbmVDb3VudCI6NzQsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjI3ZTU3ODhkNWQ5ZDczZDI0YTgxZGJjMGE1YTc0YmZhODJjOWMzYjNhZjk5ZTUyYWY3OTZlOTBiNDY4YThhM2QiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjFkODViY2YzMjFhN2VkMDFiMWY5OWE2NGE4OWJiYWI1NmYzYjgwYjlkODA4NjRiMjcxNzMxZjVmOTk1ODNjM2UiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjcwOGQ0MGYzZjRhOGZmOGI0YWM1ZDU1MmEwNzVjOTgzNmRkNzMyZDczMDRiNWU2NmQxNjQ3ZDQwMGZjMTVkYzkiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImYxNzFmMDVkNGE3ZGFiMTcyOGI4NjAzMDgyNjA0MjYxOTcxMmM0MjJlOWU4N2I2ZjFhZTMyMWEyNjNlNGIxMWMifQ"
+        },
+        {
+          "resource": "repo://web/console/src/app/config-pane.ts#L566-L570",
+          "version": "repo-lines-v1:sha256:743c6212ea1d640b6295ab0c85427a81b410c1d41b78632e36aa23c23966231c:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNTZjMTQ3YWNkMWI0NDMzOGRlYTEzNjU1YmU4NjU5NmQxMzliMzcyNzM3NzVjM2EyYzY5ZGY0NzVjOGM1OTVlNiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZDEwYjM2YWE3NGE1OWJjZjRhODgxODU4MzdmNjU4YWZhZjM2NDZlZmYyYmIxNmMzOTI4ZDBlOTMzNWU5NDVkMiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZTcyNDJkNzZiM2QzYTE2YmQxMmRhYjNmZjhiYjM0NTJlNDVkZjkzNDc2OWIyZTY5MjBiNDc5NzM3OTFmNjAyNyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjAsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZTNiMGM0NDI5OGZjMWMxNDlhZmJmNGM4OTk2ZmI5MjQyN2FlNDFlNDY0OWI5MzRjYTQ5NTk5MWI3ODUyYjg1NSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_87a866d6a7e84213acff5e7b4b5a6a53",
+      "statement": "ConfigDraftService manages the flow-page draft: load(backend) fetches /router/config into originalText/originalSha/baseDoc and clears the old draft; stage(doc) holds the in-memory draft (cancel/refresh discards); save(backend) pre-checks SSH credentials on the 99 host (setting needCreds instead of a doomed apply), serializes with serializeConfig against originalText, applies with expectSha, and on success clears the draft and re-reads the base with 3 retries — persistent re-read failure degrades to a warn (配置已写回并重启成功…) rather than a false save-failure error.",
+      "evidence": [
+        {
+          "resource": "repo://web/console/src/app/config-draft.service.ts#L11-L141",
+          "version": "repo-lines-v1:sha256:76e5a33f9c7b5dd619d6c013ffdd703fbc19aa4632769e8f59efecfdb2f8615d:eyJzZWxlY3RlZExpbmVDb3VudCI6MTMxLCJmaXJzdFNlbGVjdGVkTGluZUhhc2giOiIwYjFlNWUxMjRmYmYzYjI4YzMzNTAyYjhiMjg4ODZkN2UwMjMzNjAwNjViOGJiMzY5OTVkZTM3ODIzOTA3ZTVlIiwibGFzdFNlbGVjdGVkTGluZUhhc2giOiJkMTBiMzZhYTc0YTU5YmNmNGE4ODE4NTgzN2Y2NThhZmFmMzY0NmVmZjJiYjE2YzM5MjhkMGU5MzM1ZTk0NWQyIiwicHJlY2VkaW5nQ29udGV4dExpbmVDb3VudCI6MywicHJlY2VkaW5nQ29udGV4dEhhc2giOiI0Y2VhN2Q1YzljYmEwODY2MWU0MzI5MmVhNTEzZWQ2NDAyYmYxYmZhMGFkMDJjMTBkZmU2MzhkZDY1YjgyZTljIiwiZm9sbG93aW5nQ29udGV4dExpbmVDb3VudCI6MCwiZm9sbG93aW5nQ29udGV4dEhhc2giOiJlM2IwYzQ0Mjk4ZmMxYzE0OWFmYmY0Yzg5OTZmYjkyNDI3YWU0MWU0NjQ5YjkzNGNhNDk1OTkxYjc4NTJiODU1In0"
+        }
+      ]
+    },
+    {
+      "id": "claim_1f2ce9f736ec41c18bd9f4cabc483d0b",
+      "statement": "The rule-editor main tab edits NAS rule buckets rather than the router: its file tree is the live /rule-set/index listing (buckets with a .json source only; .srs-only compile artifacts hidden), bucket names must match /^(rs-[a-z0-9-]+|bard-domains)$/, Monaco edits JSON with strict diagnostics, and publish posts to /publish — the server validates, compiles .srs, writes both files back to the bucket, and routers pull the remote rule-set on their ~60s cycle with zero restart.",
+      "evidence": [
+        {
+          "resource": "repo://docs/architecture.md#L37-L38",
+          "version": "repo-lines-v1:sha256:f777b34e0f1e3ee51fda42595d103bdf66ed998e7d9bfc46f31da4c4bc0044be:eyJzZWxlY3RlZExpbmVDb3VudCI6MiwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNDA4Nzc1NmU4NGNmYjZiNGM0YjZiZDRiNDY3ZDQ4MjcxNTIzZTY5NmM5YTE4ZjEwYWUzNmE4NjRkNTYwMGEzZSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMTg2NDc2MjBlMGY5YWJkZWY0ZmRkMmFhYjQ2M2JlYWM2MzhkNDUyYjdkNmU2NDE4M2YxYjcxNTg4MjYwYjFhMyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZTgwZDM0ZjlkNzMyNmIzNjUwOTVlZTAzZjgxNjgyMDExNGQ0NWQ0Njc0NTc4ZGFmMDBjNWY5ZmZjNmY0Zjk3NiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYmFlZjQ4ODNlNzkyYTc1NmEwMzJjYWUzZDUxNzUxNGUyZWJiNWY5MWZjYTk0MjY5YTEwYzVhNjViNmYwNWM5NSJ9"
+        },
+        {
+          "resource": "repo://web/console/src/app/rule-editor.ts#L13-L58",
+          "version": "repo-lines-v1:sha256:b87cca1d9ac48ae1afa8658ebfeb5d5483cfa38b74cca7d93f5c861b7a2d9016:eyJzZWxlY3RlZExpbmVDb3VudCI6NDYsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjBhZjBhNTAxYmRiNmExNTNkNTQ3NmE2ZTFiY2I3MDFiNzZiZDkzM2U5YTdhNTlhYTkxMzJkNDVkZjIxM2NlYmMiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImZlMTYzMDMxZWYzNTQzMzJhZTNiMDliNzM3OWJiZGMyYjdkY2M3MDA0ZTlmY2NmMzZjZTY3MjJjZWQ3OWQ4MzkiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjkwMjFiNzI0ZjcwNmY1YTIxOTc0MDQ1ZGQwY2M3YTc4NDczZmVjNjBlNTdkZjZjMjY3NTQ5YzNiZmRlOGJlNDYiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUzOWQwZjNhZTRmMTE3NTZiZGQ0MzRlYmNjMWI0N2E0YjAyMTQyZTY1MmU0YmIyZmNiMTk0ZmM0MDg0YjJkZTcifQ"
+        },
+        {
+          "resource": "repo://web/console/src/app/rule-editor.ts#L341-L397",
+          "version": "repo-lines-v1:sha256:d2d86071dae0df9ac41101a106c016a5c1deb9dc84dde840db319e770e6c4d99:eyJzZWxlY3RlZExpbmVDb3VudCI6NTcsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImNkMmY1Zjg0MWRkN2Y5NGI4NmY1Mzg5NDIwYmY4OGFjNzVhYmQ1ZWQ5NTI0N2NmZWZhYWExZmM2MjgwOTI4NmYiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjQ4OTNmNDBlMzc4MWViODk2YzgyZDA0NmEwODA2N2ExMWUzNWNkZjJmMWRmYWYyNmZlYTkwYjhkYjY2NzY0MTMiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjVhOTI5M2ZkODA1NGI2ZTQ3MjQ4MzczZjM5ZjRkZDc3ODAwMTA1ZWI3NTgzNDg2ODcyNTQyODVjZDEyODJiNzgiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjVhMTBmYmFkY2YwMjMwMzJkMmM5YmFiZDMyOWFlMWUyZDRlNmI5OGI2NDA2NzYxMjhjMzM3YzkyZjhjYTE4N2EifQ"
+        },
+        {
+          "resource": "repo://web/console/src/app/vault.service.ts#L114-L119",
+          "version": "repo-lines-v1:sha256:0b011b4858cf9b220e5d5e74ae66c47bacf075235d727367420646ca2c697bd6:eyJzZWxlY3RlZExpbmVDb3VudCI6NiwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiN2UwNThjYTE2NzZiNjAyZTgzOTkwNzcxMTMwYTM5NmIyZDY3NjFjNGU4MzUwYjRjNTQ2YmU2ODg5YzcxZDZlNiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNDdkZDYwZTJlZTU1Yjg0NGMwNzQxODA4NDI1NDQyYzk4OGIxMzdmZDIzOWUxMTU1ZTIyYmQzZDMzYzZkZDFjNyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiODg3ZTE2ODJjZGU0NTIyMjI4MjhhZmYxNDQwOWY3ZGMxNGVhMTdjMWNhYTJlNDAyMDYwZWQ0Yzg0YWJkMTc5ZiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNTExMDYxMmU3YWQ0YmM0MGIxZTllY2MxZWQ2YTYwNWQ4ZGFhMmJhNmUxYmU1YmU0ZDdlMTFlNWY1NDM0NTAzMCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_ef391b895c854f798783937d3588ca6f",
+      "statement": "The console builds with `npx ng build --base-href=/edit/`; production sets outputHashing:'all' so the output is a set of hashed files (main-<HASH>.js …), and deploy_console.sh replaces the whole remote page directory (backup → wipe → extract) because overwriting only index.html would break hashed asset references. The script also vendors Monaco (min/vs from npm pack) into /static/monaco/vs unless the remote VERSION file matches, and monaco-editor.ts loads the AMD loader from /static/monaco/vs at runtime — fully offline, no npm monaco and no CDN. Post-deploy checks verify /edit/ 200, /static/monaco/vs/loader.js 200, the hashed entry js 200, and /publish without key 401.",
+      "evidence": [
+        {
+          "resource": "repo://scripts/deploy_console.sh#L103-L112",
+          "version": "repo-lines-v1:sha256:43b44dc12896f475f19e8c4dfddcdbea10b46675a888cd923a47453183e7d896:eyJzZWxlY3RlZExpbmVDb3VudCI6MTAsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjQxMmNhMzQ1Y2NmNzViZjljMDgwNmJjZTY5NWJlOGRlODA4Yjc5OTg0MjUxYTdhNTRkMjAyY2Y2MTAxZGQ0NTEiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImRhNzYwZDIyYWE0YzE5ODk3Nzc5ZTA0NzI0YWY1ODdjZTU2MDRiNTcyM2U2MTI2MTE5NmI3MGI1ZTU3OGZmYmIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImQzMDkzODgyMDhlZjZmYjQxZmVhZTU5OTMxY2I3MzUwMWQzNjdhZTEwZGVjMGVmY2M5ZDMyN2JhOTRlOWYzMDIiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjowLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUifQ"
+        },
+        {
+          "resource": "repo://scripts/deploy_console.sh#L22-L95",
+          "version": "repo-lines-v1:sha256:a4b2cce828841aaab499c44d260dac21f544b995a7a4accfb04a9d6d0cd9e688:eyJzZWxlY3RlZExpbmVDb3VudCI6NzQsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImRmYWRjMjdkZjQ3ZDExYTE4NGU2ZDcyOGIyYTNiMWM3ZGZkYTc1ZWMxYjkyZGI5NTA4MzEwYjUyOWQ1YTY5ZWYiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjI4MTJkMjFhN2RiOWM4MTgwN2I4ZWZlOTQ5YjEzMjcwNGEzYmVmOWIyNzcxMTJkMWNmOGFiNWMyZTI0YTlhN2EiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjQ5YTY0Yzc5ZDVhOTU2OTE3ZWYzZWU3M2IyMTk3NDg1OTlhNzFlYmMyMTY1YWU4YjQwZTVlMjc1YWUyMzU5NTYiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImNjYjk4NDE4MWExYzc2ZGEyYmYzMWY4Yjg0MDhkYzAxM2U5OGYzOWQzZGYzNTM5M2QyNDc1MzBlNjk3ZTUwMTkifQ"
+        },
+        {
+          "resource": "repo://web/console/angular.json#L69-L71",
+          "version": "repo-lines-v1:sha256:43877d2d23c6e511c3a228ea48fd41746c9a275214ea8d5e9a15a21d98ea232d:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZjBjNWNiODY3MTMwZjFkZjZkMzkxNGNiNWUyMzYyOGZlZjZkOTM5YzNmNTE2MTk4ZmJlZmQ5YjdmYzhhYWM5MCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNDA5M2RjZTAyZmEzZTVjMGI4YzFjODZhYzY3ZTg3NjNlM2EyNDlhYWFkMDFmOWE4ZWRlMmQ2NzI3MTUwYmQ3OCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNTlmYWE4YjAxMDdmMjQzNGI2NzZmZDk0N2ViZjQ1NjUwYzBiMzc0YzQ4NTBmMzgzM2YxYTJkZTA5ZDY2OWQyZSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiOGJlMjhhYzY0YzU3YWRiOWJjZDc1ODQzZTQwNjY2MjA5MTBkNmZmMzllZDUxNTQzOTQ1YzllOTdiYzRkZDc2OSJ9"
+        },
+        {
+          "resource": "repo://web/console/src/app/monaco-editor.ts#L33-L52",
+          "version": "repo-lines-v1:sha256:a7b4a6904e220b62dc85daffb43cba8c7cca304186e8617026788cb541338fd8:eyJzZWxlY3RlZExpbmVDb3VudCI6MjAsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjZkMjg1ZTMzNGY4NGEyZGIyMTkzY2ZlY2YxMTZmNjU4YjY2NTQ0MWE2MWZiMTJkYzY5ZDZjOTgwMGVlNzM2NzAiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImU4YTczYTI4MDY5ZWQ3ZGZlYzg5Nzk4MzhkNTFlMTZlNzMwMzcyZjljY2I3NDJhNWIxOTY2NzUyMjNhNjlhODgiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjViOWRmYjUyYjdjY2U3NWEwYWRiYjg3ZTJjYjE1ODc3ZDNhYTQyMmZlMmY3MjBjMmEyYzI1ZmY4NWJiZTY5MWEiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjAwMGFkODExYWM4Y2ZhN2E2NzdkYzAxNjNiYzMwMTVkOWM1NTA2ZTcxODk3NjI1YTEwYWViMjc5ZGQyYzAyYzgifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_a5004b1891b0491eb57f77826bd93100",
+      "statement": "models.ts constants are load-bearing across service boundaries: CONSOLE_VERSION is the footer version (manually bumped per release); PAGE_ORIGINS must equal the Go service's allowOrigins in service/config.go and the routers' clash_api CORS whitelist (otherwise the browser blocks console↔router calls); LAT_LOW/LAT_MID (400/800 ms) are the single latency threshold pair consumed by util.latClass and flow-model.",
+      "evidence": [
+        {
+          "resource": "repo://service/config.go#L32-L36",
+          "version": "repo-lines-v1:sha256:e9e557f2ae4a7b1e2697d20b9c6bdc706a8382af6ba4dfec9e568e6f9d377b14:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZTRmODBlZTEyMzM5MjFmYjAxZGEzOWNlMTcxMWJlNTA1NDdjM2JjM2I4NzBmMWNhYWY5MGMzN2IyZjczMTc3MyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNDEzMThhMWExZDZmNjczMTdmZmU4YzZkYWUzYTg5NjFiZjM1YTQzODM5YmQyZjY4YTFlOGQzNTk0M2Q5ZGQ0YiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYmRiMzI4M2M2NWY5ODgwOTI3MjhiNjhhNDkwMjdkMDdlNDMzNzkyOTI2MTg5NzU3YzY4NmFiNzI4MzRmZmUxZiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMDBjNzg4Y2ZjNzVjZmI0MGE0MDJhZTA0NDQ3ZmYzZTJhYTk5YjU5YzBlYmVjMDMzZTZiYTEwNzMzNDk0ZGQyMiJ9"
+        },
+        {
+          "resource": "repo://web/console/src/app/models.ts#L93-L101",
+          "version": "repo-lines-v1:sha256:8931826dbce062a85fa80feb0e0d222db5f036885b226ae5c89cb5ee5a10fcd9:eyJzZWxlY3RlZExpbmVDb3VudCI6OSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNDVkYzYxOWI3MzU5ZDhmMzQ0YzZlNjA4OTEwNjQ4ODc3YTlhNmY3NzQ3ODdlY2NhNGQ5ZGUwZDAwYWVmNDhlMCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYWQ4MzRlNmFlMzAwMmI0Yzg3Njc0OGE4YWJhNDcxNDQ0Mzk1ZDQ1MGRjNTZkOTMxMThkMTFmYzY0YTYwODYzOCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiOTRkNTZhYWQzNDM3OTZiZmFmMDFjMDNkYjA2NzkxZTdjYmQ4OWY1OGI1OWJhODc3YWFiOWE2NDVkOWIxZmQ2NSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjAsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZTNiMGM0NDI5OGZjMWMxNDlhZmJmNGM4OTk2ZmI5MjQyN2FlNDFlNDY0OWI5MzRjYTQ5NTk5MWI3ODUyYjg1NSJ9"
+        },
+        {
+          "resource": "repo://web/console/src/app/util.ts#L39-L46",
+          "version": "repo-lines-v1:sha256:70ac588a818d7568b5dd20690c323478b0816ed17e2bb1634b4256aa8903f85a:eyJzZWxlY3RlZExpbmVDb3VudCI6OCwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNjhiNWM5NDAwZGUwYjRiMTAzZThkMmE2ZDNlNGY4ZDkxNmYwYTczOTdhNmFjZjYwNDViOTE0ZGI3NDM1MjQxYyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMDFiYTQ3MTljODBiNmZlOTExYjA5MWE3YzA1MTI0YjY0ZWVlY2U5NjRlMDljMDU4ZWY4Zjk4MDVkYWNhNTQ2YiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYmZkMDMzNmNkNDNkMTU3YjRiNjU5MDA4MTBiYjU1MTJlNzdlZDNmNGM0MTUzYTUzNGRmYjJmM2MyNTNlY2YxNSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiODM0MDgxYmNiZTZjNzc4YmQyNTMzMjgwYmQ3YmQ4Y2ZhZmE0YzIzNTI0ZmE4MmJkNGYzNjhhMjBjMThhMTAwYyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_d519d72449f64c1ba69b7e230ad2b23b",
+      "statement": "Shared helpers are convergence points that components must extend rather than re-implement: util.ts owns fmtBytes (single B/K/M/G scheme), fmtRate/fmtMib, latClass/latText, ageText/ageClass, errMsg, isNetworkErr and the runPool concurrency pool (concurrency 6 for 全部测速); line-diff.ts owns the LCS row diff (DP matrix capped at 4,000,000 cells, at most 60 detail lines with full add/del counts); node-form.ts owns form validation/assembly (buildNode returns ok/error per protocol, formFromNode flattens for edit). This replaced per-component copies of byte formatting, latency classing, concurrency pools and the diff algorithm, shrinking config-pane.",
+      "evidence": [
+        {
+          "resource": "repo://docs/architecture.md#L248-L258",
+          "version": "repo-lines-v1:sha256:25f11a6270aaea8f0b60d87774f5e6c268b36201627330b58df3a8df3acaf302:eyJzZWxlY3RlZExpbmVDb3VudCI6MTEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImQ2YjQ2MzlhNmE5NjQ4YjY1MWY5NTEyMjZkMmI2ZDZjZTBlMTIzMWQzMjRkNmY1ZDdhYjZhM2I2NTdmNmRhNjgiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjYwMmU4NGJjZDZmYjZhZTBiYjgzMWFlNjg1MTc3MmI5ZWQxMzAwZDZmYzMzZmNiMGQ5NTJlZGQzNjVmYjQyNmUiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImI4Y2Y5ODRmN2Y4ZjkxOWYxNTc4NzZhNmI4MjQ4NTZhY2JhNjVjNDU3NjQyZDM4NGRjMTU4MGE2Y2E1N2JjMzkiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImFmZGZlODNlMWIwYzc1MWYyYTFjY2Y1NjAxNmNkZTgwMGQwYjRjNGRlOGFkNDRiNTRkYmE3MDgyMGI0OGZjODcifQ"
+        },
+        {
+          "resource": "repo://web/console/src/app/line-diff.ts#L1-L62",
+          "version": "repo-lines-v1:sha256:b4f2e39094f935e70eab937ac72f21dd6a8f77fa97221c3d3c3745df3a10435d:eyJzZWxlY3RlZExpbmVDb3VudCI6NjIsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImVhZjIyY2YwNzMyNTkyYzI0NzE0MWNiZTYxZWZhMTEwMTI2MTJmNWEzMTIyYjlhZjliYmFmNTJmNTcyNGQxOTQiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImQxMGIzNmFhNzRhNTliY2Y0YTg4MTg1ODM3ZjY1OGFmYWYzNjQ2ZWZmMmJiMTZjMzkyOGQwZTkzMzVlOTQ1ZDIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjowLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUifQ"
+        },
+        {
+          "resource": "repo://web/console/src/app/node-form.ts#L85-L140",
+          "version": "repo-lines-v1:sha256:c05ed12d6eb17f54fb74b30c872c29b1aa5457692180fdc20e03c5640c939151:eyJzZWxlY3RlZExpbmVDb3VudCI6NTYsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6Ijg2ZWM1ZjNlY2Q1ZjVhNGY2MGM4NGJhZWFlYmRlODdjOTJiMjc1YzI4NjhiNzI4ZGU1YTkyNDg0MDZjY2IyMmMiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImQxMGIzNmFhNzRhNTliY2Y0YTg4MTg1ODM3ZjY1OGFmYWYzNjQ2ZWZmMmJiMTZjMzkyOGQwZTkzMzVlOTQ1ZDIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjFlNGZkZTg1ZWJiNjk1NmNmNDZjMTlkMzUwZGU0ODQ4OGI3ZWY0MmNhYWZiYjU3NmYxMjE0NmIxMTg3YmZlYWMiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjowLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUifQ"
+        },
+        {
+          "resource": "repo://web/console/src/app/util.ts#L1-L114",
+          "version": "repo-lines-v1:sha256:dffab1579529fc656af4c9229cdb18cc92caa0b6254a85e40e03055fe34d04f5:eyJzZWxlY3RlZExpbmVDb3VudCI6MTE0LCJmaXJzdFNlbGVjdGVkTGluZUhhc2giOiJlYWYyMmNmMDczMjU5MmMyNDcxNDFjYmU2MWVmYTExMDEyNjEyZjVhMzEyMmI5YWY5YmJhZjUyZjU3MjRkMTk0IiwibGFzdFNlbGVjdGVkTGluZUhhc2giOiI0MTJjYTM0NWNjZjc1YmY5YzA4MDZiY2U2OTViZThkZTgwOGI3OTk4NDI1MWE3YTU0ZDIwMmNmNjEwMWRkNDUxIiwicHJlY2VkaW5nQ29udGV4dExpbmVDb3VudCI6MCwicHJlY2VkaW5nQ29udGV4dEhhc2giOiJlM2IwYzQ0Mjk4ZmMxYzE0OWFmYmY0Yzg5OTZmYjkyNDI3YWU0MWU0NjQ5YjkzNGNhNDk1OTkxYjc4NTJiODU1IiwiZm9sbG93aW5nQ29udGV4dExpbmVDb3VudCI6MCwiZm9sbG93aW5nQ29udGV4dEhhc2giOiJlM2IwYzQ0Mjk4ZmMxYzE0OWFmYmY0Yzg5OTZmYjkyNDI3YWU0MWU0NjQ5YjkzNGNhNDk1OTkxYjc4NTJiODU1In0"
+        }
+      ]
+    },
+    {
+      "id": "claim_07a0a94d76ab44119c9e5d9ade27bc8d",
+      "statement": "The console has no component-level unit tests; `npm run test:ops` (test/run-ops-tests.mjs) bundles config-ops.ts and shared-pool.service.ts to ESM with esbuild and runs assertion modules in test/ops/*.mjs (fingerprint, pool nodes/rules/override, group-apply, cond-merge, string-rule-set), skipping fixture-gated cases when test/ops/fixtures/router-32.json (real node secrets, not committed) is absent. UI acceptance is a real-browser pass through gate → read → edit → stage → check → apply → revert after deployment, plus scripts/mock_clash.mjs which serves a fake clash_api and hosts the built console for data-shape-heavy pages like the connections browser.",
+      "evidence": [
+        {
+          "resource": "repo://docs/architecture.md#L264-L266",
+          "version": "repo-lines-v1:sha256:448289cef8c3aa6b80398fc1f2998a3d69b18457c96154ec7f6ff6a981b9e174:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNWNiMDY4MmJjNWVlYzZhZjdkMTMzMGM4ZDJiOWZkM2E0YTUwYTU4OTFiYzVhY2RjMzFmOGRhMDZlMjMwOGRlYSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZmE5ODZhMmY0OWU1NjM5Zjg5OWExNGVmN2MwMTE0ODVhNmZjYThjMDhjNmU4ZTUwMGVlMjZlNDVlOTY4YjE1YiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZWE5MzVjY2I2ZGFmZjk3NzQzMTQ3YjIzOGYzYWVmNTU1ZDc4OWYwM2Q2ZWU1NTJmYTkyZjc2Njc1N2VlMGNkZSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZGIwNTgwMzc1MmM2Njc4NDAxNjQ1ODhiMzAxYjZjZTBhOGY0MDk1YzMwMzBmNWUyOGNiYjhjMmVmZmRlYmExZiJ9"
+        },
+        {
+          "resource": "repo://scripts/mock_clash.mjs#L1-L16",
+          "version": "repo-lines-v1:sha256:4123be92572ea68f8087939756490dca5e594bc666a21a6f87987201b3dd0450:eyJzZWxlY3RlZExpbmVDb3VudCI6MTYsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImE1OWM0Nzg3MmI3MWYxMjU4OTk0Mjg5MjQ2NGU3NjRjMGRiMzUwYzIwYjcyMjI4NjQ1NjE1Y2MzNmUwYTA3MjUiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6Ijk3MmE0MjkzODJiMmUxNDcxOGUwZTM3YjA1NzBhOGExNzAyOTkxZmNkODQ5OGNkODQwNjBhOGJmNGYwNTAxN2IiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImJlMTRlMjYwMDQ1MjQzYWVmY2FjN2RmZDk0ZjMxYjQ2Y2RhZDMyMTc3NGYyM2Y2NDA2ZjNjMWM2ZTBlOWQ0NGYifQ"
+        },
+        {
+          "resource": "repo://web/console/test/run-ops-tests.mjs#L10-L33",
+          "version": "repo-lines-v1:sha256:8d08c04f8a1417891b4c6a6a3859672fbbcf1a44cce28df5df4fc90899ecb8e8:eyJzZWxlY3RlZExpbmVDb3VudCI6MjQsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjIxYTAwNWFiYTVmNGZiNWM4MGU3YTQzN2IzYTA1Y2ZkYTE5MzM2ZGE1N2NlMzMwYTNiMThhMGEwYzVkYzA2MzUiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjAxYmE0NzE5YzgwYjZmZTkxMWIwOTFhN2MwNTEyNGI2NGVlZWNlOTY0ZTA5YzA1OGVmOGY5ODA1ZGFjYTU0NmIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImNhOWU1ZjY4ZTIxNDUzMDY5NDU4NDFkNGRjMGI4ZmQwMzJkMjIyOTI3YmU4NjY4M2Q0Nzc0MWZkOTViYjEzNGMiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjEwMjY5OTY0NDQzNjA5NDI0MGUzOGVlNTJjZDQ3ZDhjNWNkZTc1ZmUzNDZkYjdlYTQyMDYzNWE3OTcwMWZjNWIifQ"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.9.0",
+    "at": "2026-11-28T02:27:04.334Z"
+  }
+}

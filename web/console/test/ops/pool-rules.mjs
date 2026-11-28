@@ -63,14 +63,14 @@ ok('重复应用幂等', (() => { const r2 = m.applyGroupRefs(dst, '🚀 节点�
 // 服务：规则池增删/分组/导出往返
 {
   const svc = new SharedPoolService();
-  const a1 = svc.addRuleGroup({ api: 'a', name: '32' }, '🚀 节点选择', refs);
+  const a1 = svc.addRuleGroup('🚀 节点选择', refs, { api: 'a', name: '32' });
   ok('规则池加入', a1.ok && svc.rules().length === 1, JSON.stringify(a1));
   ok('refs 去重保存', JSON.stringify(svc.rules()[0].refs) === JSON.stringify(refs));
-  const a2 = svc.addRuleGroup({ api: 'a', name: '32' }, '🚀 节点选择', ['rs-google']);
-  ok('同来源同组名更新', a2.dup && svc.rules().length === 1 && JSON.stringify(svc.rules()[0].refs) === '["rs-google"]');
-  ok('空集拒绝', svc.addRuleGroup({ api: 'a', name: '32' }, 'X', []).ok === false);
-  svc.addRuleGroup({ api: 'b', name: 'GL' }, 'DIRECT', ['rs-cn']);
-  ok('按来源分组', svc.rulesBySource().length === 2);
+  const a2 = svc.addRuleGroup('🚀 节点选择', ['rs-google'], { api: 'a', name: '32' });
+  ok('同组名更新（不再按来源去重）', a2.dup && svc.rules().length === 1 && JSON.stringify(svc.rules()[0].refs) === '["rs-google"]');
+  ok('空集拒绝', svc.addRuleGroup('X', []).ok === false);
+  svc.addRuleGroup('DIRECT', ['rs-cn'], { api: 'b', name: 'GL' });
+  ok('池列出全部组名（不按来源分组）', svc.rulesList().length === 2 && svc.rulesStats().pending === 2, JSON.stringify(svc.rulesStats()));
   const text = svc.exportJson();
   const svc2 = new SharedPoolService();
   svc2.importJson(text);

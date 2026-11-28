@@ -15,7 +15,16 @@ import { Backend } from './models';
 import { BackendsService } from './backends.service';
 import { ConfigDraftService } from './config-draft.service';
 import { RouterService } from './router.service';
-import { PoolNode, SharedPoolService, nodeFingerprint, replaceSameNameNode } from './shared-pool.service';
+import {
+  GroupStatusPerRouter,
+  PoolNode,
+  PoolRules,
+  SharedPoolService,
+  groupStatus,
+  isAppliedEverywhere,
+  nodeFingerprint,
+  replaceSameNameNode,
+} from './shared-pool.service';
 import { errMsg } from './util';
 
 /** 左栏「当前路由节点」行 */
@@ -89,10 +98,38 @@ export class SharedPanel implements OnInit {
     return this.poolKeys().has(nodeFingerprint(row.raw, row.kind));
   }
 
+  /** 每台路由的配置（判定共享规则是否已应用到所有路由用；'' = 还没读） */
+  private readonly allDocs = signal<Record<string, ConfigDoc | null>>({});
+  readonly allDocsView = this.allDocs.asReadonly();
+
+  /** 规则池里每条规则在各路由上的实际状态 */
+  readonly ruleStatus = computed(() => {
+    const docs = this.allDocs();
+    const loaded = Object.keys(docs).length > 0;
+    const map: Record<string, { per: GroupStatusPerRouter[]; applied: boolean }> = {};
+    for (const r of this.pool.rules()) {
+      const per = groupStatus(
+        r.refs,
+        r.group,
+        this.backends().map((b) => ({
+          tag: b.api,
+          name: b.name || b.api,
+          // 还没读到（undefined）≠ 读失败（null）：未读到的按「未知」处理，不能当成「不一致」
+          doc: docs[b.api] === undefined ? null : docs[b.api],
+          err: docs[b.api] === undefined ? '还没读到配置' : undefined,
+        })),
+      );
+      map[r.id] = { per, applied: isAppliedEverywhere(per) };
+    }
+    return map;
+  });
+
   readonly groups = computed(() => this.pool.bySource());
   readonly total = computed(() => this.pool.nodes().length);
-  readonly rulesGroups = computed(() => this.pool.rulesBySource());
+  /** 规则池列表（不区分来源；未应用排在前面） */
+  readonly rulesList = computed(() => this.pool.rulesList());
   readonly rulesTotal = computed(() => this.pool.rules().length);
+  readonly rulesStats = computed(() => this.pool.rulesStats());
 
   readonly note = signal('');
   /** 池里正在编辑的条目 id（null = 没在编辑） */
@@ -142,6 +179,7 @@ export class SharedPanel implements OnInit {
     }
     void this.loadNodes();
     void this.loadRules();
+    void this.refreshAllDocs();
   }
 
   /* ── 路由 tab ── */
@@ -517,12 +555,48 @@ export class SharedPanel implements OnInit {
     const doc = this.ruleDoc();
     if (!b || !doc) return;
     const refs = groupRuleRefs(doc, group);
-    const res = this.pool.addRuleGroup({ api: b.api, name: b.name || b.api }, group, refs);
+    const res = this.pool.addRuleGroup(group, refs, { api: b.api, name: b.name || b.api });
     this.rulesNote.set(
       res.ok
-        ? `规则池：${res.dup ? '已更新' : '已加入'}「${group}」→ ${refs.length} 个规则集`
+        ? `规则池：${res.dup ? '已更新' : '已加入'}「${group}」→ ${refs.length} 个规则集（状态：未应用）`
         : `规则池：跳过「${group}」· ${res.reason}`,
     );
+    if (res.ok) void this.refreshAllDocs();
+  }
+
+  /** 读全部后端的配置（规则池要跨所有路由判断「已应用」） */
+  async refreshAllDocs(force = false): Promise<void> {
+    const list = this.backends();
+    const next: Record<string, ConfigDoc | null> = { ...this.allDocs() };
+    await Promise.all(
+      list.map(async (b) => {
+        if (!force && next[b.api]) return;
+        try {
+          next[b.api] = await this.fetchDoc(b);
+        } catch {
+          next[b.api] = null;
+        }
+      }),
+    );
+    this.allDocs.set(next);
+  }
+
+  /** 某条规则在各路由上的状态文字 */
+  statusText(r: PoolRules): string {
+    const st = this.ruleStatus()[r.id];
+    if (!st) return '未应用';
+    if (Object.keys(this.allDocs()).length === 0) return '正在核对各路由配置…';
+    const used = st.per.filter((p) => p.hasOutbound || p.err);
+    if (!used.length) return '未应用（没有路由有这个组名）';
+    const bad = used.filter((p) => !p.same);
+    if (!bad.length) return `已应用 · ${used.length} 台路由一致`;
+    return `未应用 · ${bad.map((p) => p.name).join('、')} 未一致`;
+  }
+
+  /** 手动把状态标成已应用（自动判定不成立时，用户确认用） */
+  markApplied(r: PoolRules, applied: boolean): void {
+    this.pool.setRuleApplied(r.id, applied);
+    this.rulesNote.set(applied ? `已标记「${r.group}」为已应用` : `已把「${r.group}」改回未应用`);
   }
 
   addGroupRow(row: { group: string }): void {
@@ -588,7 +662,9 @@ export class SharedPanel implements OnInit {
       setBoth(`✓ 已保存并重启 ${b.name || b.api}；草稿已清空`);
       this.draftTarget.set(null);
       this.docs.delete(b.api);
+      this.allDocs.update((m) => ({ ...m, [b.api]: null }));
       await this.loadRules();
+      await this.refreshAllDocs(true);
     }
   }
 

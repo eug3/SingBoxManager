@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "pages": {
+    "/openwiki/architecture/console-frontend.md": {
+      "pageVersion": "sha256:b9dd9d311dbec7ce02284616ac8511a5c9f4de3e3209411d9bd30b0a88ef5bc2",
+      "completedBy": "openwiki/0.9.0",
+      "completedRunId": "fdce25ad-b3b1-4e2e-8678-3f5e441990dc",
+      "gitHead": "9b0e305e292d0f7afacd8041db7ee1764b961199",
+      "sourceFingerprint": "sha256:dd41b68395df868c5f058bffd1f18916c8efd721ffadec882704228835f18daa"
+    }
+  }
+}

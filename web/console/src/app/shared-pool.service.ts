@@ -22,15 +22,26 @@ export interface PoolNode {
   addedAt: number;
 }
 
-/** 共享规则池的一条：某个「组名（出站 tag）」下挂的整套 rule_set 引用 */
+/**
+ * 共享规则池的一条：某个「组名（出站 tag）」下挂的整套 rule_set 引用。
+ *
+ * 规则池**不关心这条来自谁**——只认「组名 → 同一套规则集」。
+ * 每条有自己的状态：
+ *   · applied（已应用）= 所有路由器的该组名都已采用这套规则集；
+ *   · 未 applied（未应用）= 各路由仍各自独立管理这一组。
+ */
 export interface PoolRules {
   id: string;
-  sourceApi: string;
-  sourceName: string;
-  /** 组名 / 出站 tag（如 🚀 节点选择）；目标路由只要有同名 outbound 的规则即可套用 */
+  /** 组名 / 出站 tag（如 🚀 节点选择）；目标路由只要有同名出口即可套用 */
   group: string;
   /** 这套组名用到的 rule_set 引用（顺序保留；去重后的并集） */
   refs: string[];
+  /** 是否已应用到所有路由器（true = 已应用；false/缺省 = 未应用） */
+  applied?: boolean;
+  /** 最近一次确认/应用成功的时间（ms） */
+  appliedAt?: number;
+  /** 建立时的来源（仅作日志留痕，界面不再展示「来自 X」） */
+  originName?: string;
   addedAt: number;
 }
 
@@ -99,9 +110,17 @@ export class SharedPoolService {
             .map((n) => ({ ...n, kind: n.kind === 'endpoint' ? 'endpoint' : 'outbound' }) as PoolNode)
         : [];
       const rules = Array.isArray(st.rules)
-        ? st.rules.filter(
-            (r) => r && typeof r.group === 'string' && Array.isArray(r.refs) && typeof r.sourceApi === 'string',
-          )
+        ? (st.rules as Partial<PoolRules>[])
+            .filter((r) => r && typeof r.group === 'string' && Array.isArray(r.refs))
+            .map((r) => ({
+              id: r.id || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+              group: r.group as string,
+              refs: r.refs as string[],
+              applied: r.applied === true,
+              appliedAt: r.appliedAt,
+              originName: r.originName ?? (r as { sourceName?: string }).sourceName,
+              addedAt: r.addedAt || Date.now(),
+            }))
         : [];
       return { nodes, rules };
     } catch {
@@ -174,42 +193,65 @@ export class SharedPoolService {
 
   /* ── 共享规则池：组名 → 整套 rule_set 引用 ── */
 
-  /** 把「组名 + 它挂的全部规则集」加入规则池（同来源同组名 = 更新） */
+  /** 按组名查（规则池不区分来源：一个组名只有一条） */
+  ruleByGroup(group: string): PoolRules | undefined {
+    return this.rules().find((r) => r.group === group);
+  }
+
+  /**
+   * 把「组名 + 它挂的全部规则集」加入规则池。
+   * 规则池不关心来源：同一个组名只有一条，重复加入 = 更新它的 refs 并回到「未应用」。
+   */
   addRuleGroup(
-    source: { api: string; name: string },
     group: string,
     refs: string[],
+    origin?: { api: string; name: string },
   ): { ok: boolean; dup: boolean; reason?: string } {
     const g = String(group ?? '').trim();
     if (!g) return { ok: false, dup: false, reason: '没有组名，无法共享' };
     if (!refs.length) return { ok: false, dup: false, reason: '这个组名没有挂规则集，没什么可共享的' };
     const list = this.rules();
-    const same = list.find((r) => r.sourceApi === source.api && r.group === g);
+    const same = list.find((r) => r.group === g);
     const entry: PoolRules = {
       id: same?.id ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-      sourceApi: source.api,
-      sourceName: source.name || source.api,
       group: g,
       refs: [...new Set(refs)],
-      addedAt: Date.now(),
+      applied: false,
+      appliedAt: undefined,
+      originName: origin?.name || origin?.api || same?.originName,
+      addedAt: same?.addedAt ?? Date.now(),
     };
     this.save({ rules: same ? list.map((r) => (r.id === same.id ? entry : r)) : [entry, ...list] });
     return { ok: true, dup: !!same };
+  }
+
+  /** 设置某条规则的「已应用 / 未应用」状态 */
+  setRuleApplied(id: string, applied: boolean): void {
+    this.save({
+      rules: this.rules().map((r) =>
+        r.id === id ? { ...r, applied, appliedAt: applied ? Date.now() : undefined } : r,
+      ),
+    });
   }
 
   removeRule(id: string): void {
     this.save({ rules: this.rules().filter((r) => r.id !== id) });
   }
 
-  /** 规则池按来源分组 */
-  rulesBySource(): { sourceName: string; sourceApi: string; items: PoolRules[] }[] {
-    const map = new Map<string, { sourceName: string; sourceApi: string; items: PoolRules[] }>();
-    for (const r of this.rules()) {
-      const g = map.get(r.sourceApi) ?? { sourceName: r.sourceName, sourceApi: r.sourceApi, items: [] };
-      g.items.push(r);
-      map.set(r.sourceApi, g);
-    }
-    return [...map.values()];
+  /** 规则池列表：按「未应用优先、再按组名」排（不按来源分组） */
+  rulesList(): PoolRules[] {
+    return [...this.rules()].sort((a, b) => {
+      const x = a.applied === true ? 1 : 0;
+      const y = b.applied === true ? 1 : 0;
+      return x === y ? a.group.localeCompare(b.group) : x - y;
+    });
+  }
+
+  /** 已应用 / 未应用计数（页签徽标与总览用） */
+  rulesStats(): { applied: number; pending: number } {
+    const all = this.rules();
+    const applied = all.filter((r) => r.applied === true).length;
+    return { applied, pending: all.length - applied };
   }
 
   /** 池内所有节点的指纹集合（判断「路由上已有同配置」用） */
@@ -306,13 +348,14 @@ export class SharedPoolService {
         if (!r || typeof r.group !== 'string' || !Array.isArray(r.refs)) continue;
         const entry: PoolRules = {
           id: r.id || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-          sourceApi: r.sourceApi || 'imported',
-          sourceName: r.sourceName || r.sourceApi || 'imported',
           group: r.group,
           refs: [...new Set(r.refs.map((x) => String(x)))],
+          applied: r.applied === true,
+          appliedAt: r.appliedAt,
+          originName: r.originName,
           addedAt: r.addedAt || Date.now(),
         };
-        const i = rl.findIndex((x) => x.sourceApi === entry.sourceApi && x.group === entry.group);
+        const i = rl.findIndex((x) => x.group === entry.group);
         if (i >= 0) rl[i] = entry;
         else {
           rl.unshift(entry);
@@ -361,4 +404,92 @@ export function replaceSameNameNode(
   }
   hit.list[hit.idx] = { ...structuredClone(poolNode.node), tag: targetTag };
   return { ok: true, kind: targetKind };
+}
+
+/** 一台路由上某个组名的状态 */
+export interface GroupStatusPerRouter {
+  tag: string;
+  name: string;
+  /** 读配置失败的原因（非空 = 这台路由的情况未知） */
+  err?: string;
+  /** 这台路由有没有同名出口（组/节点/内置 direct…） */
+  hasOutbound: boolean;
+  /** 这台路由该组名的规则集引用（并集） */
+  refs: string[];
+  /** 目标缺的 / 目标多的 */
+  missing: string[];
+  extra: string[];
+  /** 是否已经「采用同一套规则集」 */
+  same: boolean;
+}
+
+/** 同一套规则集 = 集合相等（顺序不影响语义） */
+export function sameRefSet(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const sa = [...a].sort();
+  const sb = [...b].sort();
+  return sa.every((x, i) => x === sb[i]);
+}
+
+/** 某台路由上「组名 → 规则集并集」（直接收一份 doc，便于测试） */
+export function routerGroupRefs(doc: ConfigDoc | null, group: string): { hasOutbound: boolean; refs: string[] } {
+  if (!doc) return { hasOutbound: false, refs: [] };
+  const tags = new Set([...outbounds(doc), ...endpoints(doc)].map((o) => String(o['tag'] ?? '')));
+  tags.add('direct');
+  tags.add('block');
+  tags.add('dns');
+  const refs: string[] = [];
+  for (const r of routeRules(doc)) {
+    if (String(r['outbound'] ?? '') !== group) continue;
+    const v = r['rule_set'];
+    const list = typeof v === 'string' ? [v] : Array.isArray(v) ? v.map(String) : [];
+    for (const x of list) if (!refs.includes(x)) refs.push(x);
+  }
+  return { hasOutbound: tags.has(group), refs };
+}
+
+/**
+ * 判断某条共享规则在各路由器上的采用情况 —— 规则池「已应用 / 未应用」的判定依据：
+ *   · 只算**有同名出口**的路由（没有同名出口说明它根本不用这一组，不算未应用）；
+ *   · 每台这类路由，该组名的规则集并集必须与池里的 refs 完全一致；
+ *   · 有一台读不到配置 → 结论未知（err 非空）。
+ */
+export function groupStatus(
+  poolRefs: string[],
+  group: string,
+  routers: { tag: string; name: string; doc: ConfigDoc | null; err?: string }[],
+): GroupStatusPerRouter[] {
+  return routers.map((r) => {
+    if (r.err || !r.doc) {
+      return {
+        tag: r.tag,
+        name: r.name,
+        err: r.err || '读不到配置',
+        hasOutbound: true,
+        refs: [],
+        missing: poolRefs,
+        extra: [],
+        same: false,
+      };
+    }
+    const { hasOutbound, refs } = routerGroupRefs(r.doc, group);
+    const missing = poolRefs.filter((x) => !refs.includes(x));
+    const extra = refs.filter((x) => !poolRefs.includes(x));
+    return {
+      tag: r.tag,
+      name: r.name,
+      hasOutbound,
+      refs,
+      missing,
+      extra,
+      same: hasOutbound && missing.length === 0 && extra.length === 0,
+    };
+  });
+}
+
+/** 汇总：全部有同名出口的路由都一致 → 已应用 */
+export function isAppliedEverywhere(status: GroupStatusPerRouter[]): boolean {
+  const used = status.filter((s) => s.hasOutbound || !!s.err);
+  if (!used.length) return false;
+  return used.every((s) => s.same);
 }
