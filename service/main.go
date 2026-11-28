@@ -46,6 +46,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 )
 
 // main 启动顺序：校验 VAULT_KEY → 打开 SQLite（含旧文件迁移）→ 热装存储配置
@@ -171,7 +172,17 @@ func main() {
 		fail(w, 404, "not found")
 	})
 
-	srv := &http.Server{Addr: listen, Handler: loginGate(mux)}
+	// 只读类超时（防 slowloris / 慢客户端占着连接）。
+	// 注意**不设 WriteTimeout**：/router/apply、/router/versions/deploy 是同步的长请求
+	// （备份→替换→重启→健康检查，实测几十秒到几分钟），一刀切的写超时会正当部署中途掐断。
+	// IdleTimeout 让空闲 keep-alive 连接及时回收。
+	srv := &http.Server{
+		Addr:              listen,
+		Handler:           loginGate(mux),
+		ReadHeaderTimeout: 15 * time.Second,
+		ReadTimeout:       2 * time.Minute, // 含请求体读取（apply 要收整份配置）
+		IdleTimeout:       120 * time.Second,
+	}
 	log.Printf("vault-edit (go) listening on %s · share=%s · page=%s · static=%s", listen, shareDir, pageDir, staticDir)
 	if err := srv.ListenAndServe(); err != nil {
 		log.Fatal(err)

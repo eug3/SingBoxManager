@@ -10,6 +10,7 @@ package main
 // 完整 config.json 的修改走 /router/*（见 router_http.go）。
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -20,6 +21,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"time"
 )
 
 // publishReq 发布请求体；content 允许是对象，也允许是「JSON 字符串」（CLI 发布常这么传）
@@ -86,8 +88,15 @@ func compileRuleSet(jtxt []byte) ([]byte, error) {
 	if err := os.WriteFile(jp, jtxt, 0644); err != nil {
 		return nil, fmt.Errorf("write tmp: %w", err)
 	}
-	cmd := exec.Command(singBox, "rule-set", "compile", jp, "-o", sp)
+	// 带 2 分钟超时：sing-box 一旦挂住，原写法（exec.Command 无超时）请求会永久挂着。
+	// 现有桶最大也只有零点几 MB，编译远用不了这么久；到点视为编译器异常而不是慢。
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, singBox, "rule-set", "compile", jp, "-o", sp)
 	out, err := cmd.CombinedOutput()
+	if ctx.Err() != nil {
+		return nil, fmt.Errorf("compile 超时（2 分钟未结束，sing-box 可能卡住）")
+	}
 	if err != nil {
 		return nil, fmt.Errorf("compile failed: %s", trunc(out, 400))
 	}
@@ -137,8 +146,8 @@ func handlePublish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req publishReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		fail(w, 400, "bad body: "+err.Error())
+	if err := decodeJSONLimited(r, &req); err != nil {
+		fail(w, 400, "bad body: "+err.Error()) // 这里保留具体解析错误，方便脚本排查
 		return
 	}
 	if !bucketRe.MatchString(req.Bucket) {

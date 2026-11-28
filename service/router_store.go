@@ -148,8 +148,7 @@ func handleRouterCredentialsSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req routerCredReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		fail(w, 400, "bad body")
+	if !readJSON(w, r, &req) {
 		return
 	}
 	req.Host = strings.TrimSpace(req.Host)

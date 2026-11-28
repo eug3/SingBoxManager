@@ -197,8 +197,7 @@ func handlePublicRulesApply(w http.ResponseWriter, r *http.Request) {
 		Hosts   []string `json:"hosts"`
 		Confirm bool     `json:"confirm"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		fail(w, 400, "bad body")
+	if !readJSON(w, r, &req) {
 		return
 	}
 	if !req.Confirm {

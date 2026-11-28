@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -87,4 +88,35 @@ func trunc(b []byte, n int) []byte {
 		return b[len(b)-n:]
 	}
 	return b
+}
+
+// readJSON 解析请求体 JSON 到 v，带大小上限。
+// 所有接受 JSON 体的接口都应走这里：原先只有 buckets.go 两处加了 MaxBytesReader，
+// 其余 11 处是裸 json.NewDecoder(r.Body)——一个连着发大 body 的请求就能把 99 的内存吃光。
+// 上限说明：整份路由配置（含规则集定义）实测几十 KB；给 16MB 留足余量，
+// 又远小于「无上限」。超限 / 解析失败统一回 400，文案与原各处一致。
+func readJSON(w http.ResponseWriter, r *http.Request, v any) bool {
+	if err := decodeJSONLimited(r, v); err != nil {
+		fail(w, 400, "bad body")
+		return false
+	}
+	return true
+}
+
+// readJSONLenient 同 readJSON，但解析失败**不写应答**（只返回 false）。
+// 给那些「body 可省略、缺字段由后面的校验给出更贴切错误」的接口用
+// （如 /router/restart 可以不带 body）——用 readJSON 会先写一个 400 再被后续应答覆盖（双写）。
+// 体积上限一样有。
+func readJSONLenient(w http.ResponseWriter, r *http.Request, v any) bool {
+	return decodeJSONLimited(r, v) == nil
+}
+
+// jsonBodyMax JSON 请求体上限：整份路由配置（含规则集定义）实测几十 KB，
+// 16MB 留足余量又远小于「无上限」。
+const jsonBodyMax = 16 << 20
+
+func decodeJSONLimited(r *http.Request, v any) error {
+	// 这里拿不到 ResponseWriter，用 io.LimitReader 截断即可（超限会截成坏 JSON → 解析失败）
+	dec := json.NewDecoder(io.LimitReader(r.Body, jsonBodyMax+1))
+	return dec.Decode(v)
 }

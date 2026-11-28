@@ -602,8 +602,7 @@ func handleVersionDownload(w http.ResponseWriter, r *http.Request) {
 		Variant string `json:"variant"`
 		Force   bool   `json:"force"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		fail(w, 400, "bad body")
+	if !readJSON(w, r, &req) {
 		return
 	}
 	req.Version = strings.TrimSpace(strings.TrimPrefix(req.Version, "v"))
@@ -827,8 +826,7 @@ func handleVersionDeploy(w http.ResponseWriter, r *http.Request) {
 		Arch    string `json:"arch"`
 		Variant string `json:"variant"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		fail(w, 400, "bad body")
+	if !readJSON(w, r, &req) {
 		return
 	}
 	req.Version = strings.TrimSpace(strings.TrimPrefix(req.Version, "v"))
@@ -1013,8 +1011,7 @@ func handleVersionRemove(w http.ResponseWriter, r *http.Request) {
 		Arch    string `json:"arch"`
 		Variant string `json:"variant"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		fail(w, 400, "bad body")
+	if !readJSON(w, r, &req) {
 		return
 	}
 	if !versionRe.MatchString(req.Version) || !versionArches[req.Arch] || !versionVariants[req.Variant] {

@@ -12,7 +12,6 @@ package main
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"log"
 	"net"
 	"net/http"
@@ -122,7 +121,9 @@ func handleRouterRestart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req routerOpReq
-	_ = json.NewDecoder(r.Body).Decode(&req) // body 缺 host 时由 pickRouter 给出明确错误
+	// body 可省略（只带 host 也行）：解析失败不在这里报，缺 host 由 pickRouter 给出明确错误。
+	// 用 lenient 版避免「先写 400 再被后面的应答覆盖」的双写。
+	_ = readJSONLenient(w, r, &req)
 	cred, host, err := pickRouter(req.Host)
 	if err != nil {
 		fail(w, 400, err.Error())
@@ -149,8 +150,7 @@ func handleRouterCheck(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req routerOpReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		fail(w, 400, "bad body")
+	if !readJSON(w, r, &req) {
 		return
 	}
 	cred, host, err := pickRouter(req.Host)
@@ -178,8 +178,7 @@ func handleRouterApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req routerOpReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		fail(w, 400, "bad body")
+	if !readJSON(w, r, &req) {
 		return
 	}
 	if strings.TrimSpace(req.Config) == "" {

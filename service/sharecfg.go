@@ -257,8 +257,7 @@ func handleShareConfigSet(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Config ShareConfig `json:"config"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		fail(w, 400, "bad body")
+	if !readJSON(w, r, &req) {
 		return
 	}
 	old := currentShareCfg()
@@ -297,8 +296,7 @@ func handleShareProbe(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Config ShareConfig `json:"config"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		fail(w, 400, "bad body")
+	if !readJSON(w, r, &req) {
 		return
 	}
 	old := currentShareCfg()
