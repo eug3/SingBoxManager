@@ -226,6 +226,9 @@ function json(res, body, code = 200) {
 }
 
 /** 读请求体（PUT /proxies/<组> 的 {name} 要用） */
+/** 每台「路由」被 apply 之后生效的配置：host → { config, sha }（模拟真实服务的落盘） */
+const appliedByHost = new Map();
+
 function readBody(req) {
   return new Promise((resolve) => {
     let buf = '';
@@ -278,6 +281,20 @@ const server = createServer(async (req, res) => {
     return json(res, { ok: false, error: 'ssh: handshake failed: ssh: unable to authenticate (Permission denied)' }, 500);
   }
   if (path === '/router/config') {
+    {
+      // 已经被 apply 过的配置优先返回：真实服务里 apply 是落盘的，
+      // 之后读配置必须读到新内容，否则「应用后重新核对状态」永远对不上
+      const h = new URL(req.url, 'http://x').searchParams.get('host') || '';
+      const applied = appliedByHost.get(h);
+      if (applied) return json(res, { config: applied.config, sha256: applied.sha, size: applied.config.length });
+    }
+    // 按 host 区分不同「路由」：真实服务是按 host 选凭据再 SSH 到不同路由的，
+    // mock 只有一个进程，就用 host 查询参数返回不同的配置。
+    // host=router-b 时「📲 电报信息」引用 rs-telegram-b，其余引用 rs-tg ——
+    // 用来验证共享规则树在多台同时展开时「在甲的行点＋」不会拿到乙的 refs。
+    // 兼容旧用法 MOCK_TG_REF（整进程统一改）。
+    const host = new URL(req.url, 'http://x').searchParams.get('host') || '';
+    const tgRef = host === 'router-b' ? 'rs-telegram-b' : (process.env.MOCK_TG_REF || 'rs-tg');
     const cfg = {
       log: { level: 'info' },
       inbounds: [{ type: 'tun', tag: 'tun-in' }],
@@ -300,6 +317,7 @@ const server = createServer(async (req, res) => {
       route: {
         rule_set: [
           { type: 'remote', tag: 'rs-tg', url: 'http://x/rs-tg.srs' },
+          ...(tgRef !== 'rs-tg' ? [{ type: 'remote', tag: tgRef, url: `http://x/${tgRef}.srs` }] : []),
           { type: 'remote', tag: 'rs-github', url: 'http://x/rs-github.srs' },
           { type: 'remote', tag: 'rs-netflix', url: 'http://x/rs-netflix.srs' },
           { type: 'remote', tag: 'rs-apple', url: 'http://x/rs-apple.srs' },
@@ -308,7 +326,9 @@ const server = createServer(async (req, res) => {
           { type: 'local', tag: 'bard-domains', path: 'bard.srs' },
         ],
         rules: [
-          { rule_set: ['rs-tg'], outbound: '📲 电报信息' },
+          // MOCK_TG_REF 可换掉「📲 电报信息」引用的规则集：起两个实例给不同值，
+          // 用来验证共享规则树在多台同时展开时「在甲的行点＋」不会拿到乙的 refs
+          { rule_set: [tgRef], outbound: '📲 电报信息' },
           { rule_set: ['rs-github', 'rs-msft'], outbound: '🚀 节点选择' },
           { rule_set: ['cn_ip'], outbound: 'DIRECT' },
           { ip_cidr: ['192.168.0.0/16'], outbound: 'direct' },
@@ -341,6 +361,15 @@ const server = createServer(async (req, res) => {
         /* 阻塞模拟长耗时 */
       }
     }
+    // 记住每台路由「已生效」的配置（真实服务里 apply 是落盘的）
+    try {
+      const body = JSON.parse((await readBody(req)) || '{}');
+      const crypto = await import('node:crypto');
+      appliedByHost.set(String(body.host || ''), {
+        config: String(body.config || ''),
+        sha: crypto.createHash('sha256').update(String(body.config || '')).digest('hex'),
+      });
+    } catch { /* 忽略坏请求体 */ }
     return json(res, { ok: true, changed: true, log: 'APPLIED' });
   }
   if (path === '/configs') return json(res, CONFIGS);

@@ -67,3 +67,20 @@ const P = (o) => m.parseConfig(JSON.stringify(o));
 }
 
 export const results = out;
+
+// ── A5：路由没有 route / route.rules 时，applyGroupRefs 必须真把规则写进去（原来返回假成功）──
+{
+  const P = (o) => m.parseConfig(JSON.stringify(o));
+  // 没有 route.rules
+  let d = P({ outbounds: [{ type: 'selector', tag: 'G', outbounds: [] }] });
+  let r = m.applyGroupRefs(d, 'G', ['rs-a', 'rs-b']);
+  ok('无 route.rules：仍 ok 且新增到下标 0', r.ok && r.insertedAt === 0, JSON.stringify(r));
+  ok('无 route.rules：rules 真的被创建并写入', Array.isArray(d.root.route?.rules) && d.root.route.rules.length === 1 &&
+    JSON.stringify(d.root.route.rules[0]) === JSON.stringify({ rule_set: ['rs-a', 'rs-b'], outbound: 'G' }), JSON.stringify(d.root.route));
+  ok('无 route.rules：写入后零悬空', m.validateDoc(d).length === 0, m.validateDoc(d).join('/'));
+  // 连 route 都没有
+  d = P({ outbounds: [{ type: 'selector', tag: 'G', outbounds: [] }] });
+  delete d.root.route;
+  r = m.applyGroupRefs(d, 'G', ['rs-a']);
+  ok('无 route：route 被创建', r.ok && d.root.route && Array.isArray(d.root.route.rules) && d.root.route.rules.length === 1, JSON.stringify(d.root));
+}

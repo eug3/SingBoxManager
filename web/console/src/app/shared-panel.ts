@@ -5,7 +5,6 @@ import {
   applyGroupRefs,
   detachGroupRefs,
   endpoints,
-  groupRuleRefs,
   groups,
   groupsWithRuleRefs,
   nodes,
@@ -140,9 +139,6 @@ export class SharedPanel implements OnInit {
       if (!doc) throw new Error('读不到配置');
       const v = this.buildView(doc);
       this.views.update((m) => ({ ...m, [api]: { ...v, loading: false, err: '' } }));
-      // 当前路由的派生 computed 依赖这些信号，同步一次
-      if (this.nodeBackend()?.api === api) this.nodeDoc.set(doc);
-      if (this.ruleBackend()?.api === api) this.ruleDoc.set(doc);
     } catch (e) {
       this.views.update((m) => ({ ...m, [api]: { ...this.viewOf(api), loading: false, err: errMsg(e) } }));
     }
@@ -179,8 +175,6 @@ export class SharedPanel implements OnInit {
   /** 配置缓存：同一台路由只拉一次（两个子页共用，切页签不重复请求） */
   private readonly docs = new Map<string, ConfigDoc>();
   private readonly loads = new Map<string, Promise<ConfigDoc | null>>();
-  readonly nodeDoc = signal<ConfigDoc | null>(null);
-  readonly ruleDoc = signal<ConfigDoc | null>(null);
   readonly nodeErr = signal('');
   readonly ruleErr = signal('');
   readonly nodeLoading = signal(false);
@@ -816,13 +810,14 @@ export class SharedPanel implements OnInit {
 
   /* ── ② 共享规则池 ── */
 
-  onGroupDragStart(row: { group: string; refs: string[] }, ev: DragEvent): void {
+  onGroupDragStart(b: Backend, row: { group: string; refs: string[] }, ev: DragEvent): void {
     ev.dataTransfer?.setData('text/plain', row.group);
-    this.dragGroup.set(row.group);
+    this.dragGroup.set({ api: b.api, group: row.group, refs: row.refs });
     if (ev.dataTransfer) ev.dataTransfer.effectAllowed = 'copy';
   }
 
-  readonly dragGroup = signal<string | null>(null);
+  /** 正在被拖的组：连同它来自哪台路由、行上显示的那份 refs（行就是按这台路由的配置渲染的，直接用它） */
+  readonly dragGroup = signal<{ api: string; group: string; refs: string[] } | null>(null);
   readonly overRules = signal(false);
 
   onRulesDragOver(ev: DragEvent): void {
@@ -838,16 +833,35 @@ export class SharedPanel implements OnInit {
   onRulesDrop(ev: DragEvent): void {
     ev.preventDefault();
     this.overRules.set(false);
-    const g = this.dragGroup() ?? ev.dataTransfer?.getData('text/plain') ?? '';
+    const d = this.dragGroup();
     this.dragGroup.set(null);
-    if (g) this.addGroupToPool(g);
+    const plain = ev.dataTransfer?.getData('text/plain') ?? '';
+    if (d) {
+      const src = this.backends().find((x) => x.api === d.api) ?? null;
+      if (src) this.addGroupToPool(src, d.group, d.refs);
+    } else if (plain) {
+      // 外部拖入（没有来源信息）：按当前路由兜底，refs 从它的视图里取
+      const b = this.ruleBackend();
+      if (b) this.addGroupToPool(b, plain);
+    }
   }
 
-  addGroupToPool(group: string): void {
-    const b = this.ruleBackend();
-    const doc = this.ruleDoc();
-    if (!b || !doc) return;
-    const refs = groupRuleRefs(doc, group);
+  /**
+   * 把某台路由上的一个组加入共享规则池。
+   *
+   * 必须按「这行来自哪台路由」取 refs，不能用 ruleDoc()：那是「最后一次展开的路由」的文档，
+   * 多台同时展开时，在甲的行上点「＋」会拿到乙的配置算 refs，随后「应用到全部」把错的 refs 推到每台路由。
+   * refs 优先用行上显示的那份（它就是从这台路由的配置渲染出来的）；没给再从该路由的缓存文档算。
+   */
+  addGroupToPool(b: Backend, group: string, refs?: string[]): void {
+    if (!refs) {
+      const view = this.viewOf(b.api).groups.find((g) => g.group === group);
+      refs = view?.refs;
+    }
+    if (!refs) {
+      this.rulesNote.set(`规则池：跳过「${group}」· 这台路由上没有这个组或它没挂规则集`);
+      return;
+    }
     const res = this.pool.addRuleGroup(group, refs, { api: b.api, name: b.name || b.api });
     this.rulesNote.set(
       res.ok
@@ -861,6 +875,9 @@ export class SharedPanel implements OnInit {
   async refreshAllDocs(force = false): Promise<void> {
     const list = this.backends();
     const next: Record<string, ConfigDoc | null> = { ...this.allDocs() };
+    // force 的语义是「真去路由上重读」：必须先把每台的文档缓存丢掉，否则 fetchDoc 仍命中
+    // apply 之前的旧配置，批量应用弹窗报「✓ 成功」而列表还显示「未应用 / 漂移」。
+    if (force) for (const b of list) this.docs.delete(b.api);
     await Promise.all(
       list.map(async (b) => {
         if (!force && next[b.api]) return;
@@ -894,8 +911,8 @@ export class SharedPanel implements OnInit {
     this.rulesNote.set(applied ? `已标记「${r.group}」为已应用` : `已把「${r.group}」改回未应用`);
   }
 
-  addGroupRow(row: { group: string }): void {
-    this.addGroupToPool(row.group);
+  addGroupRow(b: Backend, row: { group: string; refs: string[] }): void {
+    this.addGroupToPool(b, row.group, row.refs);
   }
 
   /** 把规则池条目套用到当前（规则子页选中的）路由 */

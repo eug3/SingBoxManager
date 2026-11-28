@@ -1179,7 +1179,10 @@ export function applyGroupRefs(
   /** 新增了一条规则时：它落在 route.rules 的下标 */
   insertedAt?: number;
 } {
-  const rules = routeRules(doc);
+  // 用「必要时创建」的取法：routeRules() 在 route / route.rules 不存在时返回的是一个临时空数组，
+  // 对它 splice 等于什么都没改，却会返回 ok:true, insertedAt:0（批量预演显示「将新增 1 条规则」，
+  // 写回的却是原配置）。同文件的 addRuleSetRefs / moveRule / applyRegroupRows 都用的这个取法。
+  const rules = ensureRouteRules(ensureRoute(doc));
   const hits: number[] = [];
   rules.forEach((r, i) => {
     if (String(r['outbound'] ?? '') !== group) return;

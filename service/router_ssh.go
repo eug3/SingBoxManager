@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -40,33 +41,10 @@ func routerInit() string { return env("ROUTER_INIT", defaultRouterInit) }
 
 // ---- SSH 基础 ----
 
-// sshExec 执行一条远端命令（stdin 可选），返回合并后的 stdout+stderr 文本。
-// 重试口径：dropbear 在连续连接时偶发握手失败（防暴雨机制），做 3 次退避重试
-// （400ms/800ms/1200ms）；「Permission denied」属口令错误，立即返回不重试。
-// 三次都失败返回最后一次的错误。
-func sshExec(host string, cred routerCred, cmd string, stdin []byte, timeout time.Duration) (string, error) {
-	var lastErr error
-	var lastOut string
-	for attempt := 1; attempt <= 3; attempt++ {
-		out, err := sshExecOnce(host, cred, cmd, stdin, timeout)
-		lastOut = out
-		if err == nil {
-			return out, nil
-		}
-		lastErr = err
-		if strings.Contains(err.Error(), "Permission denied") {
-			return out, err // 口令错就别重试
-		}
-		time.Sleep(time.Duration(attempt) * 400 * time.Millisecond)
-	}
-	// 三次都失败：保留最后一次的输出（原来是 ""，导致「脚本明明打了日志，页面和日志里都看不到」）
-	return lastOut, lastErr
-}
-
-// sshExecOnce 单次 SSH 会话：拨号 → 建会话 → 跑命令 → 收输出，带整体超时。
-// 超时口径：到点向远端发 SIGKILL 并返回「已收到的输出 + 超时错误」；
-// 正常结束时 stderr 非空则追加在 stdout 之后（补换行分隔）。
-func sshExecOnce(host string, cred routerCred, cmd string, stdin []byte, timeout time.Duration) (string, error) {
+// sshDial 建一条 SSH 会话连接，只对「连不上」做 3 次退避重试（400ms/800ms/1200ms）。
+// 重试只覆盖拨号 + 建会话：dropbear 在连续连接时偶发握手失败（防暴雨机制），重试有意义。
+// 「Permission denied」属口令错误，立即返回不重试。
+func sshDial(host string, cred routerCred) (*ssh.Client, *ssh.Session, error) {
 	cfg := &ssh.ClientConfig{
 		User:            cred.User,
 		Auth:            []ssh.AuthMethod{ssh.Password(cred.Password)},
@@ -74,21 +52,57 @@ func sshExecOnce(host string, cred routerCred, cmd string, stdin []byte, timeout
 		Timeout:         8 * time.Second,
 	}
 	addr := net.JoinHostPort(host, fmt.Sprint(cred.Port))
-	client, err := ssh.Dial("tcp", addr, cfg)
-	if err != nil {
-		return "", fmt.Errorf("ssh 连接 %s 失败: %w", addr, err)
+	var client *ssh.Client
+	var err error
+	for attempt := 1; ; attempt++ {
+		client, err = ssh.Dial("tcp", addr, cfg)
+		if err == nil {
+			break
+		}
+		if strings.Contains(err.Error(), "Permission denied") {
+			return nil, nil, fmt.Errorf("ssh 连接 %s 失败: %w", addr, err) // 口令错就别重试
+		}
+		if attempt >= 3 {
+			return nil, nil, fmt.Errorf("ssh 连接 %s 失败（已重试 %d 次）: %w", addr, attempt, err)
+		}
+		time.Sleep(time.Duration(attempt) * 400 * time.Millisecond)
 	}
-	defer client.Close()
-
 	sess, err := client.NewSession()
 	if err != nil {
-		return "", fmt.Errorf("ssh session: %w", err)
+		client.Close()
+		return nil, nil, fmt.Errorf("ssh session: %w", err)
 	}
+	return client, sess, nil
+}
+
+// sshExec 执行一条远端命令（stdin 可选），返回合并后的 stdout+stderr 文本。
+//
+// 重要：命令本身**不重试**。本服务的远端脚本大量用非零退出码表达结果（check 未通过、
+// 回滚失败、 unhealthy…），而且很多会删临时文件 / 替换二进制 —— 重跑既拿不到真实输出
+// （只剩「no such file」），又可能对非幂等脚本产生副作用。实测 /router/check 对坏 JSON
+// 返回的就是第 3 次重跑的「open …: no such file」，真实报错被完全掩盖。
+// 所以：连不上 → sshDial 里重试；命令跑了 → 首次输出 + 原样错误直接返回。
+func sshExec(host string, cred routerCred, cmd string, stdin []byte, timeout time.Duration) (string, error) {
+	return sshExecOnce(host, cred, cmd, stdin, timeout)
+}
+
+// sshExecOnce 单次 SSH 会话：拨号 → 建会话 → 跑命令 → 收输出，带整体超时。
+// 超时口径：到点向远端发 SIGKILL 并返回「已收到的输出 + 超时错误」；
+// 正常结束时 stderr 非空则追加在 stdout 之后（补换行分隔）。
+// 命令非零退出返回 *ssh.ExitError（调用方按需取退出码），输出照常带回。
+func sshExecOnce(host string, cred routerCred, cmd string, stdin []byte, timeout time.Duration) (string, error) {
+	client, sess, err := sshDial(host, cred)
+	if err != nil {
+		return "", err
+	}
+	defer client.Close()
 	defer sess.Close()
 
 	// 坑：x/crypto/ssh 不允许 Stdout/Stderr 共用同一个 writer（会静默丢输出），
-	// 必须双缓冲分开收，最后再手工合并
-	var outBuf, errBuf bytes.Buffer
+	// 必须双缓冲分开收，最后再手工合并。
+	// 用带锁的 writer：超时分支返回时 sess.Run 还在后台 goroutine 里可能继续写，
+	// 而 bytes.Buffer 不是并发安全的（-race 会报）。
+	var outBuf, errBuf syncBuffer
 	sess.Stdout = &outBuf
 	sess.Stderr = &errBuf
 	if len(stdin) > 0 {
@@ -102,17 +116,49 @@ func sshExecOnce(host string, cred routerCred, cmd string, stdin []byte, timeout
 	case err = <-done:
 	case <-time.After(timeout):
 		_ = sess.Signal(ssh.SIGKILL)
-		return outBuf.String() + errBuf.String(), fmt.Errorf("超时（%s）", timeout)
-	}
-	// 合并输出：stdout 在前，stderr 追加在后（补一个换行避免黏行）
-	combined := outBuf.String()
-	if errBuf.Len() > 0 {
-		if combined != "" && !strings.HasSuffix(combined, "\n") {
-			combined += "\n"
+		// 给后台 goroutine 一点时间把 SIGKILL 后残余的输出写完，再取快照（避免读到一半）
+		select {
+		case <-done:
+		case <-time.After(500 * time.Millisecond):
 		}
-		combined += errBuf.String()
+		return outBuf.combined(&errBuf), fmt.Errorf("超时（%s）", timeout)
 	}
-	return combined, err
+	return outBuf.combined(&errBuf), err
+}
+
+// syncBuffer 带锁的字节缓冲：stdout / stderr 各一个，供并发的拷贝 goroutine 与主 goroutine 安全读写
+type syncBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (s *syncBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.Write(p)
+}
+
+// String 取当前内容快照
+func (s *syncBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.String()
+}
+
+// combined 取「stdout 在前、stderr 追加在后」的合并文本；stderr 非空且 stdout 不以换行结尾时补一个换行避免黏行
+func (o *syncBuffer) combined(e *syncBuffer) string {
+	o.mu.Lock()
+	out := o.b.String()
+	o.mu.Unlock()
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.b.Len() == 0 {
+		return out
+	}
+	if out != "" && !strings.HasSuffix(out, "\n") {
+		out += "\n"
+	}
+	return out + e.b.String()
 }
 
 // healthSnippet 远端健康检查脚本片段：必须「换了新 pid」且 :9090 在监听。

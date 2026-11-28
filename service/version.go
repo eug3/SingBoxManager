@@ -525,7 +525,15 @@ func handleVersionAvailable(w http.ResponseWriter, r *http.Request) {
 
 // ---- POST /router/versions/download ----
 
-// downloadTo 依次尝试镜像前缀下载到 dest，返回命中的来源前缀
+// downloadLocks 同一「版本+架构+变体」同时只允许一个下载（否则两个请求会共用同一个暂存文件互相覆盖）
+var downloadLocks sync.Map // key → *sync.Mutex
+
+func lockFor(key string) *sync.Mutex {
+	m, _ := downloadLocks.LoadOrStore(key, &sync.Mutex{})
+	return m.(*sync.Mutex)
+}
+
+// downloadTo 依次尝试镜像前缀下载到 dest（一个暂存路径，本函数不 rename），返回命中的来源前缀
 func downloadTo(dest, url string) (string, int64, error) {
 	var lastErr error
 	for _, prefix := range versionMirrors() {
@@ -547,7 +555,8 @@ func prefixLabel(p string) string {
 	return p
 }
 
-// fetchToFile 流式下载到文件（先写 .part，成功后原子改名）
+// fetchToFile 流式下载到 dest（调用方应传一个「暂存路径」，校验通过后再由调用方原子改名）。
+// 下载中途失败 / 过小 / 断连都会删掉 dest，不会留下半截文件。
 func fetchToFile(url, dest string) (int64, error) {
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
@@ -562,28 +571,23 @@ func fetchToFile(url, dest string) (int64, error) {
 	if resp.StatusCode != 200 {
 		return 0, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
-	tmp := dest + ".part"
-	f, err := os.Create(tmp)
+	f, err := os.Create(dest)
 	if err != nil {
 		return 0, err
 	}
 	n, err := io.Copy(f, resp.Body)
 	closeErr := f.Close()
 	if err != nil {
-		os.Remove(tmp)
+		os.Remove(dest)
 		return 0, err
 	}
 	if closeErr != nil {
-		os.Remove(tmp)
+		os.Remove(dest)
 		return 0, closeErr
 	}
 	if n < 1<<20 { // 小于 1MB 必然不对（正式包 28–32MB）
-		os.Remove(tmp)
+		os.Remove(dest)
 		return 0, fmt.Errorf("内容过小（%d 字节），可能被拦截或返回了错误页", n)
-	}
-	if err := os.Rename(tmp, dest); err != nil {
-		os.Remove(tmp)
-		return 0, err
 	}
 	return n, nil
 }
@@ -620,9 +624,15 @@ func handleVersionDownload(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, "不支持的变体："+req.Variant+"（可选 musl / glibc / 留空=默认包）")
 		return
 	}
+	key := req.Version + "|" + req.Arch + "|" + req.Variant
+	mu := lockFor(key)
+	mu.Lock()
+	defer mu.Unlock()
+
 	dest := versionCachePath(req.Version, req.Arch, req.Variant)
 	if fi, err := os.Stat(dest); err == nil && fi.Size() > 1<<20 && !req.Force {
-		writeJSON(w, 200, map[string]any{"ok": true, "cached": true, "version": req.Version, "arch": req.Arch, "size": fi.Size()})
+		writeJSON(w, 200, map[string]any{"ok": true, "cached": true, "version": req.Version, "arch": req.Arch,
+			"variant": req.Variant, "size": fi.Size()})
 		return
 	}
 	dir := filepath.Dir(dest)
@@ -630,17 +640,24 @@ func handleVersionDownload(w http.ResponseWriter, r *http.Request) {
 		fail(w, 500, "建缓存目录失败："+err.Error())
 		return
 	}
+	// 下载到暂存路径：校验通过之前绝不碰 dest。
+	// 原先 fetchToFile 自己先 rename 到 dest 再校验，force 重下一次坏包就把上一份好缓存删了。
+	staging := fmt.Sprintf("%s.%d.part", dest, time.Now().UnixNano())
+	defer os.Remove(staging)
 	t0 := time.Now()
-	src, size, err := downloadTo(dest, versionDownloadURL(req.Version, req.Arch, req.Variant))
+	src, size, err := downloadTo(staging, versionDownloadURL(req.Version, req.Arch, req.Variant))
 	if err != nil {
 		fail(w, 502, "下载失败（已试过所有镜像）："+err.Error())
 		return
 	}
 	// 校验：能解出 sing-box 二进制才算有效包，同时算 sha256 存档
-	sum, err := tarGzBinarySha(dest)
+	sum, err := tarGzBinarySha(staging)
 	if err != nil {
-		os.Remove(dest)
 		fail(w, 502, "下载内容不是有效的 sing-box 安装包："+err.Error())
+		return
+	}
+	if err := os.Rename(staging, dest); err != nil {
+		fail(w, 500, "落盘失败："+err.Error())
 		return
 	}
 	meta := cachedVersion{Version: req.Version, Arch: req.Arch, Variant: req.Variant, Size: size, Sha256: sum,
@@ -745,39 +762,45 @@ NEW="$BIN.new"
 CFG="` + routerConfigPath() + `"
 INIT="` + routerInit() + `"
 PREV="$BIN.prev.gz"
+CHECK_OUT=$(mktemp /tmp/sb-check.XXXXXX 2>/dev/null || echo /tmp/sb-check.out)
 
-echo "START bin=$BIN new=$NEW user=$(id -un 2>/dev/null)"
-ls -l "$(dirname "$NEW")" 2>&1 | sed 's/^/DIR /'
-ls -l "$NEW" 2>&1 | sed 's/^/LS /'
-[ -s "$NEW" ] || { echo MISSING_NEW; exit 31; }
-chmod 755 "$NEW" 2>/dev/null || { echo CHMOD_FAILED; exit 32; }
+[ -s "$NEW" ] || { echo MISSING_NEW; rm -f "$CHECK_OUT"; exit 31; }
+chmod 755 "$NEW" 2>/dev/null || { echo CHMOD_FAILED; rm -f "$NEW" "$CHECK_OUT"; exit 32; }
 
-# 1) 新二进制能跑、且版本对（架构不匹配会在这里暴露）
-OUT=$("$NEW" version 2>&1) || { echo VERIFY_FAILED; echo "$OUT"; rm -f "$NEW"; exit 33; }
+# 1) 新二进制能跑、且版本对（架构 / libc 不匹配会在这里暴露）
+OUT=$("$NEW" version 2>&1) || { echo VERIFY_FAILED; echo "$OUT"; rm -f "$NEW" "$CHECK_OUT"; exit 33; }
 case "$OUT" in
   *"` + version + `"*) : ;;
-  *) echo VERSION_MISMATCH; echo "$OUT"; rm -f "$NEW"; exit 34 ;;
+  *) echo VERSION_MISMATCH; echo "$OUT"; rm -f "$NEW" "$CHECK_OUT"; exit 34 ;;
 esac
 
-# 2) 压缩备份旧二进制（gz 省一半磁盘）
-gzip -c "$BIN" > "$PREV" 2>/dev/null || { echo BACKUP_FAILED; rm -f "$NEW"; exit 35; }
-echo "BACKUP=$PREV"
-
-# 3) 原子替换（rename 不影响正在运行的进程）
-mv "$NEW" "$BIN" 2>/dev/null || { echo INSTALL_FAILED; exit 36; }
-chmod 755 "$BIN"
-echo INSTALLED
-
-# 4) 用新二进制校验现有配置；不过就回滚
-if ! "$BIN" check -c "$CFG" >/tmp/sb-check.out 2>&1; then
+# 2) 用新二进制校验现有配置 —— 放在替换之前做。
+#    sing-box check 只认 -c 给的路径，不关心自己叫什么文件名，所以没必要先 mv 再校验。
+#    这样「校验不过」时路由上什么都没动，也就不需要回滚（旧写法要先替换、再解压还原，
+#    在只剩一百多 MB 的 overlay 上，还原那一步自己就会 ENOSPC，却照样打印 ROLLBACK_DONE）。
+if ! "$NEW" check -c "$CFG" >"$CHECK_OUT" 2>&1; then
   echo CONFIG_CHECK_FAILED
-  head -3 /tmp/sb-check.out 2>/dev/null
-  gzip -dc "$PREV" > "$BIN.rb" 2>/dev/null && chmod 755 "$BIN.rb" && mv "$BIN.rb" "$BIN"
-  echo ROLLBACK_DONE
+  head -5 "$CHECK_OUT" 2>/dev/null
+  rm -f "$NEW" "$CHECK_OUT"
   exit 37
 fi
+rm -f "$CHECK_OUT"
 
-# 5) 重启 + 健康检查；不健康回滚
+# 3) 压缩备份旧二进制：先写 .tmp 再 mv，避免中途失败毁掉上一份好备份（gz 省一半磁盘）
+gzip -c "$BIN" > "$PREV.tmp" 2>/dev/null && mv "$PREV.tmp" "$PREV" || {
+  echo BACKUP_FAILED; rm -f "$NEW" "$PREV.tmp"; exit 35
+}
+echo "BACKUP=$PREV"
+
+# 4) 原子替换（rename 不影响正在运行的进程）
+mv "$NEW" "$BIN" 2>/dev/null || { echo INSTALL_FAILED; rm -f "$NEW"; exit 36; }
+chmod 755 "$BIN" || { echo CHMOD_FAILED; exit 32; }
+echo INSTALLED
+
+# 5) 重启 + 健康检查；不健康则还原备份并重启，按还原结果如实报告
+restore() {
+  gzip -dc "$PREV" > "$BIN.rb" 2>/dev/null && chmod 755 "$BIN.rb" && mv "$BIN.rb" "$BIN"
+}
 OLD=$(sbg_pid)
 T0=$(date +%s)
 "$INIT" restart >/dev/null 2>&1
@@ -787,11 +810,14 @@ if health "$OLD"; then
   exit 0
 fi
 echo UNHEALTHY_ROLLBACK
-gzip -dc "$PREV" > "$BIN.rb" 2>/dev/null && chmod 755 "$BIN.rb" && mv "$BIN.rb" "$BIN"
-OLD=$(sbg_pid)
-"$INIT" restart >/dev/null 2>&1
-if health "$OLD"; then echo ROLLBACK_OK; else echo ROLLBACK_FAILED; fi
-exit 38
+if restore; then
+  OLD=$(sbg_pid)
+  "$INIT" restart >/dev/null 2>&1
+  if health "$OLD"; then echo ROLLBACK_OK; else echo ROLLBACK_FAILED; fi
+  exit 38
+fi
+echo ROLLBACK_RESTORE_FAILED
+exit 39
 `
 }
 
@@ -876,6 +902,7 @@ func handleVersionDeploy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if out, err := sshExecOnce(host, cred, "umask 022; cat > "+bin+".new", data, 15*time.Minute); err != nil {
+		_, _ = sshExecOnce(host, cred, "rm -f "+bin+".new", nil, 15*time.Second) // 别把几十 MB 留在紧张的路由盘上
 		fail(w, 502, "上传新二进制失败："+cleanLine(err.Error()+" "+out))
 		return
 	}
@@ -883,6 +910,7 @@ func handleVersionDeploy(w http.ResponseWriter, r *http.Request) {
 	// 回读校验：远端大小必须与本地一致（SSH 上传静默截断过一次，不能只信退出码）
 	if chk, err := sshExecOnce(host, cred, "ls -l "+bin+".new 2>&1; echo RC=$?", nil, 20*time.Second); err != nil || !uploadBytesMatch(chk, size) {
 		log.Printf("上传校验失败 %s：want=%d 远端=%q err=%v", host, size, truncOut(chk, 300), err)
+		_, _ = sshExecOnce(host, cred, "rm -f "+bin+".new", nil, 15*time.Second)
 		fail(w, 502, fmt.Sprintf("上传后校验失败（本地 %d 字节）：%s", size, cleanLine(chk+" "+fmt.Sprint(err))))
 		return
 	}
@@ -895,34 +923,37 @@ func handleVersionDeploy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out, scriptErr := sshExec(host, cred, "sh "+scriptPath+"; rc=$?; echo SCRIPT_RC=$rc; exit $rc", nil, 240*time.Second)
-	if !strings.Contains(out, "SCRIPT_RC=0") {
-		// 失败时把脚本留在路由上，方便手动复跑；同时把远端脚本内容抓回日志
-		keep, _ := sshExec(host, cred, "cat "+scriptPath+" 2>/dev/null | head -40", nil, 20*time.Second)
-		log.Printf("部署脚本输出：%q\n----- 脚本前 40 行 -----\n%s", truncOut(out, 1500), keep)
-	} else {
+	if strings.Contains(out, "SCRIPT_RC=0") {
 		_, _ = sshExec(host, cred, "rm -f "+scriptPath, nil, 10*time.Second)
 	}
-	// 失败时把脚本原始输出与错误打进日志（页面只显示摘要，排障要看原文）
-	log.Printf("版本部署 %s %s/%s：scriptErr=%v out=%q", host, req.Version, req.Arch, scriptErr, truncOut(out, 1500))
+	// 失败时脚本留在路由 /tmp（脚本内容由本服务按已知入参生成，不必再开一条会话抓回来）
+	log.Printf("版本部署 %s %s/%s/%s：scriptErr=%v out=%q", host, req.Version, req.Arch, variantLabel(req.Variant), scriptErr, truncOut(out, 2000))
 	after := probeRouterVersion(host, cred)
 	resp := map[string]any{
 		"ok": false, "host": host, "version": req.Version, "arch": req.Arch,
 		"sizeMB": size / (1 << 20), "uploadSecs": uploadSecs,
-		"secs": time.Since(t0).Seconds(), "log": cleanLine(out),
+		"secs": time.Since(t0).Seconds(), "log": strings.TrimSpace(truncOut(out, 4000)),
 		"before": info.Version, "after": after.Version, "backup": after.Backup,
 		"freeMB": after.FreeMB,
 	}
 	switch {
-	case strings.Contains(out, "ROLLBACK_OK") || strings.Contains(out, "ROLLBACK_DONE"):
-		resp["error"] = "部署失败，已自动回滚到旧二进制：" + cleanLine(out)
+	// 结果判定按「最危险的状态优先」排列，避免标记词互相包含时被前面的分支抢走。
+	// 最危险的是「回滚还原本身失败」：此时磁盘上是校验不过的新二进制，进程还在跑但下次重启起不来。
+	case strings.Contains(out, "ROLLBACK_RESTORE_FAILED"):
+		resp["error"] = "部署失败，且还原旧二进制也失败（磁盘上是校验不过配置的新二进制，进程暂在运行，但下次重启会起不来）。请立即登录路由处理：" + cleanLine(out)
+		failJSON(w, 500, resp)
+		return
+	case strings.Contains(out, "ROLLBACK_OK"):
+		resp["error"] = "部署失败（新二进制重启后不健康），已自动回滚到旧二进制并重启：" + cleanLine(out)
 		failJSON(w, 502, resp)
 		return
 	case strings.Contains(out, "ROLLBACK_FAILED"):
-		resp["error"] = "部署失败且回滚也失败，请立即登录路由处理：" + cleanLine(out)
+		resp["error"] = "部署失败且回滚后仍不健康，请立即登录路由处理：" + cleanLine(out)
 		failJSON(w, 500, resp)
 		return
 	case strings.Contains(out, "VERSION_MISMATCH"), strings.Contains(out, "VERIFY_FAILED"),
 		strings.Contains(out, "CONFIG_CHECK_FAILED"), strings.Contains(out, "BACKUP_FAILED"),
+		strings.Contains(out, "CHMOD_FAILED"), strings.Contains(out, "INSTALL_FAILED"),
 		strings.Contains(out, "MISSING_NEW"), scriptErr != nil:
 		resp["error"] = "部署失败：" + cleanLine(out) + errSuffix(scriptErr)
 		failJSON(w, 502, resp)

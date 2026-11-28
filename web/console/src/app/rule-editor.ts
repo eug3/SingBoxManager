@@ -87,6 +87,8 @@ export class RuleEditor implements OnInit {
   readonly acting = signal(false);
   readonly opErr = signal('');
   readonly source = signal('');
+  /** load() 的序号守卫：快速连点两个桶时，只认「最后一次点的那次 load」的结果 */
+  private loadSeq = 0;
   readonly check = signal<RuleCheck>({ ok: false, msg: '未加载', detail: '' });
   readonly head = signal<{ size: string; time: string } | null>(null);
   readonly loading = signal(false);
@@ -302,20 +304,34 @@ export class RuleEditor implements OnInit {
     }
   }
 
-  /** 拉桶源 + 预校验 + HEAD 线上 .srs 大小/时间 */
+  /**
+   * 拉桶源 + 预校验 + HEAD 线上 .srs 大小/时间。
+   *
+   * 必须带序号守卫：没有它的话，快速连点 A、B 两个桶而 A 的响应后到时，
+   * 编辑器标题是 B、内容却是 A 的规则，且 dirty=false（baseline 也被一起覆盖）——
+   * 此时点「保存并发布」会把 A 的规则写进 NAS 的 B 桶，编译出的 .srs 随即被所有路由拉走。
+   * 守卫口径：只认「最后一次发起的 load」且「桶在 await 期间没被切走」的结果。
+   */
   async load(): Promise<void> {
+    const seq = ++this.loadSeq;
+    const bucket = this.bucket();
     this.loading.set(true);
     this.result.set(null);
+    const stale = (): boolean => seq !== this.loadSeq || bucket !== this.bucket();
     try {
-      const text = await this.vault.fetch(this.bucket());
+      const text = await this.vault.fetch(bucket);
+      if (stale()) return;
       this.source.set(text);
       this.baseline.set(text);
       this.check.set(this.vault.validate(text));
-      this.head.set(await this.vault.head(this.bucket()));
+      const head = await this.vault.head(bucket);
+      if (stale()) return;
+      this.head.set(head);
     } catch (e) {
+      if (stale()) return;
       this.check.set({ ok: false, msg: '拉取失败', detail: (e as Error)?.message ?? String(e) });
     } finally {
-      this.loading.set(false);
+      if (seq === this.loadSeq) this.loading.set(false);
     }
   }
 
@@ -378,12 +394,17 @@ export class RuleEditor implements OnInit {
       return;
     }
     try {
-      const r = await this.vault.publish(this.bucket(), this.source(), this.key());
+      // 记下「发布的是哪个桶的哪份文本」：发布期间用户可能继续输入或切桶，
+      // 基线必须是被发布的那份，否则未发布的改动会被误判成「已发布」
+      const pubBucket = this.bucket();
+      const pubText = this.source();
+      const r = await this.vault.publish(pubBucket, pubText, this.key());
+      if (pubBucket !== this.bucket()) return; // 发布期间切了桶：结果不属于当前桶，不覆盖显示
       this.result.set(r);
       if (r?.ok) {
         this.publishedAt.set(clockText());
-        this.baseline.set(this.source()); // 发布成功即成为新基线
-        this.head.set(await this.vault.head(this.bucket()));
+        this.baseline.set(pubText); // 发布成功即成为新基线（用发布时的文本，不是当前的 source）
+        this.head.set(await this.vault.head(pubBucket));
         void this.initBuckets(); // 文件树的大小/时间跟着刷新
       }
     } catch (e) {

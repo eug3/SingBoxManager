@@ -242,7 +242,7 @@
                     <div
                       class="shp-row shp-grow shp-tleaf"
                       draggable="true"
-                      (dragstart)="focusRouter(b); onGroupDragStart(g, $event)"
+                      (dragstart)="focusRouter(b); onGroupDragStart(b, g, $event)"
                       (mousedown)="focusRouter(b)"
                       [title]="'拖到右侧规则池：' + g.group"
                     >
@@ -253,7 +253,7 @@
                         }
                       </span>
                       <span class="dim small shp-count">{{ g.refs.length }} 集 / {{ g.rules }} 条</span>
-                      <button class="shp-add" (click)="focusRouter(b); addGroupRow(g)" title="加入共享规则池">＋</button>
+                      <button class="shp-add" (click)="focusRouter(b); addGroupRow(b, g)" title="加入共享规则池">＋</button>
                     </div>
                   } @empty {
                     <div class="dim small shp-tempty">这个路由没有「引用规则集」的组名。</div>
