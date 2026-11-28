@@ -2,7 +2,7 @@
 <div class="wrap">
   <!-- 顶栏：标题 + 存储状态点（点击重测，悬停看体检细节）+ ⚙ 存储配置齿轮 + 配置弹窗 -->
   <header class="top">
-    <h1>规则编辑台 <b>◆ SBM CONSOLE</b></h1>
+    <h1>◆ <b>多路由 Singbox 管理系统</b></h1>
     <span class="hgroup">
       <button class="hstat" [class.ok]="share()?.ok" [class.bad]="share()?.ok === false"
               [title]="statusTitle()" (click)="probeShare()">
@@ -65,7 +65,8 @@
 
   <!-- 页脚：控制台版本 / sing-box 版本 / 发布链路 / 入口地址 / 公网只读 -->
   <footer class="foot">
-    <span class="fp">SBM CONSOLE</span>
+    <span class="fp">多路由 Singbox 管理系统</span>
+    <span class="sep"></span>
     <span>v{{ version }}</span>
     <span class="sep"></span>
     <span>{{ sbVersion() || 'sing-box —' }}</span>
