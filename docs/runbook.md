@@ -292,17 +292,22 @@ sing-box 没有 reload/写配置 API，所以「改节点配置 → 生效」由
 - Clash API 密钥（= vault-edit 的 X-Vault-Key）：各路由 `/etc/sing-box/config.json` 的 `experimental.clash_api.secret`；管理机侧只存在 `/etc/vault-edit.env`(0600)
 - 路由 root / 管理机等口令：权威登记表在 NAS 的内部凭据目录（路径见内部运维资料，不入库）
 - 公网隧道/CDN 的访问 token：同样在 NAS 凭据目录
-- 历史提醒：**旧 key 曾以明文进入公开仓库的提交历史**，仍在等待轮换（见 §7）
+- 历史提醒：**旧 key 曾以明文进入公开仓库的提交历史**，仍在等待轮换（见 §7）。
+  出处：`service/vault_edit.py`（早期 Python 版，commit `0853993` 起，后被删除）
 
 ## 7. 待办 / 可选方向
 
 - [x] ~~各路由放行页面来源~~（2026-11-21 完成：管理机 LAN 来源 + 虚拟内网来源，均 `sing-box check` 后重启，实测 ACAO 正常）
 - [ ] **轮换 clash secret / X-Vault-Key**：旧 key 已在公开仓库历史里；
-      2026-11-28 全量审计**再确认一次**：`web/console/test/ops/fixtures/router-32.json`、
-      `router-32-api.json`、`router-172.16.8.1.json` 是整份路由配置，含 clash secret、
-      API secret、代理口令、UUID。这些是**真实值**不是占位符，仓库又是公开的 ——
-      轮换时记得这份清单；换完把夹具里的值替换成明显的假值并补一次单测跑通。
-      轮换顺序=改各路由 `clash_api.secret`轮换顺序=改各路由 `clash_api.secret` → 改管理机 `/etc/vault-edit.env` → 重启 vault-edit → 各路由重启 sing-box → 页面重填密钥
+      2026-11-28 全量审计核对过的**实际泄漏路径**（别按错的地方找）：
+      密钥是随 `service/vault_edit.py`（早期 Python 版服务，后来被 Go 版取代并删除）
+      硬编码进入提交历史的，见 commit `0853993`；该文件当前已不在树里，
+      但**历史提交仍可读到**，所以必须轮换。核对方式：`git log --all -S'<旧key>' --oneline`。
+      顺带核过：节点 password / uuid **没有**进入过历史（那几个值 `-S` 查不到）。
+      演练/真机夹具（`web/console/test/ops/fixtures/router-*.json`）虽然**含全部真实凭据**，
+      但被 `web/console/.gitignore` 挡在库外、从未提交 —— 2026-11-28 已把这几个本地文件里的
+      敏感字段换成 `FAKE-…` 占位符（结构/tag/规则保留，单测仍全过）作为纵深防御。
+      轮换顺序=改各路由 `clash_api.secret` → 改管理机 `/etc/vault-edit.env` → 重启 vault-edit → 各路由重启 sing-box → 页面重填密钥
 - [ ] rule-set `.json` 源 + manifest.json 公网可下载的收口（移出共享目录或接受现状）
 - [ ] clash-api 9090 监听 0.0.0.0 的安全面收窄（长期待办）
 - [ ] 主路由 dns 收口漂移修复（uci list server + noresolv）
