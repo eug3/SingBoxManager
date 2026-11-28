@@ -2197,3 +2197,34 @@ app-config-pane .cfggate { flex: 1 1 auto; min-height: 0; overflow: auto; }
 .shp-newrule-hd .spacer { flex: 1 1 auto; }
 .shp-newrule-btn { white-space: nowrap; flex: 0 0 auto; }
 .shp-statline { flex: 0 0 auto; padding: 2px 0 4px; }
+
+/* ── 共享编辑：路由树（路由 → 节点 / 规则组 清单，可折叠） ── */
+.shp-tree-col { padding: 6px 8px; }
+.shp-tree-hd { display: flex; align-items: baseline; gap: 8px; padding-bottom: 6px; font-size: 12px; border-bottom: 1px solid #eef2f8; }
+.shp-tree-hd .spacer { flex: 1 1 auto; }
+.shp-tree { flex: 1 1 auto; min-height: 0; overflow: auto; }
+.shp-tnode { border-bottom: 1px solid #f1f5fa; }
+.shp-trow {
+  display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+  background: transparent; border: 0; padding: 0; font-family: inherit; color: inherit;
+}
+.shp-trouter {
+  padding: 7px 6px; cursor: pointer; border-radius: 4px; font-size: 12px;
+}
+.shp-trouter:hover { background: #f2f8ff; }
+.shp-tnode.open > .shp-trouter { background: #f7fbff; font-weight: 600; }
+.shp-caret {
+  display: inline-block; width: 12px; color: #8794a5; transition: transform .12s; font-size: 11px;
+}
+.shp-tnode.open > .shp-trouter .shp-caret { transform: rotate(0); }
+.shp-tnode:not(.open) > .shp-trouter .shp-caret { transform: rotate(-90deg); }
+.shp-trouter b { color: #1f3b5b; }
+.shp-trouter .shp-rhost { font-size: 10px; color: #98a5b6; font-family: var(--mono); }
+.shp-terr { color: #c8384a; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.shp-tchildren { padding: 2px 0 8px 18px; border-left: 1px dashed #dde6f0; margin-left: 12px; }
+.shp-tleaf.shp-row { padding: 3px 6px; }
+.shp-tleaf.shp-grow { grid-template-columns: minmax(92px, 132px) minmax(0, 1fr) auto auto; }
+.shp-tempty { padding: 4px 6px; }
+/* 树的行里去掉原来的大内边距，让清单更紧凑 */
+.shp-tchildren .shp-row { margin: 0; }
+.shp-tchildren .shp-view { margin: 2px 0 6px; }

@@ -48,6 +48,14 @@ interface SourceNode {
 /** 页内两个互不相干的子页：共享节点 / 共享规则（各有自己的路由 tab 与数据） */
 type Section = 'nodes' | 'rules';
 
+/** 每台路由在树里的视图状态（节点清单 / 组名清单 / 加载 / 错误），按 api 键 */
+interface RouterView {
+  nodes: SourceNode[];
+  groups: { group: string; refs: string[]; rules: number }[];
+  loading: boolean;
+  err: string;
+}
+
 /**
  * 「共享编辑」整页 —— 两个子页签，各自独立：
  *   ① 共享节点：把某台路由的节点拖进池子，另一台路由「新增节点 → 共享池」一键导入；
@@ -84,6 +92,90 @@ export class SharedPanel implements OnInit {
   readonly nodeBackend = signal<Backend | null>(null);
   readonly ruleBackend = signal<Backend | null>(null);
 
+  private readonly views = signal<Record<string, RouterView>>({});
+  /** 树的折叠状态：展开的路由 api 集合；每台路由下「节点」「规则」两个清单也各自可折叠 */
+  readonly openRouters = signal<Set<string>>(new Set());
+  readonly closedSections = signal<Set<string>>(new Set()); // key = `${api}|nodes` / `${api}|rules`
+
+  private viewOf(api: string): RouterView {
+    return this.views()[api] ?? { nodes: [], groups: [], loading: false, err: '' };
+  }
+
+  /** 展开某台路由（= 选中它作为当前操作目标，并按需加载配置） */
+  toggleRouter(b: Backend): void {
+    const api = b.api;
+    const cur = this.openRouters();
+    const next = new Set(cur);
+    if (next.has(api)) {
+      next.delete(api);
+    } else {
+      next.add(api);
+      // 展开即选中：共享池「加入 / 套用」的默认目标跟着走
+      this.nodeBackend.set(b);
+      this.ruleBackend.set(b);
+      void this.loadRouterView(b);
+    }
+    this.openRouters.set(next);
+  }
+
+  /** 某台路由下的「节点 / 规则」清单折叠 */
+  toggleSection(api: string, sec: 'nodes' | 'rules'): void {
+    const key = `${api}|${sec}`;
+    const next = new Set(this.closedSections());
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    this.closedSections.set(next);
+  }
+
+  isSectionOpen(api: string, sec: 'nodes' | 'rules'): boolean {
+    return !this.closedSections().has(`${api}|${sec}`);
+  }
+
+  /** 加载某台路由的节点清单与组名清单（树展开时懒加载；带缓存 + 超时） */
+  async loadRouterView(b: Backend): Promise<void> {
+    const api = b.api;
+    this.views.update((m) => ({ ...m, [api]: { ...this.viewOf(api), loading: true, err: '' } }));
+    try {
+      const doc = await this.fetchDoc(b);
+      if (!doc) throw new Error('读不到配置');
+      const v = this.buildView(doc);
+      this.views.update((m) => ({ ...m, [api]: { ...v, loading: false, err: '' } }));
+      // 当前路由的派生 computed 依赖这些信号，同步一次
+      if (this.nodeBackend()?.api === api) this.nodeDoc.set(doc);
+      if (this.ruleBackend()?.api === api) this.ruleDoc.set(doc);
+    } catch (e) {
+      this.views.update((m) => ({ ...m, [api]: { ...this.viewOf(api), loading: false, err: errMsg(e) } }));
+    }
+  }
+
+  /** 从配置算出节点清单（排除分组 / 内置）与组名清单 */
+  private buildView(doc: ConfigDoc): { nodes: SourceNode[]; groups: { group: string; refs: string[]; rules: number }[] } {
+    const ob = outbounds(doc);
+    const ep = endpoints(doc);
+    const gs = new Set(groups(doc).map((g) => String(g['tag'])));
+    const rows = nodes(doc).map((n) => {
+      const inOb = ob.find((o) => String(o['tag']) === n.tag);
+      const inEp = inOb ? undefined : ep.find((o) => String(o['tag']) === n.tag);
+      return {
+        tag: n.tag,
+        type: n.type,
+        server: n.server,
+        special: n.special,
+        kind: (inEp ? 'endpoint' : 'outbound') as 'outbound' | 'endpoint',
+        raw: inOb ?? inEp ?? {},
+      };
+    });
+    return {
+      nodes: rows.filter((r) => !r.special && !gs.has(r.tag)),
+      groups: groupsWithRuleRefs(doc),
+    };
+  }
+
+  readonly nodesOf = (api: string) => this.viewOf(api).nodes;
+  readonly groupsOf = (api: string) => this.viewOf(api).groups;
+  readonly viewLoading = (api: string) => this.viewOf(api).loading;
+  readonly viewErr = (api: string) => this.viewOf(api).err;
+
   /** 配置缓存：同一台路由只拉一次（两个子页共用，切页签不重复请求） */
   private readonly docs = new Map<string, ConfigDoc>();
   private readonly loads = new Map<string, Promise<ConfigDoc | null>>();
@@ -94,13 +186,10 @@ export class SharedPanel implements OnInit {
   readonly nodeLoading = signal(false);
   readonly ruleLoading = signal(false);
 
-  /** 节点池左栏：当前路由的可共享节点 */
-  readonly src = signal<SourceNode[]>([]);
-  /** 规则池左栏：当前路由里挂了规则集的组名 */
-  readonly groupRows = computed(() => {
-    const d = this.ruleDoc();
-    return d ? groupsWithRuleRefs(d) : [];
-  });
+  /** 节点池：当前路由的可共享节点（树展开某台路由 = 选中它；这里从视图 Map 取） */
+  readonly src = computed(() => this.viewOf(this.nodeBackend()?.api ?? '').nodes);
+  /** 规则池：当前路由里挂了规则集的组名 */
+  readonly groupRows = computed(() => this.viewOf(this.ruleBackend()?.api ?? '').groups);
 
   /** 池内指纹集合：路由上同配置的节点要打 share 标记、且不能再拖进去 */
   readonly poolKeys = computed(() => this.pool.fingerprints());
@@ -477,65 +566,26 @@ export class SharedPanel implements OnInit {
     return p;
   }
 
-  /** 子页①：节点清单 */
+  /** 子页①：当前路由的节点清单（树形后：展开即加载；这里保留给刷新/切路由用） */
   async loadNodes(): Promise<void> {
     const b = this.nodeBackend();
-    if (!b) {
-      this.nodeErr.set('没有后端：先在上面「＋ 添加后端」');
-      return;
-    }
-    const seq = ++this.seqNode;
+    if (!b) return;
     this.nodeLoading.set(true);
     this.nodeErr.set('');
-    this.src.set([]);
-    try {
-      const doc = await this.fetchDoc(b);
-      if (seq !== this.seqNode || !doc) return;
-      this.nodeDoc.set(doc);
-      const ob = outbounds(doc);
-      const ep = endpoints(doc);
-      const gs = new Set(groups(doc).map((g) => String(g['tag'])));
-      const rows = nodes(doc).map((n) => {
-        const inOb = ob.find((o) => String(o['tag']) === n.tag);
-        const inEp = inOb ? undefined : ep.find((o) => String(o['tag']) === n.tag);
-        return {
-          tag: n.tag,
-          type: n.type,
-          server: n.server,
-          special: n.special,
-          kind: (inEp ? 'endpoint' : 'outbound') as 'outbound' | 'endpoint',
-          raw: inOb ?? inEp ?? {},
-        };
-      });
-      // 特殊出站（DIRECT/REJECT）不是「节点」，分组也不进共享候选
-      this.src.set(rows.filter((r) => !r.special && !gs.has(r.tag)));
-    } catch (e) {
-      if (seq === this.seqNode) this.nodeErr.set(errMsg(e));
-    } finally {
-      if (seq === this.seqNode) this.nodeLoading.set(false);
-    }
+    await this.loadRouterView(b);
+    this.nodeErr.set(this.viewErr(b.api));
+    this.nodeLoading.set(false);
   }
 
-  /** 子页②：组名清单 */
+  /** 子页②：当前路由的组名清单 */
   async loadRules(): Promise<void> {
     const b = this.ruleBackend();
-    if (!b) {
-      this.ruleErr.set('没有后端：先在上面「＋ 添加后端」');
-      return;
-    }
-    const seq = ++this.seqRule;
+    if (!b) return;
     this.ruleLoading.set(true);
     this.ruleErr.set('');
-    this.ruleDoc.set(null);
-    try {
-      const doc = await this.fetchDoc(b);
-      if (seq !== this.seqRule || !doc) return;
-      this.ruleDoc.set(doc);
-    } catch (e) {
-      if (seq === this.seqRule) this.ruleErr.set(errMsg(e));
-    } finally {
-      if (seq === this.seqRule) this.ruleLoading.set(false);
-    }
+    await this.loadRouterView(b);
+    this.ruleErr.set(this.viewErr(b.api));
+    this.ruleLoading.set(false);
   }
 
   reload(): void {
@@ -546,6 +596,15 @@ export class SharedPanel implements OnInit {
   }
 
   /* ── ① 共享节点池 ── */
+
+  /** 树里某一行被操作时：把它所属的路由设为「当前路由」，后续加入/拖拽都落到它上面 */
+  focusRouter(b: Backend): void {
+    if (this.nodeBackend()?.api !== b.api) {
+      this.nodeBackend.set(b);
+      this.ruleBackend.set(b);
+      this.picked.set([]);
+    }
+  }
 
   togglePick(tag: string, on: boolean): void {
     // 已在共享池里的（同配置）不允许再勾选

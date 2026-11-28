@@ -45,88 +45,86 @@
 
   <!-- ═══ 子页①：共享节点池 ═══ -->
   @if (section() === 'nodes') {
-    <div class="shp-rtabs">
-      <span class="dim small shp-rlabel">节点来源路由</span>
-      @for (b of backends(); track b.api) {
-        <button class="shp-rtab" [class.on]="isNode(b)" (click)="pickNodeBackend(b)" [title]="b.api">
-          <b>{{ b.name || b.api }}</b>
-          <span class="shp-rhost">{{ hostOf(b) }}</span>
-        </button>
-      } @empty {
-        <span class="dim small">还没有后端：先在上面「＋ 添加后端」</span>
-      }
-      <span class="spacer"></span>
-      <span class="dim small shp-rhint">切 tab = 左栏换成那台路由的节点</span>
-    </div>
-
     <div class="shp-cols">
-      <section class="shp-col">
-        <div class="shp-hd">
-          <b>{{ nodeBackend()?.name || nodeBackend()?.api || '未选路由' }}</b>
-          <span class="dim small">{{ src().length }} 个可共享节点</span>
+      <!-- 左：路由树（路由 → 节点清单，可折叠） -->
+      <section class="shp-col shp-tree-col">
+        <div class="shp-tree-hd">
+          <b>路由</b>
+          <span class="dim small">{{ backends().length }} 台</span>
           <span class="spacer"></span>
-          <button class="acc" (click)="addPicked()" [disabled]="!picked().length">加入共享池 →</button>
+          <span class="dim small">展开路由看节点；勾选或拖到右侧共享池</span>
         </div>
-        <div class="shp-tip dim small">勾选后点右边按钮，或直接把行拖到右侧共享池（分组 / DIRECT / REJECT 不参与）</div>
-        <div class="shp-list">
-          @if (nodeLoading()) {
-            <div class="dim small">读取配置中…</div>
-          } @else if (nodeErr()) {
-            <div class="modal-note bad">✗ {{ nodeErr() }}</div>
-          } @else {
-            @for (n of src(); track n.tag) {
-              <label
-                class="shp-row"
-                [class.isshared]="isShared(n)"
-                [class.dropover]="overRow() === n.tag"
-                [attr.draggable]="isShared(n) ? null : 'true'"
-                (dragstart)="onDragStart(n, $event)"
-                (dragover)="onRowDragOver(n.tag, $event)"
-                (dragleave)="onRowDragLeave(n.tag)"
-                (drop)="onRowDrop(n.tag, $event)"
-                [title]="
-                  isShared(n)
-                    ? n.tag + '：配置已在共享池里（把池里同名条目拖到这里 = 用池里的配置覆盖它）'
-                    : '拖到右侧共享池：' + n.tag
-                "
-              >
-                <input
-                  type="checkbox"
-                  [checked]="isPicked(n.tag)"
-                  [disabled]="isShared(n)"
-                  (change)="togglePick(n.tag, $any($event.target).checked)"
-                />
-                <span class="shp-tag">{{ n.tag }}</span>
-                <span class="shp-type">{{ n.type }}</span>
-                @if (n.kind === 'endpoint') {
-                  <span class="shp-kind" title="来自 endpoints（如 masque-client），导入时会放回 endpoints">endpoint</span>
+        <div class="shp-tree">
+          @for (b of backends(); track b.api) {
+            <div class="shp-tnode" [class.open]="openRouters().has(b.api)">
+              <button class="shp-trow shp-trouter" (click)="toggleRouter(b)" [title]="b.api">
+                <span class="shp-caret">▾</span>
+                <b>{{ b.name || b.api }}</b>
+                <span class="shp-rhost">{{ hostOf(b) }}</span>
+                @if (viewLoading(b.api)) { <span class="dim small">读取中…</span> }
+                @if (viewErr(b.api)) { <span class="shp-terr">✗ {{ viewErr(b.api) }}</span> }
+                @if (!viewLoading(b.api) && !viewErr(b.api) && openRouters().has(b.api)) {
+                  <span class="dim small">{{ nodesOf(b.api).length }} 节点 · {{ groupsOf(b.api).length }} 规则组</span>
                 }
-                <span class="shp-server">{{ n.server }}</span>
-                @if (isShared(n)) {
-                  <span class="pill-share" title="同配置的节点已在共享池里：不能重复勾选 / 拖入">share</span>
-                }
-                <button
-                  class="shp-view-btn"
-                  (click)="toggleView(n, $event)"
-                  [title]="'查看这个节点的完整配置'"
-                >{{ viewTag() === n.tag ? '收起' : '查看' }}</button>
-              </label>
-              @if (viewTag() === n.tag) {
-                <div class="shp-view">
-                  <div class="shp-view-hd">
-                    <b>{{ n.tag }}</b>
-                    <span class="dim small">{{ n.type }} · {{ n.kind === 'endpoint' ? 'endpoints' : 'outbounds' }} · 只读</span>
-                    <span class="spacer"></span>
-                    <button (click)="copyView(n, $event)">复制 JSON</button>
-                  </div>
-                  <pre>{{ viewJson(n) }}</pre>
+              </button>
+              @if (openRouters().has(b.api) && !viewErr(b.api) && !viewLoading(b.api)) {
+                <div class="shp-tchildren">
+                  @for (n of nodesOf(b.api); track n.tag) {
+                    <label
+                      class="shp-row shp-tleaf"
+                      [class.isshared]="isShared(n)"
+                      [class.dropover]="overRow() === n.tag && nodeBackend()?.api === b.api"
+                      [attr.draggable]="isShared(n) ? null : 'true'"
+                      (dragstart)="focusRouter(b); onDragStart(n, $event)"
+                      (dragover)="onRowDragOver(n.tag, $event)"
+                      (dragleave)="onRowDragLeave(n.tag)"
+                      (drop)="focusRouter(b); onRowDrop(n.tag, $event)"
+                      (mousedown)="focusRouter(b)"
+                      [title]="isShared(n) ? n.tag + '：配置已在共享池里' : '拖到右侧共享池：' + n.tag"
+                    >
+                      <input
+                        type="checkbox"
+                        [checked]="nodeBackend()?.api === b.api && isPicked(n.tag)"
+                        [disabled]="isShared(n)"
+                        (change)="focusRouter(b); togglePick(n.tag, $any($event.target).checked)"
+                      />
+                      <span class="shp-tag">{{ n.tag }}</span>
+                      <span class="shp-type">{{ n.type }}</span>
+                      @if (n.kind === 'endpoint') {
+                        <span class="shp-kind" title="来自 endpoints（如 masque-client），导入时会放回 endpoints">endpoint</span>
+                      }
+                      <span class="shp-server">{{ n.server }}</span>
+                      @if (isShared(n)) {
+                        <span class="pill-share" title="同配置的节点已在共享池里：不能重复勾选 / 拖入">share</span>
+                      }
+                      <button
+                        class="shp-view-btn"
+                        (click)="focusRouter(b); toggleView(n, $event)"
+                        [title]="'查看这个节点的完整配置'"
+                      >{{ viewTag() === n.tag ? '收起' : '查看' }}</button>
+                    </label>
+                    @if (viewTag() === n.tag) {
+                      <div class="shp-view">
+                        <div class="shp-view-hd">
+                          <b>{{ n.tag }}</b>
+                          <span class="dim small">{{ n.type }} · {{ n.kind === 'endpoint' ? 'endpoints' : 'outbounds' }} · 只读</span>
+                          <span class="spacer"></span>
+                          <button (click)="copyView(n, $event)">复制 JSON</button>
+                        </div>
+                        <pre>{{ viewJson(n) }}</pre>
+                      </div>
+                    }
+                  } @empty {
+                    <div class="dim small shp-tempty">这个路由没有可共享的节点。</div>
+                  }
                 </div>
               }
-            } @empty {
-              <div class="dim small">这个路由没有可共享的节点。</div>
-            }
+            </div>
+          } @empty {
+            <div class="dim small">还没有后端：先在上面「＋ 添加后端」。</div>
           }
         </div>
+        <div class="shp-tip dim small">勾选后点「加入共享池 →」，或直接把行拖到右侧（分组 / DIRECT / REJECT 不参与）</div>
       </section>
 
       <section
@@ -140,6 +138,7 @@
           <b>共享节点池</b>
           <span class="dim small">{{ total() }} 个节点 · 拖到这里即可加入</span>
           <span class="spacer"></span>
+          <button class="acc" (click)="addPicked()" [disabled]="!picked().length" title="把左侧勾选的节点加入共享池">加入共享池 →</button>
           <button (click)="openExport()">导出 JSON</button>
           <button (click)="openImport()">导入 JSON</button>
           <button class="danger" (click)="clearAll()" [disabled]="!total()">清空</button>
@@ -215,47 +214,55 @@
 
   <!-- ═══ 子页②：共享规则池 ═══ -->
   @if (section() === 'rules') {
-    <div class="shp-rtabs">
-      <span class="dim small shp-rlabel">规则来源 / 套用目标路由</span>
-      @for (b of backends(); track b.api) {
-        <button class="shp-rtab" [class.on]="isRule(b)" (click)="pickRuleBackend(b)" [title]="b.api">
-          <b>{{ b.name || b.api }}</b>
-          <span class="shp-rhost">{{ hostOf(b) }}</span>
-        </button>
-      } @empty {
-        <span class="dim small">还没有后端：先在上面「＋ 添加后端」</span>
-      }
-      <span class="spacer"></span>
-      <span class="dim small shp-rhint">切 tab = 左栏换成那台路由的组名；「套用到本路由」也以它为目标</span>
-    </div>
-
     <div class="shp-cols">
-      <section class="shp-col">
-        <div class="shp-hd">
-          <b>{{ ruleBackend()?.name || ruleBackend()?.api || '未选路由' }}</b>
-          <span class="dim small">{{ groupRows().length }} 个组名挂了规则集</span>
+      <!-- 左：路由树（路由 → 规则组清单，可折叠） -->
+      <section class="shp-col shp-tree-col">
+        <div class="shp-tree-hd">
+          <b>路由</b>
+          <span class="dim small">{{ backends().length }} 台</span>
+          <span class="spacer"></span>
+          <span class="dim small">展开路由看规则组；点「＋」或拖到右侧规则池</span>
         </div>
-        <div class="shp-tip dim small">把行拖到右边的规则池，或用行尾「＋」加入</div>
-        <div class="shp-list">
-          @if (ruleLoading()) {
-            <div class="dim small">读取配置中…</div>
-          } @else if (ruleErr()) {
-            <div class="modal-note bad">✗ {{ ruleErr() }}</div>
-          } @else {
-            @for (g of groupRows(); track g.group) {
-              <div class="shp-row shp-grow" draggable="true" (dragstart)="onGroupDragStart(g, $event)" [title]="'拖到右侧规则池：' + g.group">
-                <span class="shp-gtag">{{ g.group }}</span>
-                <span class="shp-refs">
-                  @for (r of g.refs; track r) {
-                    <span class="shp-ref" [title]="r">{{ r }}</span>
+        <div class="shp-tree">
+          @for (b of backends(); track b.api) {
+            <div class="shp-tnode" [class.open]="openRouters().has(b.api)">
+              <button class="shp-trow shp-trouter" (click)="toggleRouter(b)" [title]="b.api">
+                <span class="shp-caret">▾</span>
+                <b>{{ b.name || b.api }}</b>
+                <span class="shp-rhost">{{ hostOf(b) }}</span>
+                @if (viewLoading(b.api)) { <span class="dim small">读取中…</span> }
+                @if (viewErr(b.api)) { <span class="shp-terr">✗ {{ viewErr(b.api) }}</span> }
+                @if (!viewLoading(b.api) && !viewErr(b.api) && openRouters().has(b.api)) {
+                  <span class="dim small">{{ groupsOf(b.api).length }} 规则组</span>
+                }
+              </button>
+              @if (openRouters().has(b.api) && !viewErr(b.api) && !viewLoading(b.api)) {
+                <div class="shp-tchildren">
+                  @for (g of groupsOf(b.api); track g.group) {
+                    <div
+                      class="shp-row shp-grow shp-tleaf"
+                      draggable="true"
+                      (dragstart)="focusRouter(b); onGroupDragStart(g, $event)"
+                      (mousedown)="focusRouter(b)"
+                      [title]="'拖到右侧规则池：' + g.group"
+                    >
+                      <span class="shp-gtag">{{ g.group }}</span>
+                      <span class="shp-refs">
+                        @for (r of g.refs; track r) {
+                          <span class="shp-ref" [title]="r">{{ r }}</span>
+                        }
+                      </span>
+                      <span class="dim small shp-count">{{ g.refs.length }} 集 / {{ g.rules }} 条</span>
+                      <button class="shp-add" (click)="focusRouter(b); addGroupRow(g)" title="加入共享规则池">＋</button>
+                    </div>
+                  } @empty {
+                    <div class="dim small shp-tempty">这个路由没有「引用规则集」的组名。</div>
                   }
-                </span>
-                <span class="dim small shp-count">{{ g.refs.length }} 集 / {{ g.rules }} 条</span>
-                <button class="shp-add" (click)="addGroupRow(g)" title="加入共享规则池">＋</button>
-              </div>
-            } @empty {
-              <div class="dim small">这个路由没有「引用规则集」的组名。</div>
-            }
+                </div>
+              }
+            </div>
+          } @empty {
+            <div class="dim small">还没有后端：先在上面「＋ 添加后端」。</div>
           }
         </div>
       </section>
